@@ -15,5 +15,6 @@ pub mod api;
 pub mod audio;
 pub mod display;
 pub mod input;
+pub mod osd;
 pub mod storage;
 pub mod wifi;
