@@ -11,6 +11,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+minifb = "0.28"
 rumiga-platform = { path = "../rumiga-platform" }
 
 [lints]

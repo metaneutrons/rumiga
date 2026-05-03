@@ -1,6 +1,144 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2025 Fabian Schmieder
 
-//! Desktop platform backend using minifb for video, cpal for audio.
+//! Desktop platform backend using minifb for video and basic keyboard input.
 //!
-//! This backend is used for development and debugging on macOS/Linux.
+//! This backend is used for development and debugging on macOS/Linux/Windows.
+
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use minifb::{Key, Scale, Window, WindowOptions};
+use rumiga_platform::{InputSource, InputState, KeyEvent, VideoOutput};
+
+/// Convert an RGB565 pixel to u32 ARGB (`0xFF_RR_GG_BB`).
+#[must_use]
+pub const fn rgb565_to_argb(pixel: u16) -> u32 {
+    let r = ((pixel >> 11) & 0x1F) as u32 * 255 / 31;
+    let g = ((pixel >> 5) & 0x3F) as u32 * 255 / 63;
+    let b = (pixel & 0x1F) as u32 * 255 / 31;
+    0xFF00_0000 | (r << 16) | (g << 8) | b
+}
+
+/// Shared window handle used by both video and input.
+pub type SharedWindow = Rc<RefCell<Window>>;
+
+/// Desktop video output using minifb.
+pub struct DesktopVideo {
+    window: SharedWindow,
+    buffer: Vec<u32>,
+}
+
+impl DesktopVideo {
+    /// Create a new desktop video window.
+    ///
+    /// Returns `None` if the window cannot be created.
+    #[must_use]
+    pub fn new(title: &str, width: usize, height: usize, scale: usize) -> Option<Self> {
+        let scale = match scale {
+            1 => Scale::X1,
+            4 => Scale::X4,
+            8 => Scale::X8,
+            16 => Scale::X16,
+            32 => Scale::X32,
+            _ => Scale::X2,
+        };
+        let window = Window::new(
+            title,
+            width,
+            height,
+            WindowOptions {
+                scale,
+                ..WindowOptions::default()
+            },
+        )
+        .ok()?;
+        Some(Self {
+            window: Rc::new(RefCell::new(window)),
+            buffer: vec![0; width * height],
+        })
+    }
+
+    /// Returns a shared reference to the underlying window for use with [`DesktopInput`].
+    #[must_use]
+    pub fn window_handle(&self) -> SharedWindow {
+        Rc::clone(&self.window)
+    }
+
+    /// Returns `true` if the window is still open.
+    #[must_use]
+    pub fn is_open(&self) -> bool {
+        self.window.borrow().is_open()
+    }
+}
+
+impl VideoOutput for DesktopVideo {
+    fn present_frame(&mut self, framebuffer: &[u16], width: u32, height: u32) {
+        let count = width as usize * height as usize;
+        self.buffer.resize(count, 0);
+        for (i, &pixel) in framebuffer.iter().take(count).enumerate() {
+            self.buffer[i] = rgb565_to_argb(pixel);
+        }
+        let _ = self.window.borrow_mut().update_with_buffer(
+            &self.buffer,
+            width as usize,
+            height as usize,
+        );
+    }
+}
+
+/// Desktop keyboard input using minifb key state.
+pub struct DesktopInput {
+    window: SharedWindow,
+}
+
+impl DesktopInput {
+    /// Create a new desktop input source from a shared window handle.
+    #[must_use]
+    pub const fn new(window: SharedWindow) -> Self {
+        Self { window }
+    }
+}
+
+/// Map a minifb key to an Amiga raw keycode.
+const fn map_key(key: Key) -> Option<u8> {
+    match key {
+        Key::Escape => Some(0x45),
+        Key::Space => Some(0x40),
+        Key::Enter => Some(0x44),
+        Key::Up => Some(0x4C),
+        Key::Down => Some(0x4D),
+        Key::Left => Some(0x4F),
+        Key::Right => Some(0x4E),
+        _ => None,
+    }
+}
+
+/// Keys polled for input mapping.
+const POLLED_KEYS: &[Key] = &[
+    Key::Escape,
+    Key::Space,
+    Key::Enter,
+    Key::Up,
+    Key::Down,
+    Key::Left,
+    Key::Right,
+];
+
+impl InputSource for DesktopInput {
+    fn poll(&mut self) -> InputState {
+        let window = self.window.borrow();
+        let mut state = InputState::default();
+        for &key in POLLED_KEYS {
+            if let Some(keycode) = map_key(key) {
+                if window.is_key_down(key) {
+                    state.key_events.push(KeyEvent {
+                        keycode,
+                        pressed: true,
+                    });
+                }
+            }
+        }
+        state
+    }
+}
