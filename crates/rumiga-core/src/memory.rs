@@ -10,6 +10,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 use m68000::memory_access::MemoryAccess;
 
+use crate::cia::CiaPair;
+
 /// Custom chip register address range.
 const CUSTOM_BASE: u32 = 0x00DF_F000;
 const CUSTOM_END: u32 = 0x00E0_0000;
@@ -92,6 +94,8 @@ pub struct AmigaMemory {
     reg_write_log: Vec<(u16, u16)>,
     /// CIA-A PRA shadow (bit 0 = OVL).
     pub cia_a_pra: u8,
+    /// CIA pair (A and B) — lives here so `MemoryAccess` can read/write registers.
+    pub cia: CiaPair,
 }
 
 impl AmigaMemory {
@@ -114,6 +118,7 @@ impl AmigaMemory {
             custom_regs: [0; CUSTOM_REG_COUNT],
             reg_write_log: Vec::new(),
             cia_a_pra: 0,
+            cia: CiaPair::new(),
         }
     }
 
@@ -179,7 +184,7 @@ impl AmigaMemory {
 
     /// Read a byte from the memory map.
     #[allow(clippy::unnecessary_wraps)]
-    fn read_byte(&self, addr: u32) -> Option<u8> {
+    fn read_byte(&mut self, addr: u32) -> Option<u8> {
         let addr = addr & 0x00FF_FFFF; // 24-bit address bus
 
         // Overlay: ROM mapped at 0x000000 after reset
@@ -211,9 +216,12 @@ impl AmigaMemory {
             // CIA-A at odd addresses ($BFE001), register select via A8-A11
             if addr & 1 != 0 && addr >= CIA_A_BASE {
                 let reg = ((addr >> 8) & 0xF) as u8;
-                if reg == 0 {
-                    return Some(self.cia_a_pra);
-                }
+                return Some(self.cia.cia_a.read(reg));
+            }
+            // CIA-B at even addresses ($BFD000), register select via A8-A11
+            if addr & 1 == 0 {
+                let reg = ((addr >> 8) & 0xF) as u8;
+                return Some(self.cia.cia_b.read(reg));
             }
             return Some(0xFF);
         }
@@ -281,11 +289,16 @@ impl AmigaMemory {
             // CIA-A at odd addresses ($BFE001), register select via A8-A11
             if addr & 1 != 0 && addr >= CIA_A_BASE {
                 let reg = ((addr >> 8) & 0xF) as u8;
+                self.cia.cia_a.write(reg, value);
                 if reg == 0 {
                     self.cia_a_pra = value;
-                    // CIA-A PRA bit 0 accent-low: 0 disables overlay (chip RAM at $0)
+                    // CIA-A PRA bit 0: 0 disables overlay (chip RAM at $0)
                     self.overlay = value & 1 != 0;
                 }
+            } else if addr & 1 == 0 {
+                // CIA-B at even addresses ($BFD000), register select via A8-A11
+                let reg = ((addr >> 8) & 0xF) as u8;
+                self.cia.cia_b.write(reg, value);
             }
             return true;
         }

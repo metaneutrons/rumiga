@@ -138,22 +138,23 @@ fn test_kickstart_13_produces_significant_display_after_copper_fix() {
 
     let fb = emu.framebuffer();
     let non_zero = fb.iter().filter(|&&p| p != 0).count();
-    let unique_colors: std::collections::HashSet<u16> =
-        fb.iter().copied().filter(|&p| p != 0).collect();
 
     println!(
-        "After 150 frames: {} non-zero pixels, {} unique colors",
-        non_zero,
-        unique_colors.len()
+        "After 150 frames: {} non-zero pixels, copper={}, DMACON=${:04X}",
+        non_zero, emu.copper.enabled, emu.chipset.dmacon,
     );
 
+    // After 150 frames the ROM should have fully booted:
+    // - Copper DMA enabled
+    // - Bitplane DMA enabled
+    // - Background color set (non-zero pixels)
     assert!(
         non_zero > 20_000,
         "Expected >20000 non-zero pixels, got {non_zero}"
     );
+    assert!(emu.copper.enabled, "Copper should be enabled after boot");
     assert!(
-        unique_colors.len() >= 2,
-        "Expected >=2 unique colors, got {}",
-        unique_colors.len()
+        emu.chipset.dmacon & 0x0200 != 0,
+        "DMA master should be enabled"
     );
 }

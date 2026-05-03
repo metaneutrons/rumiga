@@ -112,6 +112,11 @@ impl<CPU: CpuDetails> M68000<CPU> {
             cycle_count += self.process_pending_exceptions(memory);
         }
 
+        // Save PC before instruction fetch so we can restore it on faults
+        // (privilege violation, illegal instruction, etc. must report the
+        // address of the faulting instruction).
+        let instruction_pc = self.regs.pc;
+
         let opcode = match self.get_next_word(memory) {
             Ok(op) => op,
             Err(e) => return (cycle_count, Some(e)),
@@ -129,7 +134,12 @@ impl<CPU: CpuDetails> M68000<CPU> {
                     None
                 }
             }
-            Err(e) => Some(e),
+            Err(e) => {
+                // Restore PC to the start of the faulting instruction so the
+                // exception handler sees the correct return address.
+                self.regs.pc = instruction_pc;
+                Some(e)
+            }
         };
 
         (cycle_count, exception)

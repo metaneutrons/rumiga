@@ -11,8 +11,8 @@ use m68000::cpu_details::Mc68000;
 use crate::audio::AudioState;
 use crate::blitter::BlitterState;
 use crate::chipset::CustomChipState;
-use crate::cia::CiaPair;
 use crate::copper::{CopperAction, CopperState};
+use crate::custom;
 use crate::events::{EventScheduler, EventType, SCANLINES_PAL};
 use crate::floppy::FloppyController;
 use crate::memory::{AmigaMemory, MemoryConfig};
@@ -56,8 +56,6 @@ pub struct Emulator {
     pub playfield: PlayfieldState,
     /// Blitter DMA engine.
     pub blitter: BlitterState,
-    /// CIA pair (A and B).
-    pub cia: CiaPair,
     /// Floppy disk controller.
     pub floppy: FloppyController,
     /// Audio subsystem.
@@ -101,7 +99,6 @@ impl Emulator {
             copper: CopperState::new(),
             playfield: PlayfieldState::new(),
             blitter: BlitterState::new(),
-            cia: CiaPair::new(),
             floppy: FloppyController::new(),
             audio: AudioState::new(),
             sprites: SpriteEngine::new(),
@@ -173,8 +170,13 @@ impl Emulator {
             self.dispatch_register_write(offset, value);
         }
 
-        // Advance chipset beam by one full line
-        self.chipset.advance_beam();
+        // Advance chipset beam by one full scanline
+        self.chipset.hpos = 0;
+        if self.chipset.vpos >= 311 {
+            self.chipset.vpos = 0;
+        } else {
+            self.chipset.vpos += 1;
+        }
         let vpos = self.chipset.vpos;
 
         // Run copper for this scanline
@@ -198,15 +200,19 @@ impl Emulator {
         // Sync copper palette changes to playfield color array
         self.playfield.color = self.chipset.color;
 
-        // Tick CIA timers
-        self.cia.cia_a.tick();
-        self.cia.cia_b.tick();
+        // Tick CIA timers and propagate interrupts
+        if self.memory.cia.cia_a.tick() {
+            self.chipset.intreq |= custom::INT_PORTS;
+        }
+        if self.memory.cia.cia_b.tick() {
+            self.chipset.intreq |= custom::INT_EXTER;
+        }
 
         // Process pending key events into CIA-A serial data register
         if let Some((keycode, pressed)) = self.key_events.first().copied() {
             // Amiga keyboard protocol: bit 7 = 0 for press, 1 for release
             let code = if pressed { keycode } else { keycode | 0x80 };
-            self.cia.cia_a.sdr = code;
+            self.memory.cia.cia_a.sdr = code;
             self.key_events.remove(0);
         }
 
@@ -231,11 +237,31 @@ impl Emulator {
 
         // VBlank handling
         if vpos == 0 {
+            self.chipset.intreq |= custom::INT_VERTB;
             self.copper.restart_vertical_blank();
             self.frame_ready = true;
             // Reset mouse deltas at frame boundary
             self.mouse_dx = 0;
             self.mouse_dy = 0;
+        }
+
+        // Deliver pending interrupts to CPU
+        let pending = self.chipset.intreq & self.chipset.intena & 0x3FFF;
+        if pending != 0 && (self.chipset.intena & custom::INT_SETCLR) != 0 {
+            let level = self.chipset.interrupt_level();
+            if level > 0 {
+                use m68000::exception::{Exception, Vector};
+                let vector = match level {
+                    1 => Vector::Level1Interrupt,
+                    2 => Vector::Level2Interrupt,
+                    3 => Vector::Level3Interrupt,
+                    4 => Vector::Level4Interrupt,
+                    5 => Vector::Level5Interrupt,
+                    6 => Vector::Level6Interrupt,
+                    _ => Vector::Level7Interrupt,
+                };
+                self.cpu.exception(Exception::from(vector));
+            }
         }
     }
 
