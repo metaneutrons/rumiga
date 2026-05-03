@@ -12,6 +12,7 @@
 extern crate alloc;
 
 pub mod chipset;
+pub mod copper;
 pub mod custom;
 pub mod events;
 pub mod memory;
