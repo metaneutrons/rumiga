@@ -3,36 +3,44 @@
 
 //! Rumiga desktop binary — development and debugging target.
 
+use std::fs;
+use std::process;
+
+use rumiga_core::emulator::Emulator;
+use rumiga_core::memory::MemoryConfig;
 use rumiga_platform::VideoOutput;
 use rumiga_platform_desktop::DesktopVideo;
 
 const WIDTH: usize = 320;
 const HEIGHT: usize = 256;
 
-#[allow(clippy::cast_possible_truncation)]
-fn build_gradient(framebuffer: &mut [u16]) {
-    for y in 0..HEIGHT {
-        for x in 0..WIDTH {
-            let r = (x * 31 / WIDTH) as u16;
-            let g = (y * 63 / HEIGHT) as u16;
-            let b = ((x + y) * 31 / (WIDTH + HEIGHT)) as u16;
-            framebuffer[y * WIDTH + x] = (r << 11) | (g << 5) | b;
-        }
-    }
-}
-
 fn main() {
-    println!("rumiga desktop emulator");
+    let Some(rom_path) = std::env::args().nth(1) else {
+        eprintln!("Usage: rumiga-desktop <kickstart.rom>");
+        process::exit(1);
+    };
 
-    let mut video = DesktopVideo::new("Rumiga", WIDTH, HEIGHT, 2).unwrap();
+    let rom_data = fs::read(&rom_path).unwrap_or_else(|e| {
+        eprintln!("Failed to read ROM file '{rom_path}': {e}");
+        process::exit(1);
+    });
 
-    let mut framebuffer = vec![0u16; WIDTH * HEIGHT];
-    build_gradient(&mut framebuffer);
+    let mut emulator = Emulator::new(MemoryConfig::a500());
+    emulator.load_rom(&rom_data);
+
+    let mut video = DesktopVideo::new("Rumiga", WIDTH, HEIGHT, 2).unwrap_or_else(|| {
+        eprintln!("Failed to create video window");
+        process::exit(1);
+    });
 
     #[allow(clippy::cast_possible_truncation)]
     let (w, h) = (WIDTH as u32, HEIGHT as u32);
 
     while video.is_open() {
-        video.present_frame(&framebuffer, w, h);
+        emulator.run_frame();
+        if emulator.is_frame_ready() {
+            video.present_frame(emulator.framebuffer(), w, h);
+            emulator.clear_frame_ready();
+        }
     }
 }

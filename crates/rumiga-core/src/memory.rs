@@ -118,6 +118,12 @@ impl AmigaMemory {
         self.rom.copy_from_slice(data);
     }
 
+    /// Returns a reference to the chip RAM slice.
+    #[must_use]
+    pub fn chip_ram(&self) -> &[u8] {
+        &self.chip_ram
+    }
+
     /// ROM base address based on ROM size.
     const fn rom_base(&self) -> u32 {
         if self.config.rom_size == 512 * 1024 {
