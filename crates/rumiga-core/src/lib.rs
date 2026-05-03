@@ -13,6 +13,7 @@ extern crate alloc;
 
 pub mod blitter;
 pub mod chipset;
+pub mod cia;
 pub mod copper;
 pub mod custom;
 pub mod events;
