@@ -11,6 +11,7 @@
 
 extern crate alloc;
 
+pub mod blitter;
 pub mod chipset;
 pub mod copper;
 pub mod custom;
