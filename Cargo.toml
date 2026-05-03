@@ -5,6 +5,7 @@ members = [
     "crates/rumiga-platform",
     "crates/rumiga-platform-desktop",
     "crates/rumiga-api",
+    "crates/m68000",
     "desktop",
 ]
 
