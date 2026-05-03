@@ -177,9 +177,11 @@ impl CopperState {
             let hmask = (self.ir2 >> 1) & 0x7F;
             let is_skip = self.ir2 & 1 != 0;
 
-            let v_match = (vpos & vmask) >= (target_v & vmask);
-            let h_match = (hpos & hmask) >= (target_h & hmask);
-            let condition_met = v_match && h_match;
+            let beam_v = vpos & vmask;
+            let wait_v = target_v & vmask;
+            // Vertical priority: if beam is past target vertically, pass immediately
+            let condition_met =
+                beam_v > wait_v || (beam_v == wait_v && (hpos & hmask) >= (target_h & hmask));
 
             if is_skip {
                 self.state = CopperExecState::FetchFirst;

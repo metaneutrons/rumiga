@@ -176,14 +176,13 @@ impl Emulator {
         // Advance chipset beam by one full line
         self.chipset.advance_beam();
         let vpos = self.chipset.vpos;
-        let hpos = self.chipset.hpos;
 
         // Run copper for this scanline
         if self.copper.enabled {
             let chip_ram = self.memory.chip_ram();
             let mut copper_writes = Vec::new();
-            for _ in 0..227 {
-                if let Some(action) = self.copper.cycle(chip_ram, vpos, hpos) {
+            for h in 0u16..227 {
+                if let Some(action) = self.copper.cycle(chip_ram, vpos, h) {
                     match action {
                         CopperAction::WriteRegister { offset, value } => {
                             copper_writes.push((offset, value));

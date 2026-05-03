@@ -1040,3 +1040,126 @@ mod winuae_memory_map_golden_vectors {
         assert_eq!(mem.get_byte(0xFC0000), Some(0xAA));
     }
 }
+
+mod copper_hpos_regression_tests {
+    use rumiga_core::copper::{CopperAction, CopperExecState, CopperState};
+
+    fn make_chip_ram(instructions: &[(u16, u16)]) -> Vec<u8> {
+        let mut ram = Vec::new();
+        for &(w1, w2) in instructions {
+            ram.extend_from_slice(&w1.to_be_bytes());
+            ram.extend_from_slice(&w2.to_be_bytes());
+        }
+        ram.resize(ram.len() + 256, 0);
+        ram
+    }
+
+    fn enabled_copper(instructions: &[(u16, u16)]) -> (CopperState, Vec<u8>) {
+        let ram = make_chip_ram(instructions);
+        let mut copper = CopperState::new();
+        copper.enabled = true;
+        copper.state = CopperExecState::FetchFirst;
+        (copper, ram)
+    }
+
+    /// Regression: copper WAIT passes when hpos advances past target.
+    #[test]
+    fn test_copper_wait_passes_when_hpos_advances_past_target() {
+        // WAIT for h=40 (vpos=0)
+        let ir1: u16 = (40 << 1) | 1;
+        let ir2: u16 = (0x7F << 8) | (0x7F << 1);
+        let (mut copper, ram) = enabled_copper(&[(ir1, ir2)]);
+
+        copper.cycle(&ram, 0, 0); // fetch first
+        copper.cycle(&ram, 0, 0); // fetch second
+
+        // hpos=40 should pass
+        copper.cycle(&ram, 0, 40);
+        assert_eq!(copper.state, CopperExecState::FetchFirst);
+    }
+
+    /// Regression: copper WAIT blocks when hpos is before target.
+    #[test]
+    fn test_copper_wait_blocks_when_hpos_before_target() {
+        // WAIT for h=100 (vpos=0)
+        let ir1: u16 = (100 << 1) | 1;
+        let ir2: u16 = (0x7F << 8) | (0x7F << 1);
+        let (mut copper, ram) = enabled_copper(&[(ir1, ir2)]);
+
+        copper.cycle(&ram, 0, 0); // fetch first
+        copper.cycle(&ram, 0, 0); // fetch second
+
+        // hpos=50 should NOT pass
+        copper.cycle(&ram, 0, 50);
+        assert_eq!(copper.state, CopperExecState::Execute);
+    }
+
+    /// Regression: copper WAIT passes immediately when vpos is past target.
+    #[test]
+    fn test_copper_wait_passes_immediately_when_vpos_past_target() {
+        // WAIT for v=50, h=100
+        let ir1: u16 = (50 << 8) | (100 << 1) | 1;
+        let ir2: u16 = (0x7F << 8) | (0x7F << 1);
+        let (mut copper, ram) = enabled_copper(&[(ir1, ir2)]);
+
+        copper.cycle(&ram, 0, 0); // fetch first
+        copper.cycle(&ram, 0, 0); // fetch second
+
+        // vpos=60, hpos=0 — vertical past target, should pass regardless of hpos
+        copper.cycle(&ram, 60, 0);
+        assert_eq!(copper.state, CopperExecState::FetchFirst);
+    }
+
+    /// Regression: copper executes multiple MOVEs within one scanline.
+    #[test]
+    fn test_copper_executes_multiple_moves_per_scanline() {
+        // 10 MOVE instructions to COLOR00-COLOR09
+        let instructions: Vec<(u16, u16)> = (0..10).map(|i| (0x0180 + i * 2, 0x0100 + i)).collect();
+        let (mut copper, ram) = enabled_copper(&instructions);
+
+        let mut moves = 0u32;
+        for h in 0u16..227 {
+            if let Some(CopperAction::WriteRegister { .. }) = copper.cycle(&ram, 44, h) {
+                moves += 1;
+            }
+        }
+        assert_eq!(moves, 10, "all 10 MOVEs should execute within one scanline");
+    }
+
+    /// Regression: WAIT h=44 then MOVE COLOR00 fires correctly.
+    #[test]
+    fn test_copper_wait_then_move_sets_color_at_correct_hpos() {
+        // WAIT h=44 (vpos=0), then MOVE COLOR00=$0F00
+        let wait_ir1: u16 = (44 << 1) | 1;
+        let wait_ir2: u16 = (0x7F << 8) | (0x7F << 1);
+        let (mut copper, ram) = enabled_copper(&[(wait_ir1, wait_ir2), (0x0180, 0x0F00)]);
+
+        let mut fired = false;
+        for h in 0u16..227 {
+            if let Some(CopperAction::WriteRegister { offset, value }) = copper.cycle(&ram, 0, h) {
+                assert_eq!(offset, 0x0180);
+                assert_eq!(value, 0x0F00);
+                fired = true;
+            }
+        }
+        assert!(fired, "MOVE COLOR00 should fire after WAIT h=44");
+    }
+
+    /// Regression: multiple color changes in one scanline via WAIT.
+    #[test]
+    fn test_copper_full_scanline_color_changes() {
+        // MOVE COLOR00=$0F00, WAIT h=100, MOVE COLOR00=$00F0
+        let wait_ir1: u16 = (100 << 1) | 1;
+        let wait_ir2: u16 = (0x7F << 8) | (0x7F << 1);
+        let (mut copper, ram) =
+            enabled_copper(&[(0x0180, 0x0F00), (wait_ir1, wait_ir2), (0x0180, 0x00F0)]);
+
+        let mut values = Vec::new();
+        for h in 0u16..227 {
+            if let Some(CopperAction::WriteRegister { value, .. }) = copper.cycle(&ram, 0, h) {
+                values.push(value);
+            }
+        }
+        assert_eq!(values, vec![0x0F00, 0x00F0]);
+    }
+}

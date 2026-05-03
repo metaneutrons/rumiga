@@ -119,3 +119,41 @@ fn boot_kickstart_13_produces_display_output_after_startup_delay() {
         "Kickstart should produce visible output after 100 frames (2 seconds)"
     );
 }
+
+#[test]
+fn test_kickstart_13_produces_significant_display_after_copper_fix() {
+    let rom_file = dirs_next().join("kick.a500.34.005.rom");
+    if !rom_file.exists() {
+        eprintln!("SKIP: ROM not found");
+        return;
+    }
+
+    let rom = fs::read(&rom_file).unwrap();
+    let mut emu = Emulator::new(MemoryConfig::a500());
+    emu.load_rom(&rom);
+
+    for _ in 0..150 {
+        emu.run_frame();
+    }
+
+    let fb = emu.framebuffer();
+    let non_zero = fb.iter().filter(|&&p| p != 0).count();
+    let unique_colors: std::collections::HashSet<u16> =
+        fb.iter().copied().filter(|&p| p != 0).collect();
+
+    println!(
+        "After 150 frames: {} non-zero pixels, {} unique colors",
+        non_zero,
+        unique_colors.len()
+    );
+
+    assert!(
+        non_zero > 20_000,
+        "Expected >20000 non-zero pixels, got {non_zero}"
+    );
+    assert!(
+        unique_colors.len() >= 2,
+        "Expected >=2 unique colors, got {}",
+        unique_colors.len()
+    );
+}
