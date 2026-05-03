@@ -14,7 +14,9 @@ use m68000::memory_access::MemoryAccess;
 const CUSTOM_BASE: u32 = 0x00DF_F000;
 const CUSTOM_END: u32 = 0x00E0_0000;
 
-/// CIA-B base address.
+/// CIA-A base address (odd bytes).
+const CIA_A_BASE: u32 = 0x00BF_E001;
+/// CIA-B base address (even bytes).
 const CIA_B_BASE: u32 = 0x00BF_D000;
 /// CIA address space end.
 const CIA_END: u32 = 0x00C0_0000;
@@ -72,6 +74,9 @@ impl MemoryConfig {
     }
 }
 
+/// Number of word registers in the custom chip address space ($DFF000–$DFF1FF).
+const CUSTOM_REG_COUNT: usize = 256;
+
 /// The Amiga memory subsystem implementing the m68000 `MemoryAccess` trait.
 pub struct AmigaMemory {
     config: MemoryConfig,
@@ -81,6 +86,12 @@ pub struct AmigaMemory {
     rom: Vec<u8>,
     /// When true, ROM is overlaid at address 0 (after reset, before first write to CIA).
     pub overlay: bool,
+    /// Shadow copy of custom chip registers (256 words at offsets $000–$1FE).
+    pub custom_regs: [u16; CUSTOM_REG_COUNT],
+    /// Log of register writes this scanline: (offset, value) pairs.
+    reg_write_log: Vec<(u16, u16)>,
+    /// CIA-A PRA shadow (bit 0 = OVL).
+    pub cia_a_pra: u8,
 }
 
 impl AmigaMemory {
@@ -100,6 +111,9 @@ impl AmigaMemory {
             fast_ram,
             rom,
             overlay: true,
+            custom_regs: [0; CUSTOM_REG_COUNT],
+            reg_write_log: Vec::new(),
+            cia_a_pra: 0,
         }
     }
 
@@ -127,6 +141,31 @@ impl AmigaMemory {
     /// Returns a mutable reference to the chip RAM slice for DMA access.
     pub fn chip_ram_mut(&mut self) -> &mut [u8] {
         &mut self.chip_ram
+    }
+
+    /// Drain the register write log, returning an iterator over (offset, value) pairs.
+    pub fn drain_reg_writes(&mut self) -> alloc::vec::Drain<'_, (u16, u16)> {
+        self.reg_write_log.drain(..)
+    }
+
+    /// Read a custom chip register by word offset (0x000–0x1FE).
+    #[must_use]
+    pub const fn read_custom_reg(&self, offset: u16) -> u16 {
+        let idx = (offset / 2) as usize;
+        if idx < CUSTOM_REG_COUNT {
+            self.custom_regs[idx]
+        } else {
+            0
+        }
+    }
+
+    /// Write a custom chip register by word offset (0x000–0x1FE).
+    pub fn write_custom_reg(&mut self, offset: u16, value: u16) {
+        let idx = (offset / 2) as usize;
+        if idx < CUSTOM_REG_COUNT {
+            self.custom_regs[idx] = value;
+            self.reg_write_log.push((offset, value));
+        }
     }
 
     /// ROM base address based on ROM size.
@@ -168,7 +207,13 @@ impl AmigaMemory {
 
         // CIA space: 0xBF0000–0xC00000
         if (CIA_B_BASE..CIA_END).contains(&addr) {
-            // TODO: dispatch to CIA emulation
+            // CIA-A at odd addresses ($BFE001), register select via A8-A11
+            if addr & 1 != 0 && addr >= CIA_A_BASE {
+                let reg = ((addr >> 8) & 0xF) as u8;
+                if reg == 0 {
+                    return Some(self.cia_a_pra);
+                }
+            }
             return Some(0xFF);
         }
 
@@ -182,8 +227,14 @@ impl AmigaMemory {
 
         // Custom chip registers: 0xDFF000–0xE00000
         if (CUSTOM_BASE..CUSTOM_END).contains(&addr) {
-            // TODO: dispatch to custom chip register read
-            return Some(0x00);
+            let offset = (addr - CUSTOM_BASE) & 0x1FE;
+            let word = self.custom_regs[(offset / 2) as usize];
+            // Even address = high byte, odd address = low byte
+            return if addr & 1 == 0 {
+                Some((word >> 8) as u8)
+            } else {
+                Some((word & 0xFF) as u8)
+            };
         }
 
         // ROM: 0xF80000/0xFC0000–0x1000000
@@ -226,7 +277,15 @@ impl AmigaMemory {
 
         // CIA space
         if (CIA_B_BASE..CIA_END).contains(&addr) {
-            // TODO: dispatch to CIA emulation
+            // CIA-A at odd addresses ($BFE001), register select via A8-A11
+            if addr & 1 != 0 && addr >= CIA_A_BASE {
+                let reg = ((addr >> 8) & 0xF) as u8;
+                if reg == 0 {
+                    self.cia_a_pra = value;
+                    // Bit 0 of CIA-A PRA: OVL=1 disables overlay (chip RAM at 0)
+                    self.overlay = value & 1 == 0;
+                }
+            }
             return true;
         }
 
@@ -239,9 +298,21 @@ impl AmigaMemory {
             }
         }
 
-        // Custom chip registers
+        // Custom chip registers (word-only writes; accumulate byte pairs)
         if (CUSTOM_BASE..CUSTOM_END).contains(&addr) {
-            // TODO: dispatch to custom chip register write
+            let offset = ((addr - CUSTOM_BASE) & 0x1FE) as u16;
+            let idx = (offset / 2) as usize;
+            if idx < CUSTOM_REG_COUNT {
+                if addr & 1 == 0 {
+                    // High byte write — store, wait for low byte
+                    self.custom_regs[idx] =
+                        (self.custom_regs[idx] & 0x00FF) | (u16::from(value) << 8);
+                } else {
+                    // Low byte write — complete the word and log it
+                    self.custom_regs[idx] = (self.custom_regs[idx] & 0xFF00) | u16::from(value);
+                    self.reg_write_log.push((offset, self.custom_regs[idx]));
+                }
+            }
             return true;
         }
 
@@ -261,6 +332,17 @@ impl MemoryAccess for AmigaMemory {
     }
 
     fn get_word(&mut self, addr: u32) -> Option<u16> {
+        let masked = addr & 0x00FF_FFFF;
+        // Custom chip registers: atomic word read
+        if (CUSTOM_BASE..CUSTOM_END).contains(&masked) {
+            let offset = ((masked - CUSTOM_BASE) & 0x1FE) as u16;
+            let idx = (offset / 2) as usize;
+            return if idx < CUSTOM_REG_COUNT {
+                Some(self.custom_regs[idx])
+            } else {
+                Some(0)
+            };
+        }
         let hi = self.read_byte(addr)?;
         let lo = self.read_byte(addr.wrapping_add(1))?;
         Some((u16::from(hi) << 8) | u16::from(lo))
@@ -275,6 +357,17 @@ impl MemoryAccess for AmigaMemory {
     }
 
     fn set_word(&mut self, addr: u32, value: u16) -> Option<()> {
+        let masked = addr & 0x00FF_FFFF;
+        // Custom chip registers: handle as atomic word write
+        if (CUSTOM_BASE..CUSTOM_END).contains(&masked) {
+            let offset = ((masked - CUSTOM_BASE) & 0x1FE) as u16;
+            let idx = (offset / 2) as usize;
+            if idx < CUSTOM_REG_COUNT {
+                self.custom_regs[idx] = value;
+                self.reg_write_log.push((offset, value));
+            }
+            return Some(());
+        }
         let hi = (value >> 8) as u8;
         let lo = (value & 0xFF) as u8;
         let _ = self.write_byte(addr, hi);

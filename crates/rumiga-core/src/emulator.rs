@@ -156,6 +156,9 @@ impl Emulator {
 
     /// Execute one scanline worth of emulation.
     pub fn run_scanline(&mut self) {
+        // Sync readable registers into memory so CPU reads correct values
+        self.sync_readable_regs();
+
         // Execute CPU instructions for this scanline
         let mut cycles_used: usize = 0;
         while cycles_used < CYCLES_PER_LINE {
@@ -163,6 +166,12 @@ impl Emulator {
             cycles_used += c;
         }
         self.total_cycles += cycles_used as u64;
+
+        // Dispatch CPU register writes to subsystems
+        let writes: Vec<(u16, u16)> = self.memory.drain_reg_writes().collect();
+        for (offset, value) in writes {
+            self.dispatch_register_write(offset, value);
+        }
 
         // Advance chipset beam by one full line
         self.chipset.advance_beam();
@@ -172,14 +181,18 @@ impl Emulator {
         // Run copper for this scanline
         if self.copper.enabled {
             let chip_ram = self.memory.chip_ram();
+            let mut copper_writes = Vec::new();
             for _ in 0..227 {
                 if let Some(action) = self.copper.cycle(chip_ram, vpos, hpos) {
                     match action {
                         CopperAction::WriteRegister { offset, value } => {
-                            self.chipset.write_register(offset, value);
+                            copper_writes.push((offset, value));
                         }
                     }
                 }
+            }
+            for (offset, value) in copper_writes {
+                self.dispatch_register_write(offset, value);
             }
         }
 
@@ -224,6 +237,126 @@ impl Emulator {
             // Reset mouse deltas at frame boundary
             self.mouse_dx = 0;
             self.mouse_dy = 0;
+        }
+    }
+
+    /// Sync live chipset state into the custom register shadow so CPU reads are correct.
+    fn sync_readable_regs(&mut self) {
+        use crate::custom;
+        let regs = &mut self.memory.custom_regs;
+        regs[(custom::VPOSR / 2) as usize] = (self.chipset.vpos >> 8) & 1;
+        regs[(custom::VHPOSR / 2) as usize] = (self.chipset.vpos << 8) | (self.chipset.hpos & 0xFF);
+        regs[(custom::DMACONR / 2) as usize] = self.chipset.dmacon;
+        regs[(custom::INTENAR / 2) as usize] = self.chipset.intena;
+        regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
+    }
+
+    /// Dispatch a single custom chip register write to the appropriate subsystem.
+    #[allow(clippy::cast_possible_truncation)]
+    fn dispatch_register_write(&mut self, offset: u16, value: u16) {
+        use crate::custom;
+        match offset {
+            custom::BPLCON0 => self.playfield.bplcon0 = value,
+            custom::BPLCON1 => self.playfield.bplcon1 = value,
+            custom::BPLCON2 => self.playfield.bplcon2 = value,
+            custom::DIWSTRT => self.playfield.diwstrt = value,
+            custom::DIWSTOP => self.playfield.diwstop = value,
+            custom::DDFSTRT => self.playfield.ddfstrt = value,
+            custom::DDFSTOP => self.playfield.ddfstop = value,
+            custom::DMACON => {
+                self.chipset.write_register(offset, value);
+                self.copper.enabled = self.chipset.dmaen(custom::DMA_COPPER);
+            }
+            custom::INTENA | custom::INTREQ => self.chipset.write_register(offset, value),
+            custom::COP1LCH => {
+                self.copper.cop1lc = (self.copper.cop1lc & 0x0000_FFFF) | (u32::from(value) << 16);
+            }
+            custom::COP1LCL => {
+                self.copper.cop1lc = (self.copper.cop1lc & 0xFFFF_0000) | u32::from(value);
+            }
+            custom::COP2LCH => {
+                self.copper.cop2lc = (self.copper.cop2lc & 0x0000_FFFF) | (u32::from(value) << 16);
+            }
+            custom::COP2LCL => {
+                self.copper.cop2lc = (self.copper.cop2lc & 0xFFFF_0000) | u32::from(value);
+            }
+            custom::COPJMP1 => self.copper.strobe_cop1(),
+            custom::COPJMP2 => self.copper.strobe_cop2(),
+            custom::DSKLEN => self.floppy.write_dsklen(value),
+            custom::DSKPTH => {
+                self.dskpt = (self.dskpt & 0x0000_FFFF) | (u32::from(value) << 16);
+            }
+            custom::DSKPTL => {
+                self.dskpt = (self.dskpt & 0xFFFF_0000) | u32::from(value);
+            }
+            o if (custom::COLOR00..=custom::COLOR31).contains(&o) => {
+                self.chipset.write_register(o, value);
+                let idx = ((o - custom::COLOR00) / 2) as usize;
+                self.playfield.color[idx] = value & 0x0FFF;
+            }
+            o if (custom::BPL1PTH..=custom::BPL6PTL).contains(&o) => {
+                let reg_idx = ((o - custom::BPL1PTH) / 2) as usize;
+                let plane = reg_idx / 2;
+                if plane < self.playfield.bplpt.len() {
+                    if reg_idx & 1 == 0 {
+                        self.playfield.bplpt[plane] =
+                            (self.playfield.bplpt[plane] & 0x0000_FFFF) | (u32::from(value) << 16);
+                    } else {
+                        self.playfield.bplpt[plane] =
+                            (self.playfield.bplpt[plane] & 0xFFFF_0000) | u32::from(value);
+                    }
+                }
+            }
+            o if (custom::BLTCON0..=custom::BLTSIZE).contains(&o) => {
+                self.dispatch_blitter_write(o, value);
+            }
+            _ => {}
+        }
+    }
+
+    /// Dispatch blitter register writes.
+    fn dispatch_blitter_write(&mut self, offset: u16, value: u16) {
+        use crate::custom;
+        match offset {
+            custom::BLTCON0 => self.blitter.bltcon0 = value,
+            custom::BLTCON1 => self.blitter.bltcon1 = value,
+            custom::BLTAFWM => self.blitter.bltafwm = value,
+            custom::BLTALWM => self.blitter.bltalwm = value,
+            custom::BLTCPTH => {
+                self.blitter.bltcpt =
+                    (self.blitter.bltcpt & 0x0000_FFFF) | (u32::from(value) << 16);
+            }
+            custom::BLTCPTL => {
+                self.blitter.bltcpt = (self.blitter.bltcpt & 0xFFFF_0000) | u32::from(value);
+            }
+            custom::BLTBPTH => {
+                self.blitter.bltbpt =
+                    (self.blitter.bltbpt & 0x0000_FFFF) | (u32::from(value) << 16);
+            }
+            custom::BLTBPTL => {
+                self.blitter.bltbpt = (self.blitter.bltbpt & 0xFFFF_0000) | u32::from(value);
+            }
+            custom::BLTAPTH => {
+                self.blitter.bltapt =
+                    (self.blitter.bltapt & 0x0000_FFFF) | (u32::from(value) << 16);
+            }
+            custom::BLTAPTL => {
+                self.blitter.bltapt = (self.blitter.bltapt & 0xFFFF_0000) | u32::from(value);
+            }
+            custom::BLTDPTH => {
+                self.blitter.bltdpt =
+                    (self.blitter.bltdpt & 0x0000_FFFF) | (u32::from(value) << 16);
+            }
+            custom::BLTDPTL => {
+                self.blitter.bltdpt = (self.blitter.bltdpt & 0xFFFF_0000) | u32::from(value);
+            }
+            custom::BLTSIZE => {
+                self.blitter.bltsize = value;
+                self.blitter.start_blit();
+                let chip_ram = self.memory.chip_ram_mut();
+                self.blitter.execute_blit(chip_ram);
+            }
+            _ => {}
         }
     }
 
