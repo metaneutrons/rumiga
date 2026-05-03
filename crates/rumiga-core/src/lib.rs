@@ -16,3 +16,4 @@ pub mod copper;
 pub mod custom;
 pub mod events;
 pub mod memory;
+pub mod playfield;
