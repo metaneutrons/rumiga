@@ -17,5 +17,6 @@ pub mod cia;
 pub mod copper;
 pub mod custom;
 pub mod events;
+pub mod floppy;
 pub mod memory;
 pub mod playfield;
