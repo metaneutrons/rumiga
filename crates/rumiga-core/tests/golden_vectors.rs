@@ -1023,11 +1023,12 @@ mod winuae_memory_map_golden_vectors {
 
     /// WinUAE memory.cpp: Unmapped addresses return None (bus error).
     #[test]
-    fn test_unmapped_address_returns_none() {
+    fn test_unmapped_address_returns_open_bus() {
         let mut mem = AmigaMemory::new(MemoryConfig::a500());
         mem.overlay = false;
         // No fast RAM configured, $200000 is unmapped
-        assert_eq!(mem.get_byte(0x200000), None);
+        // Real Amiga returns open bus (0xFF) for unmapped addresses
+        assert_eq!(mem.get_byte(0x200000), Some(0xFF));
     }
 
     /// WinUAE memory.cpp: ROM is read-only — writes are ignored.

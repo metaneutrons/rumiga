@@ -178,6 +178,7 @@ impl AmigaMemory {
     }
 
     /// Read a byte from the memory map.
+    #[allow(clippy::unnecessary_wraps)]
     fn read_byte(&self, addr: u32) -> Option<u8> {
         let addr = addr & 0x00FF_FFFF; // 24-bit address bus
 
@@ -245,8 +246,8 @@ impl AmigaMemory {
             }
         }
 
-        // Unmapped — bus error
-        None
+        // Unmapped — return open bus (0xFF) like real hardware
+        Some(0xFF)
     }
 
     /// Write a byte to the memory map.
@@ -321,8 +322,8 @@ impl AmigaMemory {
             return true;
         }
 
-        // Unmapped
-        false
+        // Unmapped — ignore writes like real hardware
+        true
     }
 }
 
@@ -451,6 +452,6 @@ mod tests {
         let mut mem = AmigaMemory::new(MemoryConfig::a500());
         mem.overlay = false;
         // Address in unmapped region (no fast RAM configured, 0x200000+)
-        assert_eq!(mem.get_byte(0x20_0000), None);
+        assert_eq!(mem.get_byte(0x20_0000), Some(0xFF));
     }
 }
