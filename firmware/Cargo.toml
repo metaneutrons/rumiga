@@ -1,0 +1,11 @@
+[package]
+name = "rumiga-firmware"
+description = "Rumiga Amiga emulator firmware for reTerminal D1001"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+
+[dependencies]
+rumiga-core = { path = "../crates/rumiga-core" }
+rumiga-platform = { path = "../crates/rumiga-platform" }
+rumiga-platform-esp = { path = "../crates/rumiga-platform-esp" }
