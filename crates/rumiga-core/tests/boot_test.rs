@@ -86,3 +86,36 @@ fn boot_kickstart_13_cpu_reads_valid_reset_vectors() {
     // CPU should have advanced past the reset vector
     assert!(emu.total_cycles > 0, "CPU should have executed some cycles");
 }
+
+#[test]
+fn boot_kickstart_13_produces_display_output_after_startup_delay() {
+    let rom_file = dirs_next().join("kick.a500.34.005.rom");
+    if !rom_file.exists() {
+        eprintln!("SKIP: ROM not found");
+        return;
+    }
+
+    let rom = fs::read(&rom_file).unwrap();
+    let mut emu = Emulator::new(MemoryConfig::a500());
+    emu.load_rom(&rom);
+
+    // Kickstart 1.3 has a ~15 frame startup delay loop
+    // Run 100 frames to get past it
+    for _ in 0..100 {
+        emu.run_frame();
+    }
+
+    let fb = emu.framebuffer();
+    let non_zero = fb.iter().filter(|&&p| p != 0).count();
+    println!(
+        "After 100 frames: {} cycles, {}/{} non-zero pixels",
+        emu.total_cycles,
+        non_zero,
+        fb.len()
+    );
+
+    assert!(
+        non_zero > 0,
+        "Kickstart should produce visible output after 100 frames (2 seconds)"
+    );
+}
