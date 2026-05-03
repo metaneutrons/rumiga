@@ -11,6 +11,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+m68000 = { path = "../m68000" }
 
 [lints]
 workspace = true
