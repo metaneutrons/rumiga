@@ -253,7 +253,7 @@ impl Emulator {
 
     /// Dispatch a single custom chip register write to the appropriate subsystem.
     #[allow(clippy::cast_possible_truncation)]
-    fn dispatch_register_write(&mut self, offset: u16, value: u16) {
+    pub fn dispatch_register_write(&mut self, offset: u16, value: u16) {
         use crate::custom;
         match offset {
             custom::BPLCON0 => self.playfield.bplcon0 = value,
