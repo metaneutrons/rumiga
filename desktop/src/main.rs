@@ -32,7 +32,17 @@ fn main() {
         process::exit(1);
     });
 
-    let mut emulator = Emulator::new(MemoryConfig::a500());
+    let mut emulator = Emulator::new(match rom_data.len() {
+        262_144 => MemoryConfig::a500(),
+        524_288 => MemoryConfig::a500_plus(),
+        _ => {
+            eprintln!(
+                "Unsupported ROM size: {} bytes (expected 256KB or 512KB)",
+                rom_data.len()
+            );
+            process::exit(1);
+        }
+    });
     emulator.load_rom(&rom_data);
 
     // Load ADF disk image if provided
