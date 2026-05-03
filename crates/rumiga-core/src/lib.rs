@@ -11,6 +11,7 @@
 
 extern crate alloc;
 
+pub mod audio;
 pub mod blitter;
 pub mod chipset;
 pub mod cia;
