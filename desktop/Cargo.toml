@@ -11,6 +11,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+minifb = "0.28"
 rumiga-core = { path = "../crates/rumiga-core" }
 rumiga-platform = { path = "../crates/rumiga-platform" }
 rumiga-platform-desktop = { path = "../crates/rumiga-platform-desktop" }

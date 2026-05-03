@@ -124,6 +124,11 @@ impl AmigaMemory {
         &self.chip_ram
     }
 
+    /// Returns a mutable reference to the chip RAM slice for DMA access.
+    pub fn chip_ram_mut(&mut self) -> &mut [u8] {
+        &mut self.chip_ram
+    }
+
     /// ROM base address based on ROM size.
     const fn rom_base(&self) -> u32 {
         if self.config.rom_size == 512 * 1024 {

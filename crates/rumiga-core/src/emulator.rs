@@ -37,6 +37,9 @@ const VISIBLE_LINES: u16 = {
 /// Framebuffer size in pixels.
 const FRAMEBUFFER_SIZE: usize = DISPLAY_WIDTH * playfield::DISPLAY_HEIGHT as usize;
 
+/// Maximum queued key events per frame.
+const MAX_KEY_EVENTS: usize = 16;
+
 /// Main emulator state combining CPU and all chipset subsystems.
 pub struct Emulator {
     /// Motorola 68000 CPU.
@@ -67,6 +70,18 @@ pub struct Emulator {
     pub frame_ready: bool,
     /// Total CPU cycles executed since start.
     pub total_cycles: u64,
+    /// Pending keyboard events (keycode, pressed).
+    key_events: Vec<(u8, bool)>,
+    /// Mouse delta X accumulator.
+    mouse_dx: i16,
+    /// Mouse delta Y accumulator.
+    mouse_dy: i16,
+    /// Mouse button state (left pressed).
+    mouse_left: bool,
+    /// Mouse button state (right pressed).
+    mouse_right: bool,
+    /// Disk DMA pointer (DSKPT register).
+    pub dskpt: u32,
 }
 
 impl Emulator {
@@ -93,12 +108,42 @@ impl Emulator {
             framebuffer: vec![0; FRAMEBUFFER_SIZE],
             frame_ready: false,
             total_cycles: 0,
+            key_events: Vec::new(),
+            mouse_dx: 0,
+            mouse_dy: 0,
+            mouse_left: false,
+            mouse_right: false,
+            dskpt: 0,
         }
     }
 
     /// Load Kickstart ROM data into memory.
     pub fn load_rom(&mut self, data: &[u8]) {
         self.memory.load_rom(data);
+    }
+
+    /// Insert an ADF disk image into the specified floppy drive (0–3).
+    pub fn insert_floppy(&mut self, drive: usize, data: Vec<u8>) {
+        self.floppy.insert_disk(drive, data);
+    }
+
+    /// Queue a keyboard event for CIA handling.
+    pub fn key_event(&mut self, keycode: u8, pressed: bool) {
+        if self.key_events.len() < MAX_KEY_EVENTS {
+            self.key_events.push((keycode, pressed));
+        }
+    }
+
+    /// Accumulate mouse movement deltas.
+    pub fn mouse_move(&mut self, dx: i16, dy: i16) {
+        self.mouse_dx = self.mouse_dx.saturating_add(dx);
+        self.mouse_dy = self.mouse_dy.saturating_add(dy);
+    }
+
+    /// Set mouse button state.
+    pub fn mouse_button(&mut self, left: bool, right: bool) {
+        self.mouse_left = left;
+        self.mouse_right = right;
     }
 
     /// Run one full PAL frame (312 scanlines).
@@ -138,6 +183,30 @@ impl Emulator {
             }
         }
 
+        // Sync copper palette changes to playfield color array
+        self.playfield.color = self.chipset.color;
+
+        // Tick CIA timers
+        self.cia.cia_a.tick();
+        self.cia.cia_b.tick();
+
+        // Process pending key events into CIA-A serial data register
+        if let Some((keycode, pressed)) = self.key_events.first().copied() {
+            // Amiga keyboard protocol: bit 7 = 0 for press, 1 for release
+            let code = if pressed { keycode } else { keycode | 0x80 };
+            self.cia.cia_a.sdr = code;
+            self.key_events.remove(0);
+        }
+
+        // Floppy DMA: when disk DMA is active and drive has data, transfer
+        if self.floppy.dma_active && self.chipset.dmaen(crate::custom::DMA_DISK) {
+            let dma_ptr = self.dskpt;
+            let chip_ram = self.memory.chip_ram_mut();
+            self.floppy.read_track_to_ram(chip_ram, dma_ptr);
+            self.floppy.dma_active = false;
+            self.floppy.dma_done = true;
+        }
+
         // Render this scanline if in visible area
         if vpos < VISIBLE_LINES {
             let mut line_buffer = [0u16; DISPLAY_WIDTH];
@@ -152,10 +221,10 @@ impl Emulator {
         if vpos == 0 {
             self.copper.restart_vertical_blank();
             self.frame_ready = true;
+            // Reset mouse deltas at frame boundary
+            self.mouse_dx = 0;
+            self.mouse_dy = 0;
         }
-
-        // CIA tick
-        self.cia.cia_a.tick();
     }
 
     /// Get the current framebuffer contents.
