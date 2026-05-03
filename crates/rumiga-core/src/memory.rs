@@ -283,8 +283,8 @@ impl AmigaMemory {
                 let reg = ((addr >> 8) & 0xF) as u8;
                 if reg == 0 {
                     self.cia_a_pra = value;
-                    // Bit 0 of CIA-A PRA: OVL=1 disables overlay (chip RAM at 0)
-                    self.overlay = value & 1 == 0;
+                    // CIA-A PRA bit 0 accent-low: 0 disables overlay (chip RAM at $0)
+                    self.overlay = value & 1 != 0;
                 }
             }
             return true;
