@@ -1,0 +1,16 @@
+[package]
+name = "rumiga-core"
+description = "Amiga emulation core — CPU, chipset, memory, timing"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+MSG=$(cat "$1")
+echo "$MSG" | grep -qE '^(feat|fix|refactor|docs|test|ci|chore|perf|style)(\(.+\))?: .+' || {
+  echo "ERROR: Commit message must follow conventional commits"
+  echo "Format: <type>(<scope>): <description>"
+  echo "Types: feat, fix, refactor, docs, test, ci, chore, perf, style"
+  echo "Example: feat(core): add memory subsystem"
+  exit 1
+}

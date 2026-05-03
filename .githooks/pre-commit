@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -e
+
+# Format check
+cargo fmt -- --check || {
+  echo "ERROR: Code not formatted. Run: cargo fmt"
+  exit 1
+}
+
+# Clippy
+cargo clippy --workspace --all-targets -- -D warnings || {
+  echo "ERROR: Clippy warnings found. Fix them before committing."
+  exit 1
+}

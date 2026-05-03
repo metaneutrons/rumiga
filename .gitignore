@@ -1,0 +1,32 @@
+# Rust
+/target/
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# ESP-IDF build artifacts
+/firmware/build/
+/firmware/sdkconfig
+/firmware/sdkconfig.old
+
+# Web UI
+/web/node_modules/
+/web/.next/
+/web/out/
+
+# ROM files (user-provided, not committed)
+*.rom
+*.ROM
+
+# Disk images (user-provided, not committed)
+*.adf
+*.ADF
+*.hda
+*.HDA

@@ -1,0 +1,17 @@
+[package]
+name = "rumiga-platform-desktop"
+description = "Desktop platform backend for the Rumiga emulator (development/debug)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+rumiga-platform = { path = "../rumiga-platform" }
+
+[lints]
+workspace = true

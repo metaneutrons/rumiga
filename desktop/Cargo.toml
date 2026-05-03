@@ -1,0 +1,19 @@
+[package]
+name = "rumiga-desktop"
+description = "Rumiga Amiga emulator — desktop binary for development"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+rumiga-core = { path = "../crates/rumiga-core" }
+rumiga-platform = { path = "../crates/rumiga-platform" }
+rumiga-platform-desktop = { path = "../crates/rumiga-platform-desktop" }
+
+[lints]
+workspace = true
