@@ -92,7 +92,7 @@ impl PlayfieldState {
     ///
     /// If the pointer is out of bounds, `bpldat[plane]` is set to 0.
     pub fn fetch_bitplane_word(&mut self, plane: usize, chip_ram: &[u8]) {
-        let addr = self.bplpt[plane] as usize;
+        let addr = (self.bplpt[plane] as usize) % chip_ram.len();
         self.bpldat[plane] = if addr + 1 < chip_ram.len() {
             u16::from_be_bytes([chip_ram[addr], chip_ram[addr + 1]])
         } else {

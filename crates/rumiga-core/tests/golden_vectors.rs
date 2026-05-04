@@ -1114,8 +1114,10 @@ mod copper_hpos_regression_tests {
     /// Regression: copper executes multiple MOVEs within one scanline.
     #[test]
     fn test_copper_executes_multiple_moves_per_scanline() {
-        // 10 MOVE instructions to COLOR00-COLOR09
-        let instructions: Vec<(u16, u16)> = (0..10).map(|i| (0x0180 + i * 2, 0x0100 + i)).collect();
+        // 10 MOVE instructions to COLOR00-COLOR09, followed by end-of-list
+        let mut instructions: Vec<(u16, u16)> =
+            (0..10).map(|i| (0x0180 + i * 2, 0x0100 + i)).collect();
+        instructions.push((0xFFFF, 0xFFFE)); // end of list
         let (mut copper, ram) = enabled_copper(&instructions);
 
         let mut moves = 0u32;
