@@ -257,10 +257,29 @@ impl Emulator {
             self.mouse_dy = 0;
         }
 
-        // TODO: Interrupt delivery disabled pending proper implementation.
-        // The ROM's interrupt handlers need INTREQ clear-on-acknowledge behavior
-        // which requires cycle-accurate integration with the CPU exception processing.
-        // Tracked as a known issue for the next development iteration.
+        // Deliver pending interrupts to CPU.
+        // Only assert when there are enabled pending interrupts.
+        // The m68000 crate handles priority masking internally via SR.interrupt_mask.
+        // The CPU wakes from STOP when an interrupt is asserted (even if masked).
+        let pending = self.chipset.intreq & self.chipset.intena & 0x3FFF;
+        if pending != 0 && (self.chipset.intena & custom::INT_SETCLR) != 0 {
+            let level = self.chipset.interrupt_level();
+            if level > 0 {
+                use m68000::exception::{Exception, Vector};
+                let vector = match level {
+                    1 => Vector::Level1Interrupt,
+                    2 => Vector::Level2Interrupt,
+                    3 => Vector::Level3Interrupt,
+                    4 => Vector::Level4Interrupt,
+                    5 => Vector::Level5Interrupt,
+                    6 => Vector::Level6Interrupt,
+                    _ => Vector::Level7Interrupt,
+                };
+                // The BTreeSet in m68000 deduplicates — safe to call every scanline.
+                // The CPU only processes it if level > SR.interrupt_mask.
+                self.cpu.exception(Exception::from(vector));
+            }
+        }
     }
 
     /// Sync live chipset state into the custom register shadow so CPU reads are correct.
