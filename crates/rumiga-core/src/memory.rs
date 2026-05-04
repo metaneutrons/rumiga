@@ -393,6 +393,39 @@ impl MemoryAccess for AmigaMemory {
             if idx < CUSTOM_REG_COUNT {
                 self.custom_regs[idx] = value;
                 self.reg_write_log.push((offset, value));
+
+                // Immediately update readable shadow for set/clear registers
+                let bits = value & 0x7FFF;
+                match offset {
+                    0x096 => {
+                        // DMACON write → DMACONR readable
+                        let r = &mut self.custom_regs[1usize];
+                        if value & 0x8000 != 0 {
+                            *r |= bits;
+                        } else {
+                            *r &= !bits;
+                        }
+                    }
+                    0x09A => {
+                        // INTENA write → INTENAR readable
+                        let r = &mut self.custom_regs[14usize];
+                        if value & 0x8000 != 0 {
+                            *r |= bits;
+                        } else {
+                            *r &= !bits;
+                        }
+                    }
+                    0x09C => {
+                        // INTREQ write → INTREQR readable
+                        let r = &mut self.custom_regs[15usize];
+                        if value & 0x8000 != 0 {
+                            *r |= bits;
+                        } else {
+                            *r &= !bits;
+                        }
+                    }
+                    _ => {}
+                }
             }
             return Some(());
         }

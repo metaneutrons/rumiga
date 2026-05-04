@@ -214,6 +214,7 @@ impl Emulator {
                 self.chipset.intreq |= custom::INT_EXTER;
             }
         }
+        self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
 
         // CIA-B TOD clocked by HSync (every scanline)
         self.memory.cia.cia_b.tick_tod();
@@ -248,6 +249,7 @@ impl Emulator {
         // VBlank handling
         if vpos == 0 {
             self.chipset.intreq |= custom::INT_VERTB;
+            self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
             self.copper.restart_vertical_blank();
             self.frame_ready = true;
             // CIA-A TOD clocked by VSync (once per frame)
@@ -313,7 +315,11 @@ impl Emulator {
                 self.chipset.write_register(offset, value);
                 self.copper.enabled = self.chipset.dmaen(custom::DMA_COPPER);
             }
-            custom::INTENA | custom::INTREQ => self.chipset.write_register(offset, value),
+            custom::INTENA | custom::INTREQ => {
+                self.chipset.write_register(offset, value);
+                self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
+                self.memory.custom_regs[(custom::INTENAR / 2) as usize] = self.chipset.intena;
+            }
             custom::COP1LCH => {
                 self.copper.cop1lc = (self.copper.cop1lc & 0x0000_FFFF) | (u32::from(value) << 16);
             }
