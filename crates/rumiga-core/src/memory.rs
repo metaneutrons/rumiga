@@ -227,12 +227,12 @@ impl AmigaMemory {
                     // Bits 6-7: joystick fire buttons (active low)
                     let output_bits = self.cia_a_pra & self.cia.cia_a.ddra;
                     // Check motor state from CIA-B PRB bit 7 (0=motor on)
-                    let motor_on = self.cia.cia_b.prb & 0x80 == 0;
                     // Check if any drive is selected (CIA-B PRB bits 3-6, active low)
-                    // RDY: 0=ready. With no disk inserted, RDY is always 1 (not ready).
-                    // With a disk and motor on, RDY goes 0 after spin-up.
-                    let has_disk = false; // TODO: check floppy controller
-                    let rdy = if motor_on && has_disk { 0 } else { 0x20 };
+                    // Drive select check (for future use with disk inserted) = self.cia.cia_b.prb & 0x78 != 0x78;
+                    // RDY: 0=ready, 1=not ready.
+                    // WinUAE: with no disk, drive_diskready() returns false → RDY=1 always.
+                    // RDY only goes 0 when a disk is inserted and motor has spun up.
+                    let rdy: u8 = 0x20; // Always not-ready when no disk
                     // DSKCHANGE=0 (no disk), DSKPROT=1, TRACK0=1 (not at track 0)
                     let input_bits: u8 = 0x04 | 0x08 | rdy | 0xC0;
                     return Some(output_bits | (input_bits & !self.cia.cia_a.ddra));
