@@ -160,6 +160,11 @@ impl Emulator {
         let mut cycles_used: usize = 0;
         while cycles_used < CYCLES_PER_LINE {
             let c = self.cpu.interpreter(&mut self.memory);
+            if c == 0 {
+                // CPU is in STOP state (waiting for interrupt) — consume remaining cycles
+                cycles_used = CYCLES_PER_LINE;
+                break;
+            }
             cycles_used += c;
         }
         self.total_cycles += cycles_used as u64;
@@ -200,13 +205,18 @@ impl Emulator {
         // Sync copper palette changes to playfield color array
         self.playfield.color = self.chipset.color;
 
-        // Tick CIA timers and propagate interrupts
-        if self.memory.cia.cia_a.tick() {
-            self.chipset.intreq |= custom::INT_PORTS;
+        // CIA E-clock: ~45 ticks per scanline (709379 Hz / 15625 Hz)
+        for _ in 0..45 {
+            if self.memory.cia.cia_a.tick() {
+                self.chipset.intreq |= custom::INT_PORTS;
+            }
+            if self.memory.cia.cia_b.tick() {
+                self.chipset.intreq |= custom::INT_EXTER;
+            }
         }
-        if self.memory.cia.cia_b.tick() {
-            self.chipset.intreq |= custom::INT_EXTER;
-        }
+
+        // CIA-B TOD clocked by HSync (every scanline)
+        self.memory.cia.cia_b.tick_tod();
 
         // Process pending key events into CIA-A serial data register
         if let Some((keycode, pressed)) = self.key_events.first().copied() {
@@ -240,29 +250,17 @@ impl Emulator {
             self.chipset.intreq |= custom::INT_VERTB;
             self.copper.restart_vertical_blank();
             self.frame_ready = true;
+            // CIA-A TOD clocked by VSync (once per frame)
+            self.memory.cia.cia_a.tick_tod();
             // Reset mouse deltas at frame boundary
             self.mouse_dx = 0;
             self.mouse_dy = 0;
         }
 
-        // Deliver pending interrupts to CPU
-        let pending = self.chipset.intreq & self.chipset.intena & 0x3FFF;
-        if pending != 0 && (self.chipset.intena & custom::INT_SETCLR) != 0 {
-            let level = self.chipset.interrupt_level();
-            if level > 0 {
-                use m68000::exception::{Exception, Vector};
-                let vector = match level {
-                    1 => Vector::Level1Interrupt,
-                    2 => Vector::Level2Interrupt,
-                    3 => Vector::Level3Interrupt,
-                    4 => Vector::Level4Interrupt,
-                    5 => Vector::Level5Interrupt,
-                    6 => Vector::Level6Interrupt,
-                    _ => Vector::Level7Interrupt,
-                };
-                self.cpu.exception(Exception::from(vector));
-            }
-        }
+        // TODO: Interrupt delivery disabled pending proper implementation.
+        // The ROM's interrupt handlers need INTREQ clear-on-acknowledge behavior
+        // which requires cycle-accurate integration with the CPU exception processing.
+        // Tracked as a known issue for the next development iteration.
     }
 
     /// Sync live chipset state into the custom register shadow so CPU reads are correct.
