@@ -325,9 +325,8 @@ impl Emulator {
         self.memory.custom_regs[(custom::INTENAR / 2) as usize] = self.chipset.intena;
 
         // Deliver pending interrupts to CPU.
-        // Only assert when there are enabled pending interrupts.
-        // The m68000 crate handles priority masking internally via SR.interrupt_mask.
-        // The CPU wakes from STOP when an interrupt is asserted (even if masked).
+        // from disrupting sequential resident module initialization order.
+
         let pending = self.chipset.intreq & self.chipset.intena & 0x3FFF;
         if pending != 0 && (self.chipset.intena & custom::INT_SETCLR) != 0 {
             let level = self.chipset.interrupt_level();
