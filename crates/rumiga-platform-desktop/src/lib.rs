@@ -43,7 +43,7 @@ impl DesktopVideo {
             32 => Scale::X32,
             _ => Scale::X2,
         };
-        let window = Window::new(
+        let mut window = Window::new(
             title,
             width,
             height,
@@ -53,6 +53,7 @@ impl DesktopVideo {
             },
         )
         .ok()?;
+        window.set_target_fps(60);
         Some(Self {
             window: Rc::new(RefCell::new(window)),
             buffer: vec![0; width * height],

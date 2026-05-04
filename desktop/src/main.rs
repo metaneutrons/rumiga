@@ -86,10 +86,8 @@ fn main() {
         }
 
         emulator.run_frame();
-        if emulator.is_frame_ready() {
-            video.present_frame(emulator.framebuffer(), w, h);
-            emulator.clear_frame_ready();
-        }
+        video.present_frame(emulator.framebuffer(), w, h);
+        emulator.clear_frame_ready();
     }
 }
 
