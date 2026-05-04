@@ -156,3 +156,41 @@ fn test_kickstart_13_boots_past_memory_test_without_crashing() {
         pc, emu.total_cycles, emu.cpu.stop
     );
 }
+
+#[test]
+#[ignore] // Blocked on CIA timer init bug — see fix_initcode investigation
+fn boot_kickstart_13_graphics_library_initializes_display_planes() {
+    let rom_file = dirs_next().join("kick.a500.34.005.rom");
+    if !rom_file.exists() {
+        eprintln!("SKIP: ROM not found");
+        return;
+    }
+
+    let rom = fs::read(&rom_file).unwrap();
+    let mut emu = Emulator::new(MemoryConfig::a500());
+    emu.load_rom(&rom);
+
+    let mut max_planes: usize = 0;
+    let mut frame_reached: usize = 0;
+
+    for frame in 0..1000 {
+        emu.run_frame();
+        let planes = emu.playfield.num_planes();
+        if planes > max_planes {
+            max_planes = planes;
+            frame_reached = frame;
+        }
+    }
+
+    println!(
+        "Max bitplanes reached: {max_planes} at frame {frame_reached} \
+         (total_cycles={})",
+        emu.total_cycles
+    );
+
+    assert!(
+        max_planes >= 2,
+        "Kickstart 1.3 should set up >= 2 bitplanes for the insert-disk hand, \
+         but only reached {max_planes} planes. CIA timers may not have started."
+    );
+}

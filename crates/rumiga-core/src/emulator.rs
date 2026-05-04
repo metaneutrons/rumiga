@@ -40,6 +40,14 @@ const FRAMEBUFFER_SIZE: usize = DISPLAY_WIDTH * playfield::DISPLAY_HEIGHT as usi
 /// Maximum queued key events per frame.
 const MAX_KEY_EVENTS: usize = 16;
 
+/// Cycle threshold after which CIA timers are force-started if still stopped (~frame 160).
+///
+/// On Kickstart 1.3, timer.device should start the CIA timers during `InitCode`.
+/// Due to an unresolved emulation issue in the cia.resource `AddICRVector` path,
+/// the timers may remain stopped. This threshold triggers a one-time workaround
+/// that starts them, enabling timer-based boot timeouts.
+const FORCE_CIA_TIMER_THRESHOLD: u64 = 22_000_000;
+
 /// Main emulator state combining CPU and all chipset subsystems.
 pub struct Emulator {
     /// Motorola 68000 CPU.
@@ -284,6 +292,32 @@ impl Emulator {
             // Reset mouse deltas at frame boundary
             self.mouse_dx = 0;
             self.mouse_dy = 0;
+
+            // Workaround: force-start CIA timers if timer.device failed to start them.
+            //
+            // On Kickstart 1.3, timer.device's init calls cia.resource's
+            // `AddICRVector` to claim CIA timer interrupts. Due to an
+            // unresolved emulation issue in the cia.resource init path, this
+            // call fails and the timers are never started. Without running
+            // timers, the boot process cannot time out and show the
+            // "insert disk" hand.
+            //
+            // We detect this condition once after InitCode completes (~frame
+            // 160) and start the timers with a standard latch value if they
+            // are still stopped.
+            if self.total_cycles > FORCE_CIA_TIMER_THRESHOLD
+                && self.memory.cia.cia_b.cra & 0x01 == 0
+            {
+                // CIA-B Timer A: used by timer.device for ECLOCK timing.
+                // Standard latch = $FFFF, continuous mode.
+                self.memory.cia.cia_b.cra |= 0x01; // START
+                self.memory.cia.cia_b.icr_mask |= 0x01; // Enable Timer A interrupt
+                // CIA-A Timer A: used by timer.device for MICROHZ timing.
+                if self.memory.cia.cia_a.cra & 0x01 == 0 {
+                    self.memory.cia.cia_a.cra |= 0x01;
+                    self.memory.cia.cia_a.icr_mask |= 0x01;
+                }
+            }
         }
 
         // Sync INTREQR/INTENAR so the CPU reads correct values in interrupt handlers
