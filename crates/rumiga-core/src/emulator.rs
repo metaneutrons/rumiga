@@ -163,6 +163,8 @@ impl Emulator {
             let c = self.cpu.interpreter(&mut self.memory);
             if c == 0 {
                 // CPU is in STOP state (waiting for interrupt) — consume remaining cycles
+                // First STOP means InitCode completed and idle loop started.
+
                 cycles_used = CYCLES_PER_LINE;
                 break;
             }
@@ -270,14 +272,7 @@ impl Emulator {
 
         // VBlank handling
         if vpos == 0 {
-            // Only fire VBlank interrupt after system is initialized.
-            // During InitCode, VBlank interrupts disrupt the sequential module
-            // initialization order (graphics.library must complete before trackdisk).
-            // Fire VBlank only after the initial delay loop completes (~2.4M cycles)
-            // but this must be BEFORE InitCode processes resident modules.
-            // Actually: VBlank should ALWAYS fire (it's hardware). The real fix is
-            // that the VBlank handler must not disrupt InitCode's sequential processing.
-            // For now, always fire VBlank - the real bug is elsewhere.
+            // Always fire VBlank (hardware signal).
             {
                 self.chipset.intreq |= custom::INT_VERTB;
                 self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
