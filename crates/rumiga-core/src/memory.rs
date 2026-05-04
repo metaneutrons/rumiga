@@ -216,6 +216,20 @@ impl AmigaMemory {
             // CIA-A at odd addresses ($BFE001), register select via A8-A11
             if addr & 1 != 0 && addr >= CIA_A_BASE {
                 let reg = ((addr >> 8) & 0xF) as u8;
+                if reg == 0 {
+                    // PRA: mix written value (output bits) with hardware input bits
+                    // Bits 0-1: output (OVL, LED)
+                    // Bits 2-5: input from disk/joystick hardware
+                    //   Bit 2: DSKPROT (1=not protected)
+                    //   Bit 3: DSKTRACK0 (0=at track 0)
+                    //   Bit 4: DSKCHANGE (0=disk removed/changed)
+                    //   Bit 5: DSKRDY (0=ready)
+                    // Bits 6-7: joystick fire buttons (active low)
+                    let output_bits = self.cia_a_pra & self.cia.cia_a.ddra;
+                    // No disk: DSKCHANGE=0, DSKPROT=1, not track0, not ready
+                    let input_bits: u8 = 0x04 | 0x20 | 0xC0; // prot=1, rdy=1(not ready), fire=1(not pressed)
+                    return Some(output_bits | (input_bits & !self.cia.cia_a.ddra));
+                }
                 return Some(self.cia.cia_a.read(reg));
             }
             // CIA-B at even addresses ($BFD000), register select via A8-A11
