@@ -147,8 +147,9 @@ impl CopperState {
     }
 
     /// Read a big-endian word from chip RAM at the current PC.
+    /// The copper can only access chip RAM; addresses wrap within chip RAM size.
     const fn read_word(&self, chip_ram: &[u8]) -> u16 {
-        let addr = self.pc as usize;
+        let addr = (self.pc as usize) % chip_ram.len();
         if addr + 1 < chip_ram.len() {
             u16::from_be_bytes([chip_ram[addr], chip_ram[addr + 1]])
         } else {
