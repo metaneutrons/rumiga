@@ -220,12 +220,14 @@ impl Emulator {
         // CIA-B TOD clocked by HSync (every scanline)
         self.memory.cia.cia_b.tick_tod();
 
-        // Disk index pulse: fires CIA-B FLAG when motor is on and drive selected.
-        // Real hardware: once per revolution (~200ms = every 3120 scanlines at PAL).
-        // This triggers CIA-B ICR bit 4 (FLAG), which trackdisk.device waits for.
+        // Disk index pulse: only fires when a disk is present and spinning.
+        // Without a disk, no index hole exists so no pulse is generated.
+        // This is critical: without index pulses, trackdisk.device times out
+        // and the boot code shows the "insert disk" hand.
         let motor_on = self.memory.cia.cia_b.prb & 0x80 == 0;
         let drive_selected = self.memory.cia.cia_b.prb & 0x78 != 0x78;
-        if motor_on && drive_selected && self.chipset.vpos == 0 {
+        let has_disk = self.floppy.drives[0].data.is_some(); // TODO: check selected drive
+        if motor_on && drive_selected && has_disk && self.chipset.vpos == 0 {
             // Fire index pulse once per frame (~20ms, faster than real but sufficient)
             self.memory.cia.cia_b.icr_data |= 0x10; // FLAG bit
             if self.memory.cia.cia_b.icr_mask & 0x10 != 0 {
