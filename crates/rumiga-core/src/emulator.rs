@@ -257,6 +257,10 @@ impl Emulator {
             self.mouse_dy = 0;
         }
 
+        // Sync INTREQR/INTENAR so the CPU reads correct values in interrupt handlers
+        self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
+        self.memory.custom_regs[(custom::INTENAR / 2) as usize] = self.chipset.intena;
+
         // Deliver pending interrupts to CPU.
         // Only assert when there are enabled pending interrupts.
         // The m68000 crate handles priority masking internally via SR.interrupt_mask.
