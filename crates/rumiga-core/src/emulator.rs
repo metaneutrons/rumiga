@@ -270,8 +270,18 @@ impl Emulator {
 
         // VBlank handling
         if vpos == 0 {
-            self.chipset.intreq |= custom::INT_VERTB;
-            self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
+            // Only fire VBlank interrupt after system is initialized.
+            // During InitCode, VBlank interrupts disrupt the sequential module
+            // initialization order (graphics.library must complete before trackdisk).
+            // Fire VBlank only after the initial delay loop completes (~2.4M cycles)
+            // but this must be BEFORE InitCode processes resident modules.
+            // Actually: VBlank should ALWAYS fire (it's hardware). The real fix is
+            // that the VBlank handler must not disrupt InitCode's sequential processing.
+            // For now, always fire VBlank - the real bug is elsewhere.
+            {
+                self.chipset.intreq |= custom::INT_VERTB;
+                self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
+            }
             self.copper.restart_vertical_blank();
             self.frame_ready = true;
             // CIA-A TOD clocked by VSync (once per frame)
