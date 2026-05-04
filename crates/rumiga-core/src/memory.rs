@@ -226,8 +226,14 @@ impl AmigaMemory {
                     //   Bit 5: DSKRDY (0=ready)
                     // Bits 6-7: joystick fire buttons (active low)
                     let output_bits = self.cia_a_pra & self.cia.cia_a.ddra;
-                    // No disk: DSKCHANGE=0, DSKPROT=1, not track0, not ready
-                    let input_bits: u8 = 0x04 | 0x20 | 0xC0; // prot=1, rdy=1(not ready), fire=1(not pressed)
+                    // Check motor state from CIA-B PRB bit 7 (0=motor on)
+                    let motor_on = self.cia.cia_b.prb & 0x80 == 0;
+                    // Check if any drive is selected (CIA-B PRB bits 3-6, active low)
+                    let drive_selected = self.cia.cia_b.prb & 0x78 != 0x78;
+                    // RDY: 0 when motor on + drive selected (drive present, spinning)
+                    let rdy = if motor_on && drive_selected { 0 } else { 0x20 };
+                    // DSKCHANGE=0 (no disk), DSKPROT=1, TRACK0=1 (not at track 0)
+                    let input_bits: u8 = 0x04 | 0x08 | rdy | 0xC0;
                     return Some(output_bits | (input_bits & !self.cia.cia_a.ddra));
                 }
                 return Some(self.cia.cia_a.read(reg));
