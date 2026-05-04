@@ -150,7 +150,11 @@ impl CiaState {
             }
             REG_SDR => self.sdr,
             REG_ICR => {
-                let val = self.icr_data;
+                let mut val = self.icr_data;
+                // Bit 7 (IR) is set if any enabled interrupt is pending
+                if val & self.icr_mask & 0x1F != 0 {
+                    val |= 0x80;
+                }
                 self.icr_data = 0;
                 val
             }
