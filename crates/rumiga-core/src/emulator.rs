@@ -152,6 +152,7 @@ impl Emulator {
     }
 
     /// Execute one scanline worth of emulation.
+    #[allow(clippy::too_many_lines)]
     pub fn run_scanline(&mut self) {
         // Sync readable registers into memory so CPU reads correct values
         self.sync_readable_regs();
@@ -218,6 +219,25 @@ impl Emulator {
 
         // CIA-B TOD clocked by HSync (every scanline)
         self.memory.cia.cia_b.tick_tod();
+
+        // Disk index pulse: fires CIA-B FLAG when motor is on and drive selected.
+        // Real hardware: once per revolution (~200ms = every 3120 scanlines at PAL).
+        // This triggers CIA-B ICR bit 4 (FLAG), which trackdisk.device waits for.
+        let motor_on = self.memory.cia.cia_b.prb & 0x80 == 0;
+        let drive_selected = self.memory.cia.cia_b.prb & 0x78 != 0x78;
+        if motor_on && drive_selected && self.chipset.vpos == 0 {
+            // Fire index pulse once per frame (~20ms, faster than real but sufficient)
+            self.memory.cia.cia_b.icr_data |= 0x10; // FLAG bit
+            if self.memory.cia.cia_b.icr_mask & 0x10 != 0 {
+                self.chipset.intreq |= custom::INT_EXTER;
+                self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
+            }
+            // Also fire DSKSYNC (bit 12) to unblock trackdisk waiting for sync word
+            if self.chipset.dmaen(custom::DMA_DISK) {
+                self.chipset.intreq |= 0x1000; // DSKSYNC
+                self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
+            }
+        }
 
         // Process pending key events into CIA-A serial data register
         if let Some((keycode, pressed)) = self.key_events.first().copied() {

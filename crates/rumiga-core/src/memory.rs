@@ -229,9 +229,10 @@ impl AmigaMemory {
                     // Check motor state from CIA-B PRB bit 7 (0=motor on)
                     let motor_on = self.cia.cia_b.prb & 0x80 == 0;
                     // Check if any drive is selected (CIA-B PRB bits 3-6, active low)
-                    let drive_selected = self.cia.cia_b.prb & 0x78 != 0x78;
-                    // RDY: 0 when motor on + drive selected (drive present, spinning)
-                    let rdy = if motor_on && drive_selected { 0 } else { 0x20 };
+                    // RDY: 0=ready. With no disk inserted, RDY is always 1 (not ready).
+                    // With a disk and motor on, RDY goes 0 after spin-up.
+                    let has_disk = false; // TODO: check floppy controller
+                    let rdy = if motor_on && has_disk { 0 } else { 0x20 };
                     // DSKCHANGE=0 (no disk), DSKPROT=1, TRACK0=1 (not at track 0)
                     let input_bits: u8 = 0x04 | 0x08 | rdy | 0xC0;
                     return Some(output_bits | (input_bits & !self.cia.cia_a.ddra));
