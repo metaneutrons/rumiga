@@ -94,6 +94,10 @@ pub struct AmigaMemory {
     reg_write_log: Vec<(u16, u16)>,
     /// CIA-A PRA shadow (bit 0 = OVL).
     pub cia_a_pra: u8,
+    /// Set when CIA-B PRB is written (disk controller needs to process it).
+    pub cia_b_prb_dirty: bool,
+    /// Disk status bits for CIA-A PRA (bits 2-5), updated by emulator from floppy state.
+    pub disk_status: u8,
     /// CIA pair (A and B) — lives here so `MemoryAccess` can read/write registers.
     pub cia: CiaPair,
 }
@@ -118,6 +122,8 @@ impl AmigaMemory {
             custom_regs: [0; CUSTOM_REG_COUNT],
             reg_write_log: Vec::new(),
             cia_a_pra: 0,
+            cia_b_prb_dirty: false,
+            disk_status: 0x3C, // FS-UAE default: all bits set (no change, not protected, not track0, not ready)
             cia: CiaPair::new(),
         }
     }
@@ -217,26 +223,12 @@ impl AmigaMemory {
             if addr & 1 != 0 && addr >= CIA_A_BASE {
                 let reg = ((addr >> 8) & 0xF) as u8;
                 if reg == 0 {
-                    // PRA: mix written value (output bits) with hardware input bits
+                    // PRA: mix output bits with hardware input bits
                     // Bits 0-1: output (OVL, LED)
-                    // Bits 2-5: input from disk/joystick hardware
-                    //   Bit 2: DSKPROT (1=not protected)
-                    //   Bit 3: DSKTRACK0 (0=at track 0)
-                    //   Bit 2: DSKCHANGE (0=disk changed, 1=no change)
-                    //   Bit 3: DSKPROT (0=write protected, 1=not protected)
-                    //   Bit 4: DSKTRACK0 (0=at track 0, 1=not at track 0)
-                    //   Bit 5: DSKRDY (0=ready, 1=not ready)
-                    // Bits 6-7: joystick fire buttons (active low)
+                    // Bits 2-5: disk status (from emulator's floppy controller)
+                    // Bits 6-7: joystick fire buttons (active low = 1 when not pressed)
                     let output_bits = self.cia_a_pra & self.cia.cia_a.ddra;
-                    // FS-UAE DISK_status_ciaa: starts with $3C (bits 2-5 all set)
-                    // Then clears bits based on drive state:
-                    //   No disk: dskchange=false → bit 2 stays 1
-                    //   At track 0: bit 4 cleared
-                    //   Not write protected: bit 3 stays 1
-                    //   Not ready (no disk): bit 5 stays 1
-                    // Result with no disk at track 0: $2C (bits 2,3,5 set)
-                    // Plus fire buttons (bits 6-7 active low = 1 when not pressed)
-                    let input_bits: u8 = 0x04 | 0x08 | 0x20 | 0xC0; // $E8 - DSKCHANGE=1 (no change)
+                    let input_bits: u8 = (self.disk_status & 0x3C) | 0xC0;
                     return Some(output_bits | (input_bits & !self.cia.cia_a.ddra));
                 }
                 return Some(self.cia.cia_a.read(reg));
@@ -328,6 +320,9 @@ impl AmigaMemory {
                 // CIA-B at even addresses ($BFD000), register select via A8-A11
                 let reg = ((addr >> 8) & 0xF) as u8;
                 self.cia.cia_b.write(reg, value);
+                if reg == 1 {
+                    self.cia_b_prb_dirty = true;
+                }
             }
             return true;
         }

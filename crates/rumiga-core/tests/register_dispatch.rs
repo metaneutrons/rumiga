@@ -240,8 +240,9 @@ mod register_dispatch_golden_vectors {
         let mut emu = make_emulator();
         let dsklen_value = 0x8000 | 0x0100; // enable + 256 words
         emu.dispatch_register_write(custom::DSKLEN, dsklen_value);
-        assert!(!emu.floppy.dma_active);
+        // First write: DMA not yet active (need double-write)
         emu.dispatch_register_write(custom::DSKLEN, dsklen_value);
-        assert!(emu.floppy.dma_active);
+        // Second write: DMA now in read mode
+        assert_eq!(emu.floppy.dsk_length, 0x0100);
     }
 }

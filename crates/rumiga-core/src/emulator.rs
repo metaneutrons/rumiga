@@ -86,8 +86,6 @@ pub struct Emulator {
     mouse_left: bool,
     /// Mouse button state (right pressed).
     mouse_right: bool,
-    /// Disk DMA pointer (DSKPT register).
-    pub dskpt: u32,
 }
 
 impl Emulator {
@@ -118,7 +116,6 @@ impl Emulator {
             mouse_dy: 0,
             mouse_left: false,
             mouse_right: false,
-            dskpt: 0,
         }
     }
 
@@ -188,6 +185,26 @@ impl Emulator {
             let writes: Vec<(u16, u16)> = self.memory.drain_reg_writes().collect();
             for (offset, value) in writes {
                 self.dispatch_register_write(offset, value);
+            }
+            // Handle CIA-B PRB writes (disk drive selection/motor/step)
+            if self.memory.cia_b_prb_dirty {
+                self.memory.cia_b_prb_dirty = false;
+                let prb = self.memory.cia.cia_b.prb;
+                self.floppy.disk_select(prb);
+                // Update disk status for CIA-A PRA reads
+                // FS-UAE DISK_status_ciaa: start with $3C, clear bits per drive state
+                let mut st: u8 = 0x3C;
+                if self.floppy.at_track0() {
+                    st &= !0x10; // bit 4: TRACK0 asserted
+                }
+                // DSKCHANGE: bit 2 stays 1 (no change) when no disk was ever inserted
+                // With no disk: dskchange=false in FS-UAE → bit 2 stays set
+                if !self.floppy.has_disk() {
+                    // No disk: RDY stays high (not ready), DSKCHANGE=1 (no change)
+                } else if self.floppy.motor_on() {
+                    st &= !0x20; // bit 5: RDY asserted (ready)
+                }
+                self.memory.disk_status = st;
             }
             // Deliver pending interrupts within the scanline
             // (required for graphics.library init which waits for VBlank in a tight loop)
@@ -284,11 +301,8 @@ impl Emulator {
         // Without a disk, no index hole exists so no pulse is generated.
         // This is critical: without index pulses, trackdisk.device times out
         // and the boot code shows the "insert disk" hand.
-        let motor_on = self.memory.cia.cia_b.prb & 0x80 == 0;
-        let drive_selected = self.memory.cia.cia_b.prb & 0x78 != 0x78;
-        let has_disk = self.floppy.drives[0].data.is_some(); // TODO: check selected drive
-        if motor_on && drive_selected && has_disk && self.chipset.vpos == 0 {
-            // Fire index pulse once per frame (~20ms, faster than real but sufficient)
+        if self.floppy.motor_on() && self.floppy.has_disk() && self.chipset.vpos == 0 {
+            // Fire index pulse once per revolution (~300ms real, once per frame here)
             self.memory.cia.cia_b.icr_data |= 0x10; // FLAG bit
             if self.memory.cia.cia_b.icr_mask & 0x10 != 0 {
                 self.chipset.intreq |= custom::INT_EXTER;
@@ -304,18 +318,22 @@ impl Emulator {
             self.key_events.remove(0);
         }
 
-        // Floppy DMA: when disk DMA is active and drive has data, transfer
-        if self.floppy.dma_active && self.chipset.dmaen(crate::custom::DMA_DISK) {
-            let dma_ptr = self.dskpt;
+        // Floppy DMA: run ~32 word cycles per scanline (one word every ~7 hpos)
+        // Real hardware: one word every 2µs = ~113 words per scanline at PAL timing.
+        // We run fewer to avoid over-speeding, but enough for timely completion.
+        if self.chipset.dmaen(crate::custom::DMA_DISK) {
             let chip_ram = self.memory.chip_ram_mut();
-            let has_disk = self.floppy.drives[self.floppy.selected as usize]
-                .data
-                .is_some();
-            self.floppy.read_track_to_ram(chip_ram, dma_ptr);
-            self.floppy.dma_active = false;
-            self.floppy.dma_done = true;
-            // Fire DSKBLK interrupt only if a disk was present (data transferred)
-            if has_disk {
+            for _ in 0..32 {
+                self.floppy.disk_dma_cycle(chip_ram);
+            }
+            // Deliver pending disk interrupts
+            if self.floppy.pending_sync_irq {
+                self.floppy.pending_sync_irq = false;
+                self.chipset.intreq |= 0x1000; // DSKSYNC
+                self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
+            }
+            if self.floppy.pending_blk_irq {
+                self.floppy.pending_blk_irq = false;
                 self.chipset.intreq |= custom::INT_DSKBLK;
                 self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
             }
@@ -454,11 +472,12 @@ impl Emulator {
             custom::COPJMP1 => self.copper.strobe_cop1(),
             custom::COPJMP2 => self.copper.strobe_cop2(),
             custom::DSKLEN => self.floppy.write_dsklen(value),
+            custom::DSKSYNC => self.floppy.write_dsksync(value),
             custom::DSKPTH => {
-                self.dskpt = (self.dskpt & 0x0000_FFFF) | (u32::from(value) << 16);
+                self.floppy.dskpt = (self.floppy.dskpt & 0x0000_FFFF) | (u32::from(value) << 16);
             }
             custom::DSKPTL => {
-                self.dskpt = (self.dskpt & 0xFFFF_0000) | u32::from(value);
+                self.floppy.dskpt = (self.floppy.dskpt & 0xFFFF_0000) | u32::from(value);
             }
             o if (custom::COLOR00..=custom::COLOR31).contains(&o) => {
                 self.chipset.write_register(o, value);
