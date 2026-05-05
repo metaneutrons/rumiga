@@ -374,12 +374,21 @@ impl Emulator {
         let regs = &mut self.memory.custom_regs;
         // VPOSR: bit 15=LOF, bits 14-8=Agnus ID, bits 0-2=vpos high
         // ECS Agnus (A500+): ID=$20 → bits 12-8 = $20 → VPOSR has $2000
-        // This matches FS-UAE's "ecs_agnus" chipset setting for A500.
         regs[(custom::VPOSR / 2) as usize] = 0x8000 | 0x2000 | ((self.chipset.vpos >> 8) & 1);
         regs[(custom::VHPOSR / 2) as usize] = (self.chipset.vpos << 8) | (self.chipset.hpos & 0xFF);
-        regs[(custom::DMACONR / 2) as usize] = self.chipset.dmacon;
-        regs[(custom::INTENAR / 2) as usize] = self.chipset.intena;
-        regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
+        regs[(custom::DMACONR / 2) as usize] = self.chipset.dmacon & 0x7FFF;
+        regs[(custom::INTENAR / 2) as usize] = self.chipset.intena & 0x7FFF;
+        regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq & 0x7FFF;
+        // SERDATR ($018): TBE (bit 13) + TSRE (bit 12) = transmit buffer empty
+        regs[(0x018 / 2) as usize] = 0x3000;
+        // POTGOR ($016): active-high button state (bits 8-15 = all buttons released)
+        regs[(0x016 / 2) as usize] = 0xFF00;
+        // JOY0DAT ($00A): no joystick movement
+        regs[(0x00A / 2) as usize] = 0x0000;
+        // JOY1DAT ($00C): no joystick movement
+        regs[(0x00C / 2) as usize] = 0x0000;
+        // DENISEID ($07C): OCS Denise returns $FFFF (register doesn't exist)
+        regs[(0x07C / 2) as usize] = 0xFFFF;
     }
 
     /// Dispatch a single custom chip register write to the appropriate subsystem.

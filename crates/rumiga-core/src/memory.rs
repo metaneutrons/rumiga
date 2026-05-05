@@ -115,7 +115,7 @@ impl AmigaMemory {
             fast_ram,
             rom,
             overlay: true,
-            custom_regs: [0; CUSTOM_REG_COUNT],
+            custom_regs: [0xFFFF; CUSTOM_REG_COUNT],
             reg_write_log: Vec::new(),
             cia_a_pra: 0,
             cia: CiaPair::new(),
