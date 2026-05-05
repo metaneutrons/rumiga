@@ -219,8 +219,25 @@ impl Emulator {
         if vpos < VISIBLE_LINES {
             let mut line_buffer = [0u16; DISPLAY_WIDTH];
             // Sync playfield state from shadow registers (copper may have updated them)
-            self.playfield.bplcon0 = self.memory.custom_regs[(custom::BPLCON0 / 2) as usize];
+            let regs = &self.memory.custom_regs;
+            self.playfield.bplcon0 = regs[(custom::BPLCON0 / 2) as usize];
+            self.playfield.bplcon1 = regs[(0x102 / 2) as usize];
+            self.playfield.bplcon2 = regs[(0x104 / 2) as usize];
+            self.playfield.diwstrt = regs[(0x08E / 2) as usize];
+            self.playfield.diwstop = regs[(0x090 / 2) as usize];
+            self.playfield.ddfstrt = regs[(0x092 / 2) as usize];
+            self.playfield.ddfstop = regs[(0x094 / 2) as usize];
+            for i in 0u16..6 {
+                let h = u32::from(regs[(0x0E0 / 2 + i * 2) as usize]);
+                let l = u32::from(regs[(0x0E2 / 2 + i * 2) as usize]);
+                self.playfield.bplpt[usize::from(i)] = (h << 16) | l;
+            }
             self.playfield.color = self.chipset.color;
+            // Also sync colors from shadow (copper writes colors directly)
+            for i in 0usize..32 {
+                let c = regs[0x180 / 2 + i];
+                self.playfield.color[i] = c & 0x0FFF;
+            }
             let chip_ram = self.memory.chip_ram();
             self.playfield
                 .render_scanline(vpos, chip_ram, &mut line_buffer);
