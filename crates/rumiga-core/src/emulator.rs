@@ -198,8 +198,8 @@ impl Emulator {
                     st &= !0x10; // bit 4: TRACK0 asserted
                 }
                 if !self.floppy.has_disk() {
-                    // No disk: DSKCHANGE=1 (no change) - trackdisk will try to read
-                    // bit 2 stays set (no change event)
+                    // No disk: DSKCHANGE=0 (disk removed/never inserted)
+                    st &= !0x04;
                 } else if self.floppy.motor_on() {
                     st &= !0x20; // bit 5: RDY asserted (ready)
                 }
