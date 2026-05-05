@@ -215,6 +215,19 @@ impl Emulator {
         }
         let vpos = self.chipset.vpos;
 
+        // Render this scanline BEFORE copper runs (using state from previous line's copper)
+        if vpos < VISIBLE_LINES {
+            let mut line_buffer = [0u16; DISPLAY_WIDTH];
+            // Sync playfield state from shadow registers (copper may have updated them)
+            self.playfield.bplcon0 = self.memory.custom_regs[(custom::BPLCON0 / 2) as usize];
+            self.playfield.color = self.chipset.color;
+            let chip_ram = self.memory.chip_ram();
+            self.playfield
+                .render_scanline(vpos, chip_ram, &mut line_buffer);
+            let offset = usize::from(vpos) * DISPLAY_WIDTH;
+            self.framebuffer[offset..offset + DISPLAY_WIDTH].copy_from_slice(&line_buffer);
+        }
+
         // Run copper for this scanline
         if self.copper.enabled {
             let chip_ram = self.memory.chip_ram();
@@ -286,16 +299,6 @@ impl Emulator {
             self.floppy.read_track_to_ram(chip_ram, dma_ptr);
             self.floppy.dma_active = false;
             self.floppy.dma_done = true;
-        }
-
-        // Render this scanline if in visible area
-        if vpos < VISIBLE_LINES {
-            let mut line_buffer = [0u16; DISPLAY_WIDTH];
-            let chip_ram = self.memory.chip_ram();
-            self.playfield
-                .render_scanline(vpos, chip_ram, &mut line_buffer);
-            let offset = usize::from(vpos) * DISPLAY_WIDTH;
-            self.framebuffer[offset..offset + DISPLAY_WIDTH].copy_from_slice(&line_buffer);
         }
 
         // VBlank handling
