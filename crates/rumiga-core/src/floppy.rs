@@ -169,11 +169,21 @@ impl FloppyController {
         if (value & 0x8000 != 0) && (prev & 0x8000 != 0) {
             // Double-write with bit 15: start read DMA
             if value & 0x4000 == 0 {
-                self.dma_state = DskDmaState::Read;
-                self.dma_enable = false;
-                self.dsk_length = value & 0x3FFF;
-                self.word = 0;
-                self.bit_offset = 0;
+                // Check if any selected drive has a disk
+                let has_disk = (0..4u8).any(|dr| {
+                    self.selected & (1 << dr) == 0 && self.drives[dr as usize].data.is_some()
+                });
+                if has_disk {
+                    self.dma_state = DskDmaState::Read;
+                    self.dma_enable = false;
+                    self.dsk_length = value & 0x3FFF;
+                    self.word = 0;
+                    self.bit_offset = 0;
+                } else {
+                    // No disk: don't start DMA, don't fire DSKBLK.
+                    // trackdisk will timeout via CIA timer.
+                    self.dma_state = DskDmaState::Off;
+                }
             }
         } else if value & 0x8000 == 0 {
             // Bit 15 clear: abort DMA
@@ -380,6 +390,9 @@ mod tests {
     #[test]
     fn dsklen_double_write_starts_dma() {
         let mut ctrl = FloppyController::new();
+        let adf = vec![0u8; (TRACK_SIZE * 160) as usize];
+        ctrl.insert_disk(0, adf);
+        ctrl.selected = 0x0E; // DF0 selected
         ctrl.write_dsklen(0x8000 | 100);
         assert_eq!(ctrl.dma_state, DskDmaState::Off);
         ctrl.write_dsklen(0x8000 | 100);

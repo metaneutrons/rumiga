@@ -238,6 +238,8 @@ mod register_dispatch_golden_vectors {
         // WinUAE: the Amiga requires DSKLEN to be written twice with bit 15 set
         // to activate disk DMA (hardware safety interlock).
         let mut emu = make_emulator();
+        emu.floppy.insert_disk(0, vec![0u8; 901_120]);
+        emu.floppy.selected = 0x0E; // DF0 selected
         let dsklen_value = 0x8000 | 0x0100; // enable + 256 words
         emu.dispatch_register_write(custom::DSKLEN, dsklen_value);
         // First write: DMA not yet active (need double-write)
