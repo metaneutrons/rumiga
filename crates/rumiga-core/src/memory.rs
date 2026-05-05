@@ -267,6 +267,12 @@ impl AmigaMemory {
             };
         }
 
+        // ROM mirror at $E00000-$E7FFFF (ECS Agnus ksmirror_e0)
+        if (0x00E0_0000..0x00E8_0000).contains(&addr) {
+            let offset = (addr - 0x00E0_0000) % self.config.rom_size;
+            return Some(self.rom[offset as usize]);
+        }
+
         // ROM: 0xF80000/0xFC0000–0x1000000
         if (self.rom_base()..ROM_END).contains(&addr) {
             let offset = addr - self.rom_base();

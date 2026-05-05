@@ -372,9 +372,10 @@ impl Emulator {
     fn sync_readable_regs(&mut self) {
         use crate::custom;
         let regs = &mut self.memory.custom_regs;
-        // VPOSR: bit 15 = LOF (long frame), bits 0-2 = vpos high bits
-        // OCS PAL: no Agnus ID bits set. NTSC would have $1000.
-        regs[(custom::VPOSR / 2) as usize] = 0x8000 | ((self.chipset.vpos >> 8) & 1);
+        // VPOSR: bit 15=LOF, bits 14-8=Agnus ID, bits 0-2=vpos high
+        // ECS Agnus (A500+): ID=$20 → bits 12-8 = $20 → VPOSR has $2000
+        // This matches FS-UAE's "ecs_agnus" chipset setting for A500.
+        regs[(custom::VPOSR / 2) as usize] = 0x8000 | 0x2000 | ((self.chipset.vpos >> 8) & 1);
         regs[(custom::VHPOSR / 2) as usize] = (self.chipset.vpos << 8) | (self.chipset.hpos & 0xFF);
         regs[(custom::DMACONR / 2) as usize] = self.chipset.dmacon;
         regs[(custom::INTENAR / 2) as usize] = self.chipset.intena;
