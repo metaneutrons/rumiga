@@ -160,7 +160,7 @@ impl Emulator {
     }
 
     /// Execute one scanline worth of emulation.
-    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
     pub fn run_scanline(&mut self) {
         // Sync readable registers into memory so CPU reads correct values
         self.sync_readable_regs();
@@ -170,21 +170,41 @@ impl Emulator {
         while cycles_used < CYCLES_PER_LINE {
             let c = self.cpu.interpreter(&mut self.memory);
             if c == 0 {
-                // CPU is in STOP state (waiting for interrupt) — consume remaining cycles
-                // First STOP means InitCode completed and idle loop started.
-
                 cycles_used = CYCLES_PER_LINE;
                 break;
             }
             cycles_used += c;
+            // Update HPOS based on cycles consumed (2 CPU cycles = 1 color clock)
+            self.chipset.hpos = u16::try_from((cycles_used / 2).min(226)).unwrap_or(226);
+            // Sync beam position so CPU reads of VHPOSR see advancing hpos
+            self.memory.custom_regs[(custom::VHPOSR / 2) as usize] =
+                (self.chipset.vpos << 8) | (self.chipset.hpos & 0xFF);
+            // Dispatch register writes immediately
+            let writes: Vec<(u16, u16)> = self.memory.drain_reg_writes().collect();
+            for (offset, value) in writes {
+                self.dispatch_register_write(offset, value);
+            }
+            // Deliver pending interrupts within the scanline
+            // (required for graphics.library init which waits for VBlank in a tight loop)
+            let pending = self.chipset.intreq & self.chipset.intena & 0x3FFF;
+            if pending != 0 && (self.chipset.intena & custom::INT_SETCLR) != 0 {
+                let level = self.chipset.interrupt_level();
+                if level > self.cpu.regs.sr.interrupt_mask {
+                    use m68000::exception::{Exception, Vector};
+                    let vector = match level {
+                        1 => Vector::Level1Interrupt,
+                        2 => Vector::Level2Interrupt,
+                        3 => Vector::Level3Interrupt,
+                        4 => Vector::Level4Interrupt,
+                        5 => Vector::Level5Interrupt,
+                        6 => Vector::Level6Interrupt,
+                        _ => Vector::Level7Interrupt,
+                    };
+                    self.cpu.exception(Exception::from(vector));
+                }
+            }
         }
         self.total_cycles += cycles_used as u64;
-
-        // Dispatch CPU register writes to subsystems
-        let writes: Vec<(u16, u16)> = self.memory.drain_reg_writes().collect();
-        for (offset, value) in writes {
-            self.dispatch_register_write(offset, value);
-        }
 
         // Advance chipset beam by one full scanline
         self.chipset.hpos = 0;
