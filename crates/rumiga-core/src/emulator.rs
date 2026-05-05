@@ -245,7 +245,12 @@ impl Emulator {
                 if let Some(action) = self.copper.cycle(chip_ram, vpos, h) {
                     match action {
                         CopperAction::WriteRegister { offset, value } => {
-                            copper_writes.push((offset, value));
+                            // COPJMP1/2 must be handled immediately (affects copper PC)
+                            match offset {
+                                custom::COPJMP1 => self.copper.strobe_cop1(),
+                                custom::COPJMP2 => self.copper.strobe_cop2(),
+                                _ => copper_writes.push((offset, value)),
+                            }
                         }
                     }
                 }
@@ -455,7 +460,6 @@ impl Emulator {
             }
             custom::COP1LCH => {
                 self.copper.cop1lc = (self.copper.cop1lc & 0x0000_FFFF) | (u32::from(value) << 16);
-                self.copper.cop1lc &= (self.memory.chip_ram().len() as u32).wrapping_sub(1);
             }
             custom::COP1LCL => {
                 self.copper.cop1lc = (self.copper.cop1lc & 0xFFFF_0000) | u32::from(value & 0xFFFE);
@@ -463,7 +467,6 @@ impl Emulator {
             }
             custom::COP2LCH => {
                 self.copper.cop2lc = (self.copper.cop2lc & 0x0000_FFFF) | (u32::from(value) << 16);
-                self.copper.cop2lc &= (self.memory.chip_ram().len() as u32).wrapping_sub(1);
             }
             custom::COP2LCL => {
                 self.copper.cop2lc = (self.copper.cop2lc & 0xFFFF_0000) | u32::from(value & 0xFFFE);
