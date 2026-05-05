@@ -159,6 +159,11 @@ impl Emulator {
         }
     }
 
+    /// Execute a single CPU instruction (for debugging/tracing).
+    pub fn step_instruction(&mut self) {
+        self.cpu.interpreter(&mut self.memory);
+    }
+
     /// Execute one scanline worth of emulation.
     #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
     pub fn run_scanline(&mut self) {
@@ -215,36 +220,6 @@ impl Emulator {
         }
         let vpos = self.chipset.vpos;
 
-        // Render this scanline BEFORE copper runs (using state from previous line's copper)
-        if vpos < VISIBLE_LINES {
-            let mut line_buffer = [0u16; DISPLAY_WIDTH];
-            // Sync playfield state from shadow registers (copper may have updated them)
-            let regs = &self.memory.custom_regs;
-            self.playfield.bplcon0 = regs[(custom::BPLCON0 / 2) as usize];
-            self.playfield.bplcon1 = regs[(0x102 / 2) as usize];
-            self.playfield.bplcon2 = regs[(0x104 / 2) as usize];
-            self.playfield.diwstrt = regs[(0x08E / 2) as usize];
-            self.playfield.diwstop = regs[(0x090 / 2) as usize];
-            self.playfield.ddfstrt = regs[(0x092 / 2) as usize];
-            self.playfield.ddfstop = regs[(0x094 / 2) as usize];
-            for i in 0u16..6 {
-                let h = u32::from(regs[(0x0E0 / 2 + i * 2) as usize]);
-                let l = u32::from(regs[(0x0E2 / 2 + i * 2) as usize]);
-                self.playfield.bplpt[usize::from(i)] = (h << 16) | l;
-            }
-            self.playfield.color = self.chipset.color;
-            // Also sync colors from shadow (copper writes colors directly)
-            for i in 0usize..32 {
-                let c = regs[0x180 / 2 + i];
-                self.playfield.color[i] = c & 0x0FFF;
-            }
-            let chip_ram = self.memory.chip_ram();
-            self.playfield
-                .render_scanline(vpos, chip_ram, &mut line_buffer);
-            let offset = usize::from(vpos) * DISPLAY_WIDTH;
-            self.framebuffer[offset..offset + DISPLAY_WIDTH].copy_from_slice(&line_buffer);
-        }
-
         // Run copper for this scanline
         if self.copper.enabled {
             let chip_ram = self.memory.chip_ram();
@@ -263,8 +238,33 @@ impl Emulator {
             }
         }
 
-        // Sync copper palette changes to playfield color array
-        self.playfield.color = self.chipset.color;
+        // Render this scanline AFTER copper sets up registers for this line
+        if vpos < VISIBLE_LINES {
+            let mut line_buffer = [0u16; DISPLAY_WIDTH];
+            // Sync playfield state from shadow registers (copper has updated them)
+            let regs = &self.memory.custom_regs;
+            self.playfield.bplcon0 = regs[(custom::BPLCON0 / 2) as usize];
+            self.playfield.bplcon1 = regs[(0x102 / 2) as usize];
+            self.playfield.bplcon2 = regs[(0x104 / 2) as usize];
+            self.playfield.diwstrt = regs[(0x08E / 2) as usize];
+            self.playfield.diwstop = regs[(0x090 / 2) as usize];
+            self.playfield.ddfstrt = regs[(0x092 / 2) as usize];
+            self.playfield.ddfstop = regs[(0x094 / 2) as usize];
+            for i in 0u16..6 {
+                let h = u32::from(regs[(0x0E0 / 2 + i * 2) as usize]);
+                let l = u32::from(regs[(0x0E2 / 2 + i * 2) as usize]);
+                self.playfield.bplpt[usize::from(i)] = (h << 16) | l;
+            }
+            for i in 0usize..32 {
+                let c = regs[0x180 / 2 + i];
+                self.playfield.color[i] = c & 0x0FFF;
+            }
+            let chip_ram = self.memory.chip_ram();
+            self.playfield
+                .render_scanline(vpos, chip_ram, &mut line_buffer);
+            let offset = usize::from(vpos) * DISPLAY_WIDTH;
+            self.framebuffer[offset..offset + DISPLAY_WIDTH].copy_from_slice(&line_buffer);
+        }
 
         // CIA E-clock: ~45 ticks per scanline (709379 Hz / 15625 Hz)
         for _ in 0..45 {
@@ -294,11 +294,6 @@ impl Emulator {
                 self.chipset.intreq |= custom::INT_EXTER;
                 self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
             }
-            // Also fire DSKSYNC (bit 12) to unblock trackdisk waiting for sync word
-            if self.chipset.dmaen(custom::DMA_DISK) {
-                self.chipset.intreq |= 0x1000; // DSKSYNC
-                self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
-            }
         }
 
         // Process pending key events into CIA-A serial data register
@@ -313,9 +308,17 @@ impl Emulator {
         if self.floppy.dma_active && self.chipset.dmaen(crate::custom::DMA_DISK) {
             let dma_ptr = self.dskpt;
             let chip_ram = self.memory.chip_ram_mut();
+            let has_disk = self.floppy.drives[self.floppy.selected as usize]
+                .data
+                .is_some();
             self.floppy.read_track_to_ram(chip_ram, dma_ptr);
             self.floppy.dma_active = false;
             self.floppy.dma_done = true;
+            // Fire DSKBLK interrupt only if a disk was present (data transferred)
+            if has_disk {
+                self.chipset.intreq |= custom::INT_DSKBLK;
+                self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
+            }
         }
 
         // VBlank handling

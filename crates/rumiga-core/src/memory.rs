@@ -115,7 +115,7 @@ impl AmigaMemory {
             fast_ram,
             rom,
             overlay: true,
-            custom_regs: [0xFFFF; CUSTOM_REG_COUNT],
+            custom_regs: [0; CUSTOM_REG_COUNT],
             reg_write_log: Vec::new(),
             cia_a_pra: 0,
             cia: CiaPair::new(),
@@ -222,19 +222,21 @@ impl AmigaMemory {
                     // Bits 2-5: input from disk/joystick hardware
                     //   Bit 2: DSKPROT (1=not protected)
                     //   Bit 3: DSKTRACK0 (0=at track 0)
-                    //   Bit 4: DSKCHANGE (0=disk removed/changed)
-                    //   Bit 5: DSKRDY (0=ready)
+                    //   Bit 2: DSKCHANGE (0=disk changed, 1=no change)
+                    //   Bit 3: DSKPROT (0=write protected, 1=not protected)
+                    //   Bit 4: DSKTRACK0 (0=at track 0, 1=not at track 0)
+                    //   Bit 5: DSKRDY (0=ready, 1=not ready)
                     // Bits 6-7: joystick fire buttons (active low)
                     let output_bits = self.cia_a_pra & self.cia.cia_a.ddra;
-                    // Check motor state from CIA-B PRB bit 7 (0=motor on)
-                    // Check if any drive is selected (CIA-B PRB bits 3-6, active low)
-                    // Drive select check (for future use with disk inserted) = self.cia.cia_b.prb & 0x78 != 0x78;
-                    // RDY: 0=ready, 1=not ready.
-                    // WinUAE: with no disk, drive_diskready() returns false → RDY=1 always.
-                    // RDY only goes 0 when a disk is inserted and motor has spun up.
-                    let rdy: u8 = 0x20; // Always not-ready when no disk
-                    // DSKCHANGE=0 (no disk), DSKPROT=1, TRACK0=1 (not at track 0)
-                    let input_bits: u8 = 0x04 | 0x08 | rdy | 0xC0;
+                    // FS-UAE DISK_status_ciaa: starts with $3C (bits 2-5 all set)
+                    // Then clears bits based on drive state:
+                    //   No disk: dskchange=false → bit 2 stays 1
+                    //   At track 0: bit 4 cleared
+                    //   Not write protected: bit 3 stays 1
+                    //   Not ready (no disk): bit 5 stays 1
+                    // Result with no disk at track 0: $2C (bits 2,3,5 set)
+                    // Plus fire buttons (bits 6-7 active low = 1 when not pressed)
+                    let input_bits: u8 = 0x08 | 0x20 | 0xC0; // $E8 - DSKCHANGE=0 (removed)
                     return Some(output_bits | (input_bits & !self.cia.cia_a.ddra));
                 }
                 return Some(self.cia.cia_a.read(reg));
