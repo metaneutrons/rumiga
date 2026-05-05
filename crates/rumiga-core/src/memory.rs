@@ -236,7 +236,7 @@ impl AmigaMemory {
                     //   Not ready (no disk): bit 5 stays 1
                     // Result with no disk at track 0: $2C (bits 2,3,5 set)
                     // Plus fire buttons (bits 6-7 active low = 1 when not pressed)
-                    let input_bits: u8 = 0x08 | 0x20 | 0xC0; // $E8 - DSKCHANGE=0 (removed)
+                    let input_bits: u8 = 0x04 | 0x08 | 0x20 | 0xC0; // $E8 - DSKCHANGE=1 (no change)
                     return Some(output_bits | (input_bits & !self.cia.cia_a.ddra));
                 }
                 return Some(self.cia.cia_a.read(reg));
