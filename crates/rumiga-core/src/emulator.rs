@@ -197,14 +197,26 @@ impl Emulator {
                 if self.floppy.at_track0() {
                     st &= !0x10; // bit 4: TRACK0 asserted
                 }
-                // DSKCHANGE: bit 2 stays 1 (no change) when no disk was ever inserted
-                // With no disk: dskchange=false in FS-UAE → bit 2 stays set
                 if !self.floppy.has_disk() {
-                    // No disk: RDY stays high (not ready), DSKCHANGE=1 (no change)
+                    // No disk: DSKCHANGE=1 (no change) - trackdisk will try to read
+                    // bit 2 stays set (no change event)
                 } else if self.floppy.motor_on() {
                     st &= !0x20; // bit 5: RDY asserted (ready)
                 }
                 self.memory.disk_status = st;
+            }
+            // Run a disk DMA cycle per instruction (allows DMA to progress during DoIO)
+            if self.chipset.dmaen(crate::custom::DMA_DISK) {
+                let chip_ram = self.memory.chip_ram_mut();
+                self.floppy.disk_dma_cycle(chip_ram);
+                if self.floppy.pending_sync_irq {
+                    self.floppy.pending_sync_irq = false;
+                    self.chipset.intreq |= 0x1000;
+                }
+                if self.floppy.pending_blk_irq {
+                    self.floppy.pending_blk_irq = false;
+                    self.chipset.intreq |= custom::INT_DSKBLK;
+                }
             }
             // Deliver pending interrupts within the scanline
             // (required for graphics.library init which waits for VBlank in a tight loop)
