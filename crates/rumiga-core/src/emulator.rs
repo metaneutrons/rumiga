@@ -170,6 +170,9 @@ impl Emulator {
         // Execute CPU instructions for this scanline
         let mut cycles_used: usize = 0;
         while cycles_used < CYCLES_PER_LINE {
+            // Sync interrupt registers so CPU reads see current state
+            self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq & 0x7FFF;
+            self.memory.custom_regs[(custom::INTENAR / 2) as usize] = self.chipset.intena & 0x7FFF;
             let c = self.cpu.interpreter(&mut self.memory);
             if c == 0 {
                 cycles_used = CYCLES_PER_LINE;
