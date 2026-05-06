@@ -312,6 +312,10 @@ impl Emulator {
                 self.chipset.intreq |= custom::INT_EXTER;
             }
         }
+        // Also fire INT_EXTER if CIA-B has any masked interrupt pending (e.g. FLAG)
+        if self.memory.cia.cia_b.icr_data & self.memory.cia.cia_b.icr_mask & 0x1F != 0 {
+            self.chipset.intreq |= custom::INT_EXTER;
+        }
         self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
 
         // CIA-B TOD clocked by HSync (every scanline)
@@ -321,7 +325,10 @@ impl Emulator {
         // Without a disk, no index hole exists so no pulse is generated.
         // This is critical: without index pulses, trackdisk.device times out
         // and the boot code shows the "insert disk" hand.
-        if self.floppy.motor_on() && self.floppy.has_disk() && self.chipset.vpos == 0 {
+        // Disk index pulse: fires once per revolution when motor is spinning.
+        // Use raw CIA-B PRB bit 7 (0=motor on) since floppy.motor_on() may not
+        // reflect the state during init (disk_select hasn't processed it yet).
+        if self.memory.cia.cia_b.prb & 0x80 == 0 && self.chipset.vpos == 0 {
             // Fire index pulse once per revolution (~300ms real, once per frame here)
             self.memory.cia.cia_b.icr_data |= 0x10; // FLAG bit
             if self.memory.cia.cia_b.icr_mask & 0x10 != 0 {

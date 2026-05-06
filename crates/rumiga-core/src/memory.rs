@@ -322,6 +322,12 @@ impl AmigaMemory {
                 self.cia.cia_b.write(reg, value);
                 if reg == 1 {
                     self.cia_b_prb_dirty = true;
+                    // Fire disk index pulse when motor turns on (bit 7=0) and
+                    // drive selected (bits 3-6 not all 1). This happens at the
+                    // hardware level immediately when the motor signal asserts.
+                    if value & 0x80 == 0 && value & 0x78 != 0x78 {
+                        self.cia.cia_b.icr_data |= 0x10; // FLAG = index pulse
+                    }
                 }
             }
             return true;
