@@ -138,12 +138,14 @@ impl PartialOrd for Exception {
 }
 
 impl Ord for Exception {
-    /// For BTreeSet, compare by actual priority and not by the value itself, so higher number means less priority.
+    /// For BTreeSet ordering: lower priority value = higher actual priority = comes first.
+    /// Among same priority (e.g., all interrupts), use vector number as tiebreaker
+    /// (higher vector = higher interrupt level = comes last = processed last = wins).
     fn cmp(&self, other: &Self) -> Ordering {
         match self.priority.cmp(&other.priority) {
             Ordering::Greater => Ordering::Less,
             Ordering::Less => Ordering::Greater,
-            Ordering::Equal => Ordering::Equal,
+            Ordering::Equal => self.vector.cmp(&other.vector),
         }
     }
 }
@@ -202,11 +204,22 @@ impl<CPU: CpuDetails> M68000<CPU> {
             to_process.push(*ex);
         }
 
-        // Only process the highest-priority interrupt (last in sorted order)
-        // to match real 68000 behavior: one interrupt per instruction cycle.
+        // Only process the highest-priority exception. Among interrupts,
+        // higher vector number = higher priority (Level 6 > Level 3).
         if to_process.len() > 1 {
-            let highest = *to_process.last().unwrap();
-            // Remove only the highest from the pending set
+            // Find the one with highest interrupt level (highest vector number among interrupts)
+            let mut best_idx = 0;
+            for (i, ex) in to_process.iter().enumerate() {
+                let best = &to_process[best_idx];
+                if ex.is_interrupt() && best.is_interrupt() {
+                    if ex.vector > best.vector {
+                        best_idx = i;
+                    }
+                } else if ex.priority < best.priority {
+                    best_idx = i;
+                }
+            }
+            let highest = to_process[best_idx];
             self.exceptions.remove(&highest);
             to_process = alloc::vec![highest];
         } else {
