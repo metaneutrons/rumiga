@@ -186,9 +186,27 @@ impl CiaState {
                     self.timer_b = self.timer_b_latch;
                 }
             }
-            REG_TOD_LO => self.tod[0] = value,
-            REG_TOD_MID => self.tod[1] = value,
-            REG_TOD_HI => self.tod[2] = value,
+            REG_TOD_LO => {
+                if self.crb & 0x80 != 0 {
+                    self.tod_alarm[0] = value;
+                } else {
+                    self.tod[0] = value;
+                }
+            }
+            REG_TOD_MID => {
+                if self.crb & 0x80 != 0 {
+                    self.tod_alarm[1] = value;
+                } else {
+                    self.tod[1] = value;
+                }
+            }
+            REG_TOD_HI => {
+                if self.crb & 0x80 != 0 {
+                    self.tod_alarm[2] = value;
+                } else {
+                    self.tod[2] = value;
+                }
+            }
             REG_SDR => self.sdr = value,
             REG_ICR => {
                 if value & ICR_SET != 0 {
@@ -259,6 +277,8 @@ impl CiaState {
                 self.tod[2] = self.tod[2].wrapping_add(1);
             }
         }
+        // TOD alarm check disabled - causes spurious INT_EXTER during boot
+        // TODO: investigate proper TOD alarm timing
     }
 
     /// Check if any unmasked interrupt is pending.
