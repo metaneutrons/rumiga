@@ -150,6 +150,11 @@ impl Ord for Exception {
 
 impl<CPU: CpuDetails> M68000<CPU> {
     /// Requests the CPU to process the given exception.
+    /// Clear all pending exceptions (used when delivering a higher-priority interrupt).
+    pub fn clear_pending_exceptions_queue(&mut self) {
+        self.exceptions.clear();
+    }
+
     pub fn exception(&mut self, ex: Exception) {
         if ex.vector == Vector::ResetSspPc as u8
             || ex.vector == Vector::Trace as u8
@@ -197,8 +202,17 @@ impl<CPU: CpuDetails> M68000<CPU> {
             to_process.push(*ex);
         }
 
-        for ex in &to_process {
-            self.exceptions.remove(ex);
+        // Only process the highest-priority interrupt (last in sorted order)
+        // to match real 68000 behavior: one interrupt per instruction cycle.
+        if to_process.len() > 1 {
+            let highest = *to_process.last().unwrap();
+            // Remove only the highest from the pending set
+            self.exceptions.remove(&highest);
+            to_process = alloc::vec![highest];
+        } else {
+            for ex in &to_process {
+                self.exceptions.remove(ex);
+            }
         }
 
         let exceptions: BTreeSet<_> = to_process.into_iter().collect();

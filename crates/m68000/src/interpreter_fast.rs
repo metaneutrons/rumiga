@@ -103,6 +103,12 @@ impl<CPU: CpuDetails> M68000<CPU> {
         memory: &mut M,
     ) -> (usize, Option<u8>) {
         if self.stop {
+            if !self.exceptions.is_empty() {
+                // An interrupt wakes the CPU from STOP state
+                self.stop = false;
+                let cycles = self.process_pending_exceptions(memory);
+                return (cycles, None);
+            }
             return (0, None);
         }
 
