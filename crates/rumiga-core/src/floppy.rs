@@ -40,6 +40,10 @@ pub struct DriveState {
     pub motor: bool,
     /// Current position in MFM track (word index).
     pub mfm_pos: u32,
+    /// Drive ID shift register (32 bits, shifted out via DSKRDY).
+    pub drive_id: u32,
+    /// Number of ID bits remaining to shift out.
+    pub id_shift_count: u8,
 }
 
 /// Floppy disk controller managing up to four drives.
@@ -122,9 +126,25 @@ impl FloppyController {
         self.prev_prb = data;
 
         // Extract fields
+        let prev_selected = self.selected;
         self.selected = (data >> 3) & 0x0F;
         self.side = 1 - ((data >> 2) & 1);
         self.direction = (data >> 1) & 1;
+
+        // Drive ID protocol: deselect→select resets, select→deselect shifts
+        for dr in 0..4u8 {
+            let was_sel = prev_selected & (1 << dr) == 0;
+            let now_sel = self.selected & (1 << dr) == 0;
+            if !was_sel && now_sel {
+                // Reset ID register (standard DD drive = $00000000)
+                self.drives[dr as usize].drive_id = 0x0000_0000;
+                self.drives[dr as usize].id_shift_count = 32;
+            } else if was_sel && !now_sel && self.drives[dr as usize].id_shift_count > 0 {
+                // Shift out one ID bit
+                self.drives[dr as usize].drive_id <<= 1;
+                self.drives[dr as usize].id_shift_count -= 1;
+            }
+        }
 
         // Motor: bit 7 (0=on, 1=off). Applies to selected drives.
         let motor_on = data & 0x80 == 0;
@@ -291,6 +311,20 @@ impl FloppyController {
     pub fn motor_on(&self) -> bool {
         let dr = self.first_selected_drive();
         self.drives[dr].motor
+    }
+
+    /// Get the current drive ID bit (MSB of shift register) for the selected drive.
+    /// Returns 0 for standard DD drive, 1 for no drive / HD drive.
+    #[must_use]
+    pub fn drive_id_bit(&self) -> u8 {
+        let dr = self.first_selected_drive();
+        u8::from(self.drives[dr].drive_id & 0x8000_0000 != 0)
+    }
+
+    /// Check if any drive is currently selected.
+    #[must_use]
+    pub const fn any_drive_selected(&self) -> bool {
+        self.selected != 0x0F
     }
 }
 

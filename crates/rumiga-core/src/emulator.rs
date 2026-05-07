@@ -246,15 +246,32 @@ impl Emulator {
                 self.cpu.mem.cia_b_prb_dirty = false;
                 let prb = self.cpu.mem.cia.borrow().cia_b.prb;
                 self.floppy.disk_select(prb);
-                let mut st: u8 = 0x3C;
+                let mut st: u8 = 0x3C; // default: all high
                 if self.floppy.at_track0() {
                     st &= !0x10;
                 }
                 if !self.floppy.has_disk() {
-                    st &= !0x04;
-                } else if self.floppy.motor_on() {
-                    st &= !0x20;
+                    st &= !0x04; // DSKCHANGE=0 (no disk)
                 }
+                // DSKRDY (bit 5):
+                // - No drive selected: HIGH (not ready)
+                // - Drive selected, motor on, disk present: LOW (ready)
+                // - Drive selected, motor off: shows drive ID bit (0=LOW for std DD)
+                // - Drive selected, motor on, no disk: HIGH (not ready)
+                if self.floppy.any_drive_selected() {
+                    if self.floppy.motor_on() {
+                        if self.floppy.has_disk() {
+                            st &= !0x20; // Ready
+                        }
+                        // else: not ready (bit 5 stays set)
+                    } else {
+                        // Motor off: show drive ID bit
+                        if self.floppy.drive_id_bit() == 0 {
+                            st &= !0x20; // ID bit 0 = RDY low
+                        }
+                    }
+                }
+                // else: no drive selected, DSKRDY stays HIGH
                 self.cpu.mem.disk_status = st;
             }
             // Run a disk DMA cycle per instruction

@@ -124,7 +124,7 @@ impl AmigaMemory {
             reg_write_log: Vec::new(),
             cia_a_pra: 0,
             cia_b_prb_dirty: false,
-            disk_status: 0x28, // No disk: DSKCHANGE=0, DSKPROT=1, TK0=0(at trk0), DSKRDY=1
+            disk_status: 0x00, // DF0 present: DSKCHANGE=0, TK0=0, DSKRDY=0, DSKPROT=0
             cia: RefCell::new(CiaPair::new()),
         }
     }
