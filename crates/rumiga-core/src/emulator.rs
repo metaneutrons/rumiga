@@ -87,7 +87,7 @@ const FORCE_CIA_TIMER_THRESHOLD: u64 = 22_000_000;
 
 /// Main emulator state combining CPU and all chipset subsystems.
 pub struct Emulator {
-    /// r68k CPU core (owns memory as its AddressBus).
+    /// r68k CPU core (owns memory as its `AddressBus`).
     pub cpu: AmigaCpu,
     /// Custom chip register state.
     pub chipset: CustomChipState,
@@ -229,7 +229,7 @@ impl Emulator {
                 cycles_used = CYCLES_PER_LINE;
                 break;
             }
-            cycles_used += c.0 as usize;
+            cycles_used += c.0.unsigned_abs() as usize;
             // Update HPOS based on cycles consumed (2 CPU cycles = 1 color clock)
             self.chipset.hpos = u16::try_from((cycles_used / 2).min(226)).unwrap_or(226);
             // Sync beam position so CPU reads of VHPOSR see advancing hpos
@@ -444,8 +444,8 @@ impl Emulator {
         use crate::custom;
         let regs = &mut self.cpu.mem.custom_regs;
         // VPOSR: bit 15=LOF, bits 14-8=Agnus ID, bits 0-2=vpos high
-        // ECS Agnus (A500+): ID=$20 → bits 12-8 = $20 → VPOSR has $2000
-        regs[(custom::VPOSR / 2) as usize] = 0x8000 | 0x2000 | ((self.chipset.vpos >> 8) & 1);
+        // OCS Agnus (A500): ID=$00, only bit 0 of vpos high visible
+        regs[(custom::VPOSR / 2) as usize] = 0x8000 | ((self.chipset.vpos >> 8) & 1);
         regs[(custom::VHPOSR / 2) as usize] = (self.chipset.vpos << 8) | (self.chipset.hpos & 0xFF);
         regs[(custom::DMACONR / 2) as usize] = self.chipset.dmacon & 0x7FFF;
         regs[(custom::INTENAR / 2) as usize] = self.chipset.intena & 0x7FFF;

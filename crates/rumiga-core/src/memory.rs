@@ -405,6 +405,7 @@ impl AddressBus for AmigaMemory {
     }
 
     fn write_byte(&mut self, _address_space: AddressSpace, addr: u32, value: u32) {
+        #[allow(clippy::cast_possible_truncation)]
         self.write_byte_internal(addr, value as u8);
     }
 
@@ -412,9 +413,11 @@ impl AddressBus for AmigaMemory {
         let masked = addr & 0x00FF_FFFF;
         // Custom chip registers: handle as atomic word write
         if (CUSTOM_BASE..CUSTOM_END).contains(&masked) {
+            #[allow(clippy::cast_possible_truncation)]
             let offset = ((masked - CUSTOM_BASE) & 0x1FE) as u16;
             let idx = (offset / 2) as usize;
             if idx < CUSTOM_REG_COUNT {
+                #[allow(clippy::cast_possible_truncation)]
                 let val = value as u16;
                 self.custom_regs[idx] = val;
                 self.reg_write_log.push((offset, val));
@@ -463,7 +466,9 @@ impl AddressBus for AmigaMemory {
             }
             return;
         }
+        #[allow(clippy::cast_possible_truncation)]
         let hi = (value >> 8) as u8;
+        #[allow(clippy::cast_possible_truncation)]
         let lo = (value & 0xFF) as u8;
         self.write_byte_internal(addr, hi);
         self.write_byte_internal(addr.wrapping_add(1), lo);
