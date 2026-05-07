@@ -425,6 +425,9 @@ impl Emulator {
                     cia.cia_a.icr_mask |= 0x01;
                 }
             }
+
+            // TODO: Fix InitStruct offset bug that causes trackdisk's signal
+            // bits to be misaligned (device port signals bit 9, task waits bit 10).
         }
 
         // Sync INTREQR/INTENAR so the CPU reads correct values in interrupt handlers
