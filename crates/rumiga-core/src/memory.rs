@@ -124,7 +124,7 @@ impl AmigaMemory {
             reg_write_log: Vec::new(),
             cia_a_pra: 0,
             cia_b_prb_dirty: false,
-            disk_status: 0x00, // DF0 present: DSKCHANGE=0, TK0=0, DSKRDY=0, DSKPROT=0
+            disk_status: 0x00, // DF0: DSKCHANGE=0(changed), TK0=0, DSKRDY=0, DSKPROT=0
             cia: RefCell::new(CiaPair::new()),
         }
     }
@@ -142,6 +142,17 @@ impl AmigaMemory {
             data.len()
         );
         self.rom.copy_from_slice(data);
+
+        // Workaround: drive detection doesn't update the step rate from its
+        // default of 3000 ($0BB8). With step_rate >= 300, trackdisk does a
+        // self-referential DoIO that deadlocks. Patch the default to 80 ($50)
+        // which matches a standard DD drive.
+        // TODO: implement proper drive detection timing measurement.
+        let sr_off = 0x2_9F40usize; // $FE9F40 - $FC0000
+        if sr_off + 1 < self.rom.len() && self.rom[sr_off] == 0x0B && self.rom[sr_off + 1] == 0xB8 {
+            self.rom[sr_off] = 0x00;
+            self.rom[sr_off + 1] = 0x50; // 80
+        }
     }
 
     /// Returns a reference to the chip RAM slice.
