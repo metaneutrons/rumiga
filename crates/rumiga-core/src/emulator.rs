@@ -577,6 +577,9 @@ impl Emulator {
                 self.blitter.start_blit();
                 let chip_ram = self.cpu.mem.chip_ram_mut();
                 self.blitter.execute_blit(chip_ram);
+                // Fire blitter-done interrupt
+                self.chipset.intreq |= custom::INT_BLIT;
+                self.cpu.mem.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
             }
             _ => {}
         }
