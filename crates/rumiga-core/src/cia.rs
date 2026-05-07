@@ -78,6 +78,8 @@ pub struct CiaState {
     pub icr_data: u8,
     /// Interrupt control mask (enabled interrupts).
     pub icr_mask: u8,
+    /// Whether the interrupt line is currently asserted (IR flag, bit 7).
+    pub icr_ir: bool,
     /// Time-of-day counter (low, mid, high).
     pub tod: [u8; 3],
     /// TOD alarm value.
@@ -107,6 +109,7 @@ impl CiaState {
             crb: 0,
             icr_data: 0,
             icr_mask: 0,
+            icr_ir: false,
             tod: [0; 3],
             tod_alarm: [0; 3],
             tod_latched: false,
@@ -151,11 +154,11 @@ impl CiaState {
             REG_SDR => self.sdr,
             REG_ICR => {
                 let mut val = self.icr_data;
-                // Bit 7 (IR) is set if any enabled interrupt is pending
-                if val & self.icr_mask & 0x1F != 0 {
+                if self.icr_ir {
                     val |= 0x80;
                 }
                 self.icr_data = 0;
+                self.icr_ir = false;
                 val
             }
             REG_CRA => self.cra,
@@ -214,6 +217,10 @@ impl CiaState {
                 } else {
                     self.icr_mask &= !(value & 0x1F);
                 }
+                // RethinkICR: if pending bits now match mask, assert IR
+                if self.icr_data & self.icr_mask & 0x1F != 0 && !self.icr_ir {
+                    self.icr_ir = true;
+                }
             }
             REG_CRA => {
                 self.cra = value & !CR_LOAD;
@@ -235,8 +242,6 @@ impl CiaState {
 impl CiaState {
     /// Advance timers by one tick. Returns `true` if an interrupt should fire.
     pub fn tick(&mut self) -> bool {
-        let mut irq = false;
-
         if self.cra & CR_START != 0 {
             self.timer_a = self.timer_a.wrapping_sub(1);
             if self.timer_a == 0xFFFF {
@@ -244,9 +249,6 @@ impl CiaState {
                 self.timer_a = self.timer_a_latch;
                 if self.cra & CR_ONESHOT != 0 {
                     self.cra &= !CR_START;
-                }
-                if self.icr_mask & ICR_TA != 0 {
-                    irq = true;
                 }
             }
         }
@@ -259,13 +261,15 @@ impl CiaState {
                 if self.crb & CR_ONESHOT != 0 {
                     self.crb &= !CR_START;
                 }
-                if self.icr_mask & ICR_TB != 0 {
-                    irq = true;
-                }
             }
         }
 
-        irq
+        // RethinkICR: only assert interrupt line on 0→1 transition of IR
+        if self.icr_data & self.icr_mask & 0x1F != 0 && !self.icr_ir {
+            self.icr_ir = true;
+            return true;
+        }
+        false
     }
 
     /// Advance the TOD counter by one tick.
@@ -281,10 +285,10 @@ impl CiaState {
         // TODO: investigate proper TOD alarm timing
     }
 
-    /// Check if any unmasked interrupt is pending.
+    /// Check if the interrupt line is asserted.
     #[must_use]
     pub const fn irq_pending(&self) -> bool {
-        (self.icr_data & self.icr_mask) != 0
+        self.icr_ir
     }
 }
 

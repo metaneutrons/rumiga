@@ -346,7 +346,7 @@ impl Emulator {
         // Also fire INT_EXTER if CIA-B has any masked interrupt pending (e.g. FLAG)
         {
             let cia = self.cpu.mem.cia.borrow();
-            if cia.cia_b.icr_data & cia.cia_b.icr_mask & 0x1F != 0 {
+            if cia.cia_b.icr_ir {
                 self.chipset.intreq |= custom::INT_EXTER;
             }
         }
