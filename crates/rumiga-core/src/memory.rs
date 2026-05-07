@@ -449,6 +449,15 @@ impl AddressBus for AmigaMemory {
                             *r &= !bits;
                         }
                     }
+                    0x09E => {
+                        // ADKCON write → ADKCONR readable (offset $010 = index 8)
+                        let r = &mut self.custom_regs[8usize];
+                        if val & 0x8000 != 0 {
+                            *r |= bits;
+                        } else {
+                            *r &= !bits;
+                        }
+                    }
                     _ => {}
                 }
             }
