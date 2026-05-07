@@ -83,7 +83,8 @@ const CUSTOM_REG_COUNT: usize = 256;
 pub struct AmigaMemory {
     config: MemoryConfig,
     chip_ram: Vec<u8>,
-    slow_ram: Vec<u8>,
+    /// Slow RAM (512KB at $C00000, directly accessible for workarounds).
+    pub slow_ram: Vec<u8>,
     fast_ram: Vec<u8>,
     rom: Vec<u8>,
     /// When true, ROM is overlaid at address 0 (after reset, before first write to CIA).
