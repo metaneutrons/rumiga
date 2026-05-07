@@ -98,7 +98,7 @@ impl CiaState {
     pub const fn new() -> Self {
         Self {
             pra: 0,
-            prb: 0,
+            prb: 0xFF, // All outputs high after reset (active-low signals deasserted)
             ddra: 0,
             ddrb: 0,
             timer_a: 0xFFFF,
