@@ -28,3 +28,7 @@ pedantic = { level = "deny", priority = -1 }
 nursery = { level = "deny", priority = -1 }
 cargo = { level = "deny", priority = -1 }
 multiple_crate_versions = "allow"
+
+[workspace.dependencies]
+r68k-emu = { path = "../r68k/emu" }
+r68k-common = { path = "../r68k/common" }

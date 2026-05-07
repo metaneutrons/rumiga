@@ -18,3 +18,7 @@ rumiga-platform-desktop = { path = "../crates/rumiga-platform-desktop" }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+r68k-emu = { workspace = true }
+r68k-common = { workspace = true }
