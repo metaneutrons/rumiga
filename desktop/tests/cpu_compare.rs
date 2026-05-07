@@ -93,18 +93,19 @@ fn compare_first_1000() {
 
     let mut emu = Emulator::new(MemoryConfig::a500());
     emu.load_rom(&rom);
-    // Our CPU needs a reset too
-    emu.cpu.interpreter(&mut emu.memory); // process reset exception
+    // r68k resets during construction; re-reset after loading ROM
+    emu.cpu.reset();
 
     for i in 0..5000 {
         let r_pc = {
             let p = r68k.pc();
             *p
         };
-        let m_pc = emu.cpu.regs.pc.0;
+        let m_pc = emu.cpu.pc;
 
         if r_pc != m_pc {
             let r_dar = *r68k.dar();
+            let m_dar = emu.cpu.dar;
             println!(
                 "DIVERGE at instruction {}: r68k PC={:08X} m68000 PC={:08X}",
                 i, r_pc, m_pc
@@ -115,7 +116,7 @@ fn compare_first_1000() {
             );
             println!(
                 "  m68k: D0={:08X} D1={:08X} A0={:08X} A7={:08X}",
-                emu.cpu.regs.d[0].0, emu.cpu.regs.d[1].0, emu.cpu.regs.a[0].0, emu.cpu.regs.a[6].0
+                m_dar[0], m_dar[1], m_dar[8], m_dar[15]
             );
             break;
         }
@@ -128,7 +129,7 @@ fn compare_first_1000() {
         let p = r68k.pc();
         *p
     };
-    let m_pc = emu.cpu.regs.pc.0;
+    let m_pc = emu.cpu.pc;
     if r_pc == m_pc {
         println!("Both CPUs agree after 5000 instructions! PC={:08X}", r_pc);
     }

@@ -3,10 +3,9 @@
 
 //! Main emulation loop tying CPU and chipset together.
 
-use alloc::vec;
-use alloc::vec::Vec;
-use m68000::M68000;
-use m68000::cpu_details::Mc68000;
+use r68k_emu::cpu::ConfiguredCore;
+pub use r68k_emu::cpu::ProcessingState;
+use r68k_emu::interrupts::InterruptController;
 
 use crate::audio::AudioState;
 use crate::blitter::BlitterState;
@@ -40,6 +39,44 @@ const FRAMEBUFFER_SIZE: usize = DISPLAY_WIDTH * playfield::DISPLAY_HEIGHT as usi
 /// Maximum queued key events per frame.
 const MAX_KEY_EVENTS: usize = 16;
 
+/// Interrupt controller that bridges r68k to the Amiga chipset interrupt system.
+///
+/// The actual interrupt level is computed from `CustomChipState` and injected
+/// each scanline via [`AmigaInterruptController::set_level`].
+pub struct AmigaInterruptController {
+    level: u8,
+}
+
+impl AmigaInterruptController {
+    const fn new() -> Self {
+        Self { level: 0 }
+    }
+
+    /// Update the pending interrupt level from chipset state.
+    pub fn set_level(&mut self, level: u8) {
+        self.level = level;
+    }
+}
+
+impl InterruptController for AmigaInterruptController {
+    fn reset_external_devices(&mut self) {
+        self.level = 0;
+    }
+
+    fn highest_priority(&self) -> u8 {
+        self.level
+    }
+
+    fn acknowledge_interrupt(&mut self, priority: u8) -> Option<u8> {
+        // Autovector: vector = 24 + priority level
+        self.level = 0;
+        Some(24 + priority)
+    }
+}
+
+/// The configured r68k CPU type used by the emulator.
+pub type AmigaCpu = ConfiguredCore<AmigaInterruptController, AmigaMemory>;
+
 /// Cycle threshold after which CIA timers are force-started if still stopped (~frame 160).
 ///
 /// On Kickstart 1.3, timer.device should start the CIA timers during `InitCode`.
@@ -50,10 +87,8 @@ const FORCE_CIA_TIMER_THRESHOLD: u64 = 22_000_000;
 
 /// Main emulator state combining CPU and all chipset subsystems.
 pub struct Emulator {
-    /// Motorola 68000 CPU.
-    pub cpu: M68000<Mc68000>,
-    /// Amiga memory subsystem.
-    pub memory: AmigaMemory,
+    /// r68k CPU core (owns memory as its AddressBus).
+    pub cpu: AmigaCpu,
     /// Custom chip register state.
     pub chipset: CustomChipState,
     /// Cycle-accurate event scheduler.
@@ -97,9 +132,13 @@ impl Emulator {
         let mut events = EventScheduler::new();
         events.schedule(EventType::HSync, 227);
 
+        let memory = AmigaMemory::new(config);
+        let int_ctrl = AmigaInterruptController::new();
+        let mut cpu = ConfiguredCore::new_with(0, int_ctrl, memory);
+        cpu.reset();
+
         Self {
-            cpu: M68000::<Mc68000>::new(),
-            memory: AmigaMemory::new(config),
+            cpu,
             chipset: CustomChipState::new(),
             events,
             copper: CopperState::new(),
@@ -120,8 +159,11 @@ impl Emulator {
     }
 
     /// Load Kickstart ROM data into memory.
+    ///
+    /// Re-resets the CPU so it picks up the correct reset vectors from the new ROM.
     pub fn load_rom(&mut self, data: &[u8]) {
-        self.memory.load_rom(data);
+        self.cpu.mem.load_rom(data);
+        self.cpu.reset();
     }
 
     /// Insert an ADF disk image into the specified floppy drive (0–3).
@@ -158,7 +200,7 @@ impl Emulator {
 
     /// Execute a single CPU instruction (for debugging/tracing).
     pub fn step_instruction(&mut self) {
-        self.cpu.interpreter(&mut self.memory);
+        self.cpu.execute1();
     }
 
     /// Execute one scanline worth of emulation.
@@ -171,46 +213,52 @@ impl Emulator {
         let mut cycles_used: usize = 0;
         while cycles_used < CYCLES_PER_LINE {
             // Sync interrupt registers so CPU reads see current state
-            self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq & 0x7FFF;
-            self.memory.custom_regs[(custom::INTENAR / 2) as usize] = self.chipset.intena & 0x7FFF;
-            let c = self.cpu.interpreter(&mut self.memory);
-            if c == 0 {
+            self.cpu.mem.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq & 0x7FFF;
+            self.cpu.mem.custom_regs[(custom::INTENAR / 2) as usize] = self.chipset.intena & 0x7FFF;
+
+            // Update interrupt level for r68k's interrupt controller
+            let pending = self.chipset.intreq & self.chipset.intena & 0x3FFF;
+            if pending != 0 && (self.chipset.intena & custom::INT_SETCLR) != 0 {
+                self.cpu.int_ctrl.set_level(self.chipset.interrupt_level());
+            } else {
+                self.cpu.int_ctrl.set_level(0);
+            }
+
+            let c = self.cpu.execute1();
+            if c.0 <= 0 || self.cpu.processing_state == ProcessingState::Stopped {
                 cycles_used = CYCLES_PER_LINE;
                 break;
             }
-            cycles_used += c;
+            cycles_used += c.0 as usize;
             // Update HPOS based on cycles consumed (2 CPU cycles = 1 color clock)
             self.chipset.hpos = u16::try_from((cycles_used / 2).min(226)).unwrap_or(226);
             // Sync beam position so CPU reads of VHPOSR see advancing hpos
-            self.memory.custom_regs[(custom::VHPOSR / 2) as usize] =
+            self.cpu.mem.custom_regs[(custom::VHPOSR / 2) as usize] =
                 (self.chipset.vpos << 8) | (self.chipset.hpos & 0xFF);
             // Dispatch register writes immediately
-            let writes: Vec<(u16, u16)> = self.memory.drain_reg_writes().collect();
+            let writes: Vec<(u16, u16)> = self.cpu.mem.drain_reg_writes().collect();
             for (offset, value) in writes {
                 self.dispatch_register_write(offset, value);
             }
             // Handle CIA-B PRB writes (disk drive selection/motor/step)
-            if self.memory.cia_b_prb_dirty {
-                self.memory.cia_b_prb_dirty = false;
-                let prb = self.memory.cia.cia_b.prb;
+            if self.cpu.mem.cia_b_prb_dirty {
+                self.cpu.mem.cia_b_prb_dirty = false;
+                let prb = self.cpu.mem.cia.borrow().cia_b.prb;
                 self.floppy.disk_select(prb);
-                // Update disk status for CIA-A PRA reads
-                // FS-UAE DISK_status_ciaa: start with $3C, clear bits per drive state
                 let mut st: u8 = 0x3C;
                 if self.floppy.at_track0() {
-                    st &= !0x10; // bit 4: TRACK0 asserted
+                    st &= !0x10;
                 }
                 if !self.floppy.has_disk() {
-                    // No disk: DSKCHANGE=0 (disk removed/never inserted)
                     st &= !0x04;
                 } else if self.floppy.motor_on() {
-                    st &= !0x20; // bit 5: RDY asserted (ready)
+                    st &= !0x20;
                 }
-                self.memory.disk_status = st;
+                self.cpu.mem.disk_status = st;
             }
-            // Run a disk DMA cycle per instruction (allows DMA to progress during DoIO)
+            // Run a disk DMA cycle per instruction
             if self.chipset.dmaen(crate::custom::DMA_DISK) {
-                let chip_ram = self.memory.chip_ram_mut();
+                let chip_ram = self.cpu.mem.chip_ram_mut();
                 self.floppy.disk_dma_cycle(chip_ram);
                 if self.floppy.pending_sync_irq {
                     self.floppy.pending_sync_irq = false;
@@ -219,25 +267,6 @@ impl Emulator {
                 if self.floppy.pending_blk_irq {
                     self.floppy.pending_blk_irq = false;
                     self.chipset.intreq |= custom::INT_DSKBLK;
-                }
-            }
-            // Deliver pending interrupts within the scanline
-            // (required for graphics.library init which waits for VBlank in a tight loop)
-            let pending = self.chipset.intreq & self.chipset.intena & 0x3FFF;
-            if pending != 0 && (self.chipset.intena & custom::INT_SETCLR) != 0 {
-                let level = self.chipset.interrupt_level();
-                if level > self.cpu.regs.sr.interrupt_mask {
-                    use m68000::exception::{Exception, Vector};
-                    let vector = match level {
-                        1 => Vector::Level1Interrupt,
-                        2 => Vector::Level2Interrupt,
-                        3 => Vector::Level3Interrupt,
-                        4 => Vector::Level4Interrupt,
-                        5 => Vector::Level5Interrupt,
-                        6 => Vector::Level6Interrupt,
-                        _ => Vector::Level7Interrupt,
-                    };
-                    self.cpu.exception(Exception::from(vector));
                 }
             }
         }
@@ -254,7 +283,7 @@ impl Emulator {
 
         // Run copper for this scanline
         if self.copper.enabled {
-            let chip_ram = self.memory.chip_ram();
+            let chip_ram = self.cpu.mem.chip_ram();
             let mut copper_writes = Vec::new();
             for h in 0u16..227 {
                 if let Some(action) = self.copper.cycle(chip_ram, vpos, h) {
@@ -279,7 +308,7 @@ impl Emulator {
         if vpos < VISIBLE_LINES {
             let mut line_buffer = [0u16; DISPLAY_WIDTH];
             // Sync playfield state from shadow registers (copper has updated them)
-            let regs = &self.memory.custom_regs;
+            let regs = &self.cpu.mem.custom_regs;
             self.playfield.bplcon0 = regs[(custom::BPLCON0 / 2) as usize];
             self.playfield.bplcon1 = regs[(0x102 / 2) as usize];
             self.playfield.bplcon2 = regs[(0x104 / 2) as usize];
@@ -296,7 +325,7 @@ impl Emulator {
                 let c = regs[0x180 / 2 + i];
                 self.playfield.color[i] = c & 0x0FFF;
             }
-            let chip_ram = self.memory.chip_ram();
+            let chip_ram = self.cpu.mem.chip_ram();
             self.playfield
                 .render_scanline(vpos, chip_ram, &mut line_buffer);
             let offset = usize::from(vpos) * DISPLAY_WIDTH;
@@ -305,21 +334,25 @@ impl Emulator {
 
         // CIA E-clock: ~45 ticks per scanline (709379 Hz / 15625 Hz)
         for _ in 0..45 {
-            if self.memory.cia.cia_a.tick() {
+            let mut cia = self.cpu.mem.cia.borrow_mut();
+            if cia.cia_a.tick() {
                 self.chipset.intreq |= custom::INT_PORTS;
             }
-            if self.memory.cia.cia_b.tick() {
+            if cia.cia_b.tick() {
                 self.chipset.intreq |= custom::INT_EXTER;
             }
         }
         // Also fire INT_EXTER if CIA-B has any masked interrupt pending (e.g. FLAG)
-        if self.memory.cia.cia_b.icr_data & self.memory.cia.cia_b.icr_mask & 0x1F != 0 {
-            self.chipset.intreq |= custom::INT_EXTER;
+        {
+            let cia = self.cpu.mem.cia.borrow();
+            if cia.cia_b.icr_data & cia.cia_b.icr_mask & 0x1F != 0 {
+                self.chipset.intreq |= custom::INT_EXTER;
+            }
         }
-        self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
+        self.cpu.mem.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
 
         // CIA-B TOD clocked by HSync (every scanline)
-        self.memory.cia.cia_b.tick_tod();
+        self.cpu.mem.cia.borrow_mut().cia_b.tick_tod();
 
         // Disk index pulse: only fires when a disk is present and spinning.
         // Without a disk, no index hole exists so no pulse is generated.
@@ -328,12 +361,13 @@ impl Emulator {
         // Disk index pulse: fires once per revolution when motor is spinning.
         // Use raw CIA-B PRB bit 7 (0=motor on) since floppy.motor_on() may not
         // reflect the state during init (disk_select hasn't processed it yet).
-        if self.memory.cia.cia_b.prb & 0x80 == 0 && self.chipset.vpos == 0 {
+        if self.cpu.mem.cia.borrow().cia_b.prb & 0x80 == 0 && self.chipset.vpos == 0 {
             // Fire index pulse once per revolution (~300ms real, once per frame here)
-            self.memory.cia.cia_b.icr_data |= 0x10; // FLAG bit
-            if self.memory.cia.cia_b.icr_mask & 0x10 != 0 {
+            let mut cia = self.cpu.mem.cia.borrow_mut();
+            cia.cia_b.icr_data |= 0x10; // FLAG bit
+            if cia.cia_b.icr_mask & 0x10 != 0 {
                 self.chipset.intreq |= custom::INT_EXTER;
-                self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
+                self.cpu.mem.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
             }
         }
 
@@ -341,15 +375,13 @@ impl Emulator {
         if let Some((keycode, pressed)) = self.key_events.first().copied() {
             // Amiga keyboard protocol: bit 7 = 0 for press, 1 for release
             let code = if pressed { keycode } else { keycode | 0x80 };
-            self.memory.cia.cia_a.sdr = code;
+            self.cpu.mem.cia.borrow_mut().cia_a.sdr = code;
             self.key_events.remove(0);
         }
 
-        // Floppy DMA: run ~32 word cycles per scanline (one word every ~7 hpos)
-        // Real hardware: one word every 2µs = ~113 words per scanline at PAL timing.
-        // We run fewer to avoid over-speeding, but enough for timely completion.
+        // Floppy DMA: run ~32 word cycles per scanline
         if self.chipset.dmaen(crate::custom::DMA_DISK) {
-            let chip_ram = self.memory.chip_ram_mut();
+            let chip_ram = self.cpu.mem.chip_ram_mut();
             for _ in 0..32 {
                 self.floppy.disk_dma_cycle(chip_ram);
             }
@@ -357,85 +389,60 @@ impl Emulator {
             if self.floppy.pending_sync_irq {
                 self.floppy.pending_sync_irq = false;
                 self.chipset.intreq |= 0x1000; // DSKSYNC
-                self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
+                self.cpu.mem.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
             }
             if self.floppy.pending_blk_irq {
                 self.floppy.pending_blk_irq = false;
                 self.chipset.intreq |= custom::INT_DSKBLK;
-                self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
+                self.cpu.mem.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
             }
         }
 
         // VBlank handling
         if vpos == 0 {
-            // Always fire VBlank (hardware signal).
             {
                 self.chipset.intreq |= custom::INT_VERTB;
-                self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
+                self.cpu.mem.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
             }
             self.copper.restart_vertical_blank();
             self.frame_ready = true;
             // CIA-A TOD clocked by VSync (once per frame)
-            self.memory.cia.cia_a.tick_tod();
+            self.cpu.mem.cia.borrow_mut().cia_a.tick_tod();
             // Reset mouse deltas at frame boundary
             self.mouse_dx = 0;
             self.mouse_dy = 0;
 
             // Workaround: force-start CIA timers if timer.device failed to start them.
-            //
-            // On Kickstart 1.3, timer.device's init calls cia.resource's
-            // `AddICRVector` to claim CIA timer interrupts. Due to an
-            // unresolved emulation issue in the cia.resource init path, this
-            // call fails and the timers are never started. Without running
-            // timers, the boot process cannot time out and show the
-            // "insert disk" hand.
-            //
-            // We detect this condition once after InitCode completes (~frame
-            // 160) and start the timers with a standard latch value if they
-            // are still stopped.
             if self.total_cycles > FORCE_CIA_TIMER_THRESHOLD
-                && self.memory.cia.cia_b.cra & 0x01 == 0
+                && self.cpu.mem.cia.borrow().cia_b.cra & 0x01 == 0
             {
-                // CIA-B Timer A: used by timer.device for ECLOCK timing.
-                // Standard latch = $FFFF, continuous mode.
-                self.memory.cia.cia_b.cra |= 0x01; // START
-                self.memory.cia.cia_b.icr_mask |= 0x01; // Enable Timer A interrupt
-                // CIA-A Timer A: used by timer.device for MICROHZ timing.
-                if self.memory.cia.cia_a.cra & 0x01 == 0 {
-                    self.memory.cia.cia_a.cra |= 0x01;
-                    self.memory.cia.cia_a.icr_mask |= 0x01;
+                let mut cia = self.cpu.mem.cia.borrow_mut();
+                cia.cia_b.cra |= 0x01;
+                cia.cia_b.icr_mask |= 0x01;
+                if cia.cia_a.cra & 0x01 == 0 {
+                    cia.cia_a.cra |= 0x01;
+                    cia.cia_a.icr_mask |= 0x01;
                 }
             }
         }
 
         // Sync INTREQR/INTENAR so the CPU reads correct values in interrupt handlers
-        self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
-        self.memory.custom_regs[(custom::INTENAR / 2) as usize] = self.chipset.intena;
+        self.cpu.mem.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
+        self.cpu.mem.custom_regs[(custom::INTENAR / 2) as usize] = self.chipset.intena;
 
-        // Deliver pending interrupts to CPU.
+        // Update interrupt level for next scanline — r68k handles delivery internally
         let pending = self.chipset.intreq & self.chipset.intena & 0x3FFF;
         if pending != 0 && (self.chipset.intena & custom::INT_SETCLR) != 0 {
-            let level = self.chipset.interrupt_level();
-            if level > self.cpu.regs.sr.interrupt_mask {
-                use m68000::exception::{Exception, Vector};
-                let vector = match level {
-                    1 => Vector::Level1Interrupt,
-                    2 => Vector::Level2Interrupt,
-                    3 => Vector::Level3Interrupt,
-                    4 => Vector::Level4Interrupt,
-                    5 => Vector::Level5Interrupt,
-                    6 => Vector::Level6Interrupt,
-                    _ => Vector::Level7Interrupt,
-                };
-                self.cpu.exception(Exception::from(vector));
-            }
+            self.cpu.int_ctrl.set_level(self.chipset.interrupt_level());
+        } else {
+            self.cpu.int_ctrl.set_level(0);
         }
     }
 
     /// Sync live chipset state into the custom register shadow so CPU reads are correct.
     fn sync_readable_regs(&mut self) {
         use crate::custom;
-        let regs = &mut self.memory.custom_regs;
+        let regs = &mut self.cpu.mem.custom_regs;
         // VPOSR: bit 15=LOF, bits 14-8=Agnus ID, bits 0-2=vpos high
         // ECS Agnus (A500+): ID=$20 → bits 12-8 = $20 → VPOSR has $2000
         regs[(custom::VPOSR / 2) as usize] = 0x8000 | 0x2000 | ((self.chipset.vpos >> 8) & 1);
@@ -473,22 +480,22 @@ impl Emulator {
             }
             custom::INTENA | custom::INTREQ => {
                 self.chipset.write_register(offset, value);
-                self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
-                self.memory.custom_regs[(custom::INTENAR / 2) as usize] = self.chipset.intena;
+                self.cpu.mem.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
+                self.cpu.mem.custom_regs[(custom::INTENAR / 2) as usize] = self.chipset.intena;
             }
             custom::COP1LCH => {
                 self.copper.cop1lc = (self.copper.cop1lc & 0x0000_FFFF) | (u32::from(value) << 16);
             }
             custom::COP1LCL => {
                 self.copper.cop1lc = (self.copper.cop1lc & 0xFFFF_0000) | u32::from(value & 0xFFFE);
-                self.copper.cop1lc &= (self.memory.chip_ram().len() as u32).wrapping_sub(1);
+                self.copper.cop1lc &= (self.cpu.mem.chip_ram().len() as u32).wrapping_sub(1);
             }
             custom::COP2LCH => {
                 self.copper.cop2lc = (self.copper.cop2lc & 0x0000_FFFF) | (u32::from(value) << 16);
             }
             custom::COP2LCL => {
                 self.copper.cop2lc = (self.copper.cop2lc & 0xFFFF_0000) | u32::from(value & 0xFFFE);
-                self.copper.cop2lc &= (self.memory.chip_ram().len() as u32).wrapping_sub(1);
+                self.copper.cop2lc &= (self.cpu.mem.chip_ram().len() as u32).wrapping_sub(1);
             }
             custom::COPJMP1 => self.copper.strobe_cop1(),
             custom::COPJMP2 => self.copper.strobe_cop2(),
@@ -564,7 +571,7 @@ impl Emulator {
             custom::BLTSIZE => {
                 self.blitter.bltsize = value;
                 self.blitter.start_blit();
-                let chip_ram = self.memory.chip_ram_mut();
+                let chip_ram = self.cpu.mem.chip_ram_mut();
                 self.blitter.execute_blit(chip_ram);
             }
             _ => {}
@@ -624,16 +631,12 @@ mod tests {
 
         emu.load_rom(&rom);
 
-        // Execute one instruction — the CPU should process the reset exception
-        // and then execute the NOP at the reset vector PC.
-        let c = emu.cpu.interpreter(&mut emu.memory);
-        assert!(c > 0);
+        // r68k resets in new_with, but we loaded ROM after construction.
+        // Re-reset to pick up the new vectors.
+        emu.cpu.reset();
 
-        // After reset processing, PC should be at 0x00FC0008 or past it
-        let pc = emu.cpu.regs.pc.0;
-        // The reset handler fetches SSP and PC, then starts executing at the
-        // reset PC. After one interpreter call the PC should be at or past
-        // the reset vector address.
+        // After reset, PC should be at the reset vector address
+        let pc = emu.cpu.pc;
         assert!(
             pc >= 0x00FC_0008,
             "PC should point to reset vector address, got {pc:#010X}"

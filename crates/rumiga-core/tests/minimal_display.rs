@@ -4,7 +4,7 @@
 //! Test with a minimal synthetic ROM that directly sets up the Amiga display.
 //! This bypasses the complex Kickstart boot sequence to verify our chipset works.
 
-use m68000::MemoryAccess;
+use r68k_emu::ram::{AddressBus, SUPERVISOR_DATA};
 use rumiga_core::emulator::Emulator;
 use rumiga_core::memory::MemoryConfig;
 
@@ -75,8 +75,8 @@ fn minimal_rom_sets_up_display_and_produces_colored_output() {
     // Alternating $FFFF/$0000 words = alternating 16px stripes
     for i in 0..320u32 {
         let addr = 0x10000 + i * 2;
-        let value: u16 = if (i / 2) % 2 == 0 { 0xFFFF } else { 0x0000 };
-        let _ = emu.memory.set_word(addr, value);
+        let value: u32 = if (i / 2) % 2 == 0 { 0xFFFF } else { 0x0000 };
+        emu.cpu.mem.write_word(SUPERVISOR_DATA, addr, value);
     }
 
     // Run 5 frames

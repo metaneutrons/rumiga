@@ -284,7 +284,7 @@ mod tests {
 
     #[test]
     fn simple_a_to_d_copy() {
-        let mut chip_ram = alloc::vec![0u8; 256];
+        let mut chip_ram = vec![0u8; 256];
         // Source at offset 0: two words
         chip_ram[0] = 0xDE;
         chip_ram[1] = 0xAD;
@@ -308,7 +308,7 @@ mod tests {
 
     #[test]
     fn busy_done_flags_transition() {
-        let mut chip_ram = alloc::vec![0u8; 64];
+        let mut chip_ram = vec![0u8; 64];
         let mut blitter = BlitterState::new();
         blitter.bltcon0 = USE_D | 0xF0;
         blitter.bltsize = (1 << 6) | 1;
@@ -327,7 +327,7 @@ mod tests {
 
     #[test]
     fn first_last_word_masks_applied() {
-        let mut chip_ram = alloc::vec![0u8; 256];
+        let mut chip_ram = vec![0u8; 256];
         // Source: 3 words of 0xFFFF
         for byte in chip_ram.iter_mut().take(6) {
             *byte = 0xFF;

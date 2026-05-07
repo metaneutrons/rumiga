@@ -6,9 +6,9 @@
 //! Implements the Amiga memory map with chip RAM, slow RAM, fast RAM,
 //! Kickstart ROM, custom chip registers, and CIA registers.
 
-use alloc::vec;
-use alloc::vec::Vec;
-use m68000::memory_access::MemoryAccess;
+use std::cell::RefCell;
+
+use r68k_emu::ram::{AddressBus, AddressSpace};
 
 use crate::cia::CiaPair;
 
@@ -79,7 +79,7 @@ impl MemoryConfig {
 /// Number of word registers in the custom chip address space ($DFF000–$DFF1FF).
 const CUSTOM_REG_COUNT: usize = 256;
 
-/// The Amiga memory subsystem implementing the m68000 `MemoryAccess` trait.
+/// The Amiga memory subsystem implementing r68k's `AddressBus` trait.
 pub struct AmigaMemory {
     config: MemoryConfig,
     chip_ram: Vec<u8>,
@@ -98,8 +98,8 @@ pub struct AmigaMemory {
     pub cia_b_prb_dirty: bool,
     /// Disk status bits for CIA-A PRA (bits 2-5), updated by emulator from floppy state.
     pub disk_status: u8,
-    /// CIA pair (A and B) — lives here so `MemoryAccess` can read/write registers.
-    pub cia: CiaPair,
+    /// CIA pair (A and B) — lives here so `AddressBus` can read/write registers.
+    pub cia: RefCell<CiaPair>,
 }
 
 impl AmigaMemory {
@@ -124,7 +124,7 @@ impl AmigaMemory {
             cia_a_pra: 0,
             cia_b_prb_dirty: false,
             disk_status: 0x3C, // FS-UAE default: all bits set (no change, not protected, not track0, not ready)
-            cia: CiaPair::new(),
+            cia: RefCell::new(CiaPair::new()),
         }
     }
 
@@ -155,7 +155,7 @@ impl AmigaMemory {
     }
 
     /// Drain the register write log, returning an iterator over (offset, value) pairs.
-    pub fn drain_reg_writes(&mut self) -> alloc::vec::Drain<'_, (u16, u16)> {
+    pub fn drain_reg_writes(&mut self) -> std::vec::Drain<'_, (u16, u16)> {
         self.reg_write_log.drain(..)
     }
 
@@ -189,31 +189,30 @@ impl AmigaMemory {
     }
 
     /// Read a byte from the memory map.
-    #[allow(clippy::unnecessary_wraps)]
-    fn read_byte(&mut self, addr: u32) -> Option<u8> {
+    fn read_byte_internal(&self, addr: u32) -> u8 {
         let addr = addr & 0x00FF_FFFF; // 24-bit address bus
 
         // Overlay: ROM mapped at 0x000000 after reset
         if self.overlay && addr < self.config.rom_size {
-            return Some(self.rom[addr as usize]);
+            return self.rom[addr as usize];
         }
 
         // Chip RAM: 0x000000–chip_ram_size (with mirroring)
         if addr < self.config.chip_ram_size {
-            return Some(self.chip_ram[addr as usize]);
+            return self.chip_ram[addr as usize];
         }
 
         // Chip RAM mirror (wraps within chip_ram_size)
         if addr < 0x0020_0000 {
             let mirrored = addr % self.config.chip_ram_size;
-            return Some(self.chip_ram[mirrored as usize]);
+            return self.chip_ram[mirrored as usize];
         }
 
         // Fast RAM: 0x200000–0xA00000
         if self.config.fast_ram_size > 0 && (0x0020_0000..0x00A0_0000).contains(&addr) {
             let offset = addr - 0x0020_0000;
             if offset < self.config.fast_ram_size {
-                return Some(self.fast_ram[offset as usize]);
+                return self.fast_ram[offset as usize];
             }
         }
 
@@ -227,25 +226,26 @@ impl AmigaMemory {
                     // Bits 0-1: output (OVL, LED)
                     // Bits 2-5: disk status (from emulator's floppy controller)
                     // Bits 6-7: joystick fire buttons (active low = 1 when not pressed)
-                    let output_bits = self.cia_a_pra & self.cia.cia_a.ddra;
+                    let cia = self.cia.borrow();
+                    let output_bits = self.cia_a_pra & cia.cia_a.ddra;
                     let input_bits: u8 = (self.disk_status & 0x3C) | 0xC0;
-                    return Some(output_bits | (input_bits & !self.cia.cia_a.ddra));
+                    return output_bits | (input_bits & !cia.cia_a.ddra);
                 }
-                return Some(self.cia.cia_a.read(reg));
+                return self.cia.borrow_mut().cia_a.read(reg);
             }
             // CIA-B at even addresses ($BFD000), register select via A8-A11
             if addr & 1 == 0 {
                 let reg = ((addr >> 8) & 0xF) as u8;
-                return Some(self.cia.cia_b.read(reg));
+                return self.cia.borrow_mut().cia_b.read(reg);
             }
-            return Some(0xFF);
+            return 0xFF;
         }
 
         // Slow RAM: 0xC00000–0xC80000
         if self.config.slow_ram_size > 0 && (0x00C0_0000..0x00C8_0000).contains(&addr) {
             let offset = addr - 0x00C0_0000;
             if offset < self.config.slow_ram_size {
-                return Some(self.slow_ram[offset as usize]);
+                return self.slow_ram[offset as usize];
             }
         }
 
@@ -255,45 +255,45 @@ impl AmigaMemory {
             let word = self.custom_regs[(offset / 2) as usize];
             // Even address = high byte, odd address = low byte
             return if addr & 1 == 0 {
-                Some((word >> 8) as u8)
+                (word >> 8) as u8
             } else {
-                Some((word & 0xFF) as u8)
+                (word & 0xFF) as u8
             };
         }
 
         // ROM mirror at $E00000-$E7FFFF (ECS Agnus ksmirror_e0)
         if (0x00E0_0000..0x00E8_0000).contains(&addr) {
             let offset = (addr - 0x00E0_0000) % self.config.rom_size;
-            return Some(self.rom[offset as usize]);
+            return self.rom[offset as usize];
         }
 
         // ROM: 0xF80000/0xFC0000–0x1000000
         if (self.rom_base()..ROM_END).contains(&addr) {
             let offset = addr - self.rom_base();
             if offset < self.config.rom_size {
-                return Some(self.rom[offset as usize]);
+                return self.rom[offset as usize];
             }
         }
 
         // Unmapped — return open bus (0xFF) like real hardware
-        Some(0xFF)
+        0xFF
     }
 
     /// Write a byte to the memory map.
-    fn write_byte(&mut self, addr: u32, value: u8) -> bool {
+    fn write_byte_internal(&mut self, addr: u32, value: u8) {
         let addr = addr & 0x00FF_FFFF;
 
         // Chip RAM
         if addr < self.config.chip_ram_size {
             self.chip_ram[addr as usize] = value;
-            return true;
+            return;
         }
 
         // Chip RAM mirror
         if addr < 0x0020_0000 {
             let mirrored = addr % self.config.chip_ram_size;
             self.chip_ram[mirrored as usize] = value;
-            return true;
+            return;
         }
 
         // Fast RAM
@@ -301,7 +301,7 @@ impl AmigaMemory {
             let offset = addr - 0x0020_0000;
             if offset < self.config.fast_ram_size {
                 self.fast_ram[offset as usize] = value;
-                return true;
+                return;
             }
         }
 
@@ -310,7 +310,7 @@ impl AmigaMemory {
             // CIA-A at odd addresses ($BFE001), register select via A8-A11
             if addr & 1 != 0 && addr >= CIA_A_BASE {
                 let reg = ((addr >> 8) & 0xF) as u8;
-                self.cia.cia_a.write(reg, value);
+                self.cia.borrow_mut().cia_a.write(reg, value);
                 if reg == 0 {
                     self.cia_a_pra = value;
                     // CIA-A PRA bit 0: 0 disables overlay (chip RAM at $0)
@@ -319,18 +319,18 @@ impl AmigaMemory {
             } else if addr & 1 == 0 {
                 // CIA-B at even addresses ($BFD000), register select via A8-A11
                 let reg = ((addr >> 8) & 0xF) as u8;
-                self.cia.cia_b.write(reg, value);
+                self.cia.borrow_mut().cia_b.write(reg, value);
                 if reg == 1 {
                     self.cia_b_prb_dirty = true;
                     // Fire disk index pulse when motor turns on (bit 7=0) and
                     // drive selected (bits 3-6 not all 1). This happens at the
                     // hardware level immediately when the motor signal asserts.
                     if value & 0x80 == 0 && value & 0x78 != 0x78 {
-                        self.cia.cia_b.icr_data |= 0x10; // FLAG = index pulse
+                        self.cia.borrow_mut().cia_b.icr_data |= 0x10; // FLAG = index pulse
                     }
                 }
             }
-            return true;
+            return;
         }
 
         // Slow RAM
@@ -338,7 +338,7 @@ impl AmigaMemory {
             let offset = addr - 0x00C0_0000;
             if offset < self.config.slow_ram_size {
                 self.slow_ram[offset as usize] = value;
-                return true;
+                return;
             }
         }
 
@@ -357,66 +357,75 @@ impl AmigaMemory {
                     self.reg_write_log.push((offset, self.custom_regs[idx]));
                 }
             }
-            return true;
         }
 
-        // ROM — writes ignored
-        if (self.rom_base()..ROM_END).contains(&addr) {
-            return true;
-        }
-
-        // Unmapped — ignore writes like real hardware
-        true
+        // ROM writes and unmapped — ignored
     }
 }
 
-impl MemoryAccess for AmigaMemory {
-    fn get_byte(&mut self, addr: u32) -> Option<u8> {
-        self.read_byte(addr)
+impl AddressBus for AmigaMemory {
+    fn copy_from(&mut self, other: &Self) {
+        self.chip_ram.copy_from_slice(&other.chip_ram);
+        self.slow_ram.copy_from_slice(&other.slow_ram);
+        self.fast_ram.copy_from_slice(&other.fast_ram);
+        self.rom.copy_from_slice(&other.rom);
+        self.overlay = other.overlay;
+        self.custom_regs = other.custom_regs;
+        self.cia_a_pra = other.cia_a_pra;
+        self.cia_b_prb_dirty = other.cia_b_prb_dirty;
+        self.disk_status = other.disk_status;
+        *self.cia.borrow_mut() = other.cia.borrow().clone();
     }
 
-    fn get_word(&mut self, addr: u32) -> Option<u16> {
+    fn read_byte(&self, _address_space: AddressSpace, addr: u32) -> u32 {
+        u32::from(self.read_byte_internal(addr))
+    }
+
+    fn read_word(&self, _address_space: AddressSpace, addr: u32) -> u32 {
         let masked = addr & 0x00FF_FFFF;
         // Custom chip registers: atomic word read
         if (CUSTOM_BASE..CUSTOM_END).contains(&masked) {
             let offset = ((masked - CUSTOM_BASE) & 0x1FE) as u16;
             let idx = (offset / 2) as usize;
             return if idx < CUSTOM_REG_COUNT {
-                Some(self.custom_regs[idx])
+                u32::from(self.custom_regs[idx])
             } else {
-                Some(0)
+                0
             };
         }
-        let hi = self.read_byte(addr)?;
-        let lo = self.read_byte(addr.wrapping_add(1))?;
-        Some((u16::from(hi) << 8) | u16::from(lo))
+        let hi = self.read_byte_internal(addr);
+        let lo = self.read_byte_internal(addr.wrapping_add(1));
+        (u32::from(hi) << 8) | u32::from(lo)
     }
 
-    fn set_byte(&mut self, addr: u32, value: u8) -> Option<()> {
-        if self.write_byte(addr, value) {
-            Some(())
-        } else {
-            None
-        }
+    fn read_long(&self, address_space: AddressSpace, addr: u32) -> u32 {
+        let hi = self.read_word(address_space, addr);
+        let lo = self.read_word(address_space, addr.wrapping_add(2));
+        (hi << 16) | lo
     }
 
-    fn set_word(&mut self, addr: u32, value: u16) -> Option<()> {
+    fn write_byte(&mut self, _address_space: AddressSpace, addr: u32, value: u32) {
+        self.write_byte_internal(addr, value as u8);
+    }
+
+    fn write_word(&mut self, _address_space: AddressSpace, addr: u32, value: u32) {
         let masked = addr & 0x00FF_FFFF;
         // Custom chip registers: handle as atomic word write
         if (CUSTOM_BASE..CUSTOM_END).contains(&masked) {
             let offset = ((masked - CUSTOM_BASE) & 0x1FE) as u16;
             let idx = (offset / 2) as usize;
             if idx < CUSTOM_REG_COUNT {
-                self.custom_regs[idx] = value;
-                self.reg_write_log.push((offset, value));
+                let val = value as u16;
+                self.custom_regs[idx] = val;
+                self.reg_write_log.push((offset, val));
 
                 // Immediately update readable shadow for set/clear registers
-                let bits = value & 0x7FFF;
+                let bits = val & 0x7FFF;
                 match offset {
                     0x096 => {
                         // DMACON write → DMACONR readable
                         let r = &mut self.custom_regs[1usize];
-                        if value & 0x8000 != 0 {
+                        if val & 0x8000 != 0 {
                             *r |= bits;
                         } else {
                             *r &= !bits;
@@ -425,7 +434,7 @@ impl MemoryAccess for AmigaMemory {
                     0x09A => {
                         // INTENA write → INTENAR readable
                         let r = &mut self.custom_regs[14usize];
-                        if value & 0x8000 != 0 {
+                        if val & 0x8000 != 0 {
                             *r |= bits;
                         } else {
                             *r &= !bits;
@@ -434,7 +443,7 @@ impl MemoryAccess for AmigaMemory {
                     0x09C => {
                         // INTREQ write → INTREQR readable
                         let r = &mut self.custom_regs[15usize];
-                        if value & 0x8000 != 0 {
+                        if val & 0x8000 != 0 {
                             *r |= bits;
                         } else {
                             *r &= !bits;
@@ -443,39 +452,42 @@ impl MemoryAccess for AmigaMemory {
                     _ => {}
                 }
             }
-            return Some(());
+            return;
         }
         let hi = (value >> 8) as u8;
         let lo = (value & 0xFF) as u8;
-        let _ = self.write_byte(addr, hi);
-        let _ = self.write_byte(addr.wrapping_add(1), lo);
-        Some(())
+        self.write_byte_internal(addr, hi);
+        self.write_byte_internal(addr.wrapping_add(1), lo);
     }
 
-    fn reset_instruction(&mut self) {}
+    fn write_long(&mut self, address_space: AddressSpace, addr: u32, value: u32) {
+        self.write_word(address_space, addr, value >> 16);
+        self.write_word(address_space, addr.wrapping_add(2), value & 0xFFFF);
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use r68k_emu::ram::SUPERVISOR_DATA;
 
     #[test]
     fn chip_ram_read_write() {
         let mut mem = AmigaMemory::new(MemoryConfig::a500());
         mem.overlay = false;
-        let _ = mem.set_byte(0x0000, 0x42);
-        assert_eq!(mem.get_byte(0x0000), Some(0x42));
-        let _ = mem.set_byte(0x7_FFFF, 0xAB);
-        assert_eq!(mem.get_byte(0x7_FFFF), Some(0xAB));
+        mem.write_byte(SUPERVISOR_DATA, 0x0000, 0x42);
+        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0x0000), 0x42);
+        mem.write_byte(SUPERVISOR_DATA, 0x7_FFFF, 0xAB);
+        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0x7_FFFF), 0xAB);
     }
 
     #[test]
     fn chip_ram_mirror() {
         let mut mem = AmigaMemory::new(MemoryConfig::a500());
         mem.overlay = false;
-        let _ = mem.set_byte(0x0100, 0x55);
+        mem.write_byte(SUPERVISOR_DATA, 0x0100, 0x55);
         // 512KB chip RAM mirrors: 0x80100 should mirror to 0x0100
-        assert_eq!(mem.get_byte(0x8_0100), Some(0x55));
+        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0x8_0100), 0x55);
     }
 
     #[test]
@@ -483,10 +495,10 @@ mod tests {
         let mut mem = AmigaMemory::new(MemoryConfig::a500());
         let rom = vec![0xAA; 256 * 1024];
         mem.load_rom(&rom);
-        assert_eq!(mem.get_byte(0xFC_0000), Some(0xAA));
+        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0xFC_0000), 0xAA);
         // Write to ROM should be ignored
-        let _ = mem.set_byte(0xFC_0000, 0x55);
-        assert_eq!(mem.get_byte(0xFC_0000), Some(0xAA));
+        mem.write_byte(SUPERVISOR_DATA, 0xFC_0000, 0x55);
+        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0xFC_0000), 0xAA);
     }
 
     #[test]
@@ -499,35 +511,35 @@ mod tests {
         rom[3] = 0x00;
         mem.load_rom(&rom);
         // With overlay, address 0 reads from ROM
-        assert_eq!(mem.get_word(0x0000), Some(0x0010));
+        assert_eq!(mem.read_word(SUPERVISOR_DATA, 0x0000), 0x0010);
         // Disable overlay
         mem.overlay = false;
         // Now address 0 reads from chip RAM (which is zeroed)
-        assert_eq!(mem.get_word(0x0000), Some(0x0000));
+        assert_eq!(mem.read_word(SUPERVISOR_DATA, 0x0000), 0x0000);
     }
 
     #[test]
     fn word_access() {
         let mut mem = AmigaMemory::new(MemoryConfig::a500());
         mem.overlay = false;
-        let _ = mem.set_word(0x1000, 0xDEAD);
-        assert_eq!(mem.get_word(0x1000), Some(0xDEAD));
-        assert_eq!(mem.get_byte(0x1000), Some(0xDE));
-        assert_eq!(mem.get_byte(0x1001), Some(0xAD));
+        mem.write_word(SUPERVISOR_DATA, 0x1000, 0xDEAD);
+        assert_eq!(mem.read_word(SUPERVISOR_DATA, 0x1000), 0xDEAD);
+        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0x1000), 0xDE);
+        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0x1001), 0xAD);
     }
 
     #[test]
     fn slow_ram_access() {
         let mut mem = AmigaMemory::new(MemoryConfig::a500());
-        let _ = mem.set_byte(0xC0_0000, 0x77);
-        assert_eq!(mem.get_byte(0xC0_0000), Some(0x77));
+        mem.write_byte(SUPERVISOR_DATA, 0xC0_0000, 0x77);
+        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0xC0_0000), 0x77);
     }
 
     #[test]
-    fn unmapped_returns_none() {
+    fn unmapped_returns_ff() {
         let mut mem = AmigaMemory::new(MemoryConfig::a500());
         mem.overlay = false;
         // Address in unmapped region (no fast RAM configured, 0x200000+)
-        assert_eq!(mem.get_byte(0x20_0000), Some(0xFF));
+        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0x20_0000), 0xFF);
     }
 }

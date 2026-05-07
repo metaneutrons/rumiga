@@ -204,8 +204,8 @@ mod tests {
     use super::*;
 
     /// Build chip RAM with a copper list at address 0.
-    fn make_chip_ram(instructions: &[(u16, u16)]) -> alloc::vec::Vec<u8> {
-        let mut ram = alloc::vec::Vec::new();
+    fn make_chip_ram(instructions: &[(u16, u16)]) -> Vec<u8> {
+        let mut ram = Vec::new();
         for &(w1, w2) in instructions {
             ram.extend_from_slice(&w1.to_be_bytes());
             ram.extend_from_slice(&w2.to_be_bytes());
@@ -213,7 +213,7 @@ mod tests {
         ram
     }
 
-    fn enabled_copper(chip_ram: &[(u16, u16)]) -> (CopperState, alloc::vec::Vec<u8>) {
+    fn enabled_copper(chip_ram: &[(u16, u16)]) -> (CopperState, Vec<u8>) {
         let ram = make_chip_ram(chip_ram);
         let mut copper = CopperState::new();
         copper.enabled = true;

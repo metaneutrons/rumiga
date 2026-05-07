@@ -11,7 +11,8 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-m68000 = { path = "../m68000" }
+r68k-emu = { workspace = true }
+r68k-common = { workspace = true }
 
 [lints]
 workspace = true

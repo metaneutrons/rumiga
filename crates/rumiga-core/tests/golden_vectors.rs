@@ -918,7 +918,7 @@ mod winuae_audio_timing_golden_vectors {
 }
 
 mod winuae_memory_map_golden_vectors {
-    use m68000::memory_access::MemoryAccess;
+    use r68k_emu::ram::{AddressBus, SUPERVISOR_DATA};
     use rumiga_core::memory::{AmigaMemory, MemoryConfig};
 
     /// WinUAE memory.cpp: Chip RAM at $000000.
@@ -926,8 +926,8 @@ mod winuae_memory_map_golden_vectors {
     fn test_chip_ram_at_000000() {
         let mut mem = AmigaMemory::new(MemoryConfig::a500());
         mem.overlay = false;
-        let _ = mem.set_byte(0x000000, 0x42);
-        assert_eq!(mem.get_byte(0x000000), Some(0x42));
+        mem.write_byte(SUPERVISOR_DATA, 0x000000, 0x42);
+        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0x000000), 0x42);
     }
 
     /// WinUAE memory.cpp: Chip RAM mirrored up to $200000.
@@ -935,23 +935,24 @@ mod winuae_memory_map_golden_vectors {
     fn test_chip_ram_mirrored_up_to_200000() {
         let mut mem = AmigaMemory::new(MemoryConfig::a500());
         mem.overlay = false;
-        let _ = mem.set_byte(0x001000, 0xAB);
+        mem.write_byte(SUPERVISOR_DATA, 0x001000, 0xAB);
         // 512KB chip RAM: 0x081000 mirrors to 0x001000
-        assert_eq!(mem.get_byte(0x081000), Some(0xAB));
+        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0x081000), 0xAB);
         // 0x101000 also mirrors
-        assert_eq!(mem.get_byte(0x101000), Some(0xAB));
+        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0x101000), 0xAB);
     }
 
     /// WinUAE memory.cpp: ROM at $FC0000 (256K).
     #[test]
     fn test_rom_at_fc0000_256k() {
-        let mut mem = AmigaMemory::new(MemoryConfig::a500());
+        let mem = AmigaMemory::new(MemoryConfig::a500());
         let mut rom = vec![0u8; 256 * 1024];
         rom[0] = 0x11;
         rom[1] = 0x14;
+        let mut mem = mem;
         mem.load_rom(&rom);
-        assert_eq!(mem.get_byte(0xFC0000), Some(0x11));
-        assert_eq!(mem.get_byte(0xFC0001), Some(0x14));
+        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0xFC0000), 0x11);
+        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0xFC0001), 0x14);
     }
 
     /// WinUAE memory.cpp: ROM at $F80000 (512K).
@@ -961,32 +962,30 @@ mod winuae_memory_map_golden_vectors {
         let mut rom = vec![0u8; 512 * 1024];
         rom[0] = 0x22;
         mem.load_rom(&rom);
-        assert_eq!(mem.get_byte(0xF80000), Some(0x22));
+        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0xF80000), 0x22);
     }
 
     /// WinUAE memory.cpp: Custom registers at $DFF000-$DFF1FF.
     #[test]
     fn test_custom_registers_at_dff000() {
-        let mut mem = AmigaMemory::new(MemoryConfig::a500());
-        // Custom register reads should not return None (mapped region)
-        assert!(mem.get_byte(0xDFF000).is_some());
-        assert!(mem.get_byte(0xDFF1FF).is_some());
+        let mem = AmigaMemory::new(MemoryConfig::a500());
+        // Custom register reads should return valid values (mapped region)
+        let _ = mem.read_byte(SUPERVISOR_DATA, 0xDFF000);
+        let _ = mem.read_byte(SUPERVISOR_DATA, 0xDFF1FF);
     }
 
     /// WinUAE memory.cpp: CIA-A at $BFE001 (odd bytes).
     #[test]
     fn test_cia_a_at_bfe001_odd_bytes() {
-        let mut mem = AmigaMemory::new(MemoryConfig::a500());
-        // CIA-A is at odd addresses starting at $BFE001
-        // The CIA address space is $BFD000-$C00000
-        assert!(mem.get_byte(0xBFE001).is_some());
+        let mem = AmigaMemory::new(MemoryConfig::a500());
+        let _ = mem.read_byte(SUPERVISOR_DATA, 0xBFE001);
     }
 
     /// WinUAE memory.cpp: CIA-B at $BFD000 (even bytes).
     #[test]
     fn test_cia_b_at_bfd000_even_bytes() {
-        let mut mem = AmigaMemory::new(MemoryConfig::a500());
-        assert!(mem.get_byte(0xBFD000).is_some());
+        let mem = AmigaMemory::new(MemoryConfig::a500());
+        let _ = mem.read_byte(SUPERVISOR_DATA, 0xBFD000);
     }
 
     /// WinUAE memory.cpp: Overlay — ROM visible at $000000 after reset.
@@ -1002,33 +1001,31 @@ mod winuae_memory_map_golden_vectors {
 
         // Overlay is true by default (after reset)
         assert!(mem.overlay);
-        assert_eq!(mem.get_word(0x000000), Some(0x00FC));
-        assert_eq!(mem.get_word(0x000002), Some(0x0002));
+        assert_eq!(mem.read_word(SUPERVISOR_DATA, 0x000000), 0x00FC);
+        assert_eq!(mem.read_word(SUPERVISOR_DATA, 0x000002), 0x0002);
 
         // Disable overlay
         mem.overlay = false;
         // Now reads chip RAM (zeroed)
-        assert_eq!(mem.get_word(0x000000), Some(0x0000));
+        assert_eq!(mem.read_word(SUPERVISOR_DATA, 0x000000), 0x0000);
     }
 
     /// WinUAE memory.cpp: Slow RAM at $C00000-$C80000.
     #[test]
     fn test_slow_ram_at_c00000() {
         let mut mem = AmigaMemory::new(MemoryConfig::a500());
-        let _ = mem.set_byte(0xC00000, 0x77);
-        assert_eq!(mem.get_byte(0xC00000), Some(0x77));
-        let _ = mem.set_byte(0xC7FFFF, 0x88);
-        assert_eq!(mem.get_byte(0xC7FFFF), Some(0x88));
+        mem.write_byte(SUPERVISOR_DATA, 0xC00000, 0x77);
+        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0xC00000), 0x77);
+        mem.write_byte(SUPERVISOR_DATA, 0xC7FFFF, 0x88);
+        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0xC7FFFF), 0x88);
     }
 
-    /// WinUAE memory.cpp: Unmapped addresses return None (bus error).
+    /// WinUAE memory.cpp: Unmapped addresses return open bus (0xFF).
     #[test]
     fn test_unmapped_address_returns_open_bus() {
         let mut mem = AmigaMemory::new(MemoryConfig::a500());
         mem.overlay = false;
-        // No fast RAM configured, $200000 is unmapped
-        // Real Amiga returns open bus (0xFF) for unmapped addresses
-        assert_eq!(mem.get_byte(0x200000), Some(0xFF));
+        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0x200000), 0xFF);
     }
 
     /// WinUAE memory.cpp: ROM is read-only — writes are ignored.
@@ -1037,8 +1034,8 @@ mod winuae_memory_map_golden_vectors {
         let mut mem = AmigaMemory::new(MemoryConfig::a500());
         let rom = vec![0xAA; 256 * 1024];
         mem.load_rom(&rom);
-        let _ = mem.set_byte(0xFC0000, 0x55);
-        assert_eq!(mem.get_byte(0xFC0000), Some(0xAA));
+        mem.write_byte(SUPERVISOR_DATA, 0xFC0000, 0x55);
+        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0xFC0000), 0xAA);
     }
 }
 

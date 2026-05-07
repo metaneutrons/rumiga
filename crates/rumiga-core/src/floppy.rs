@@ -6,8 +6,6 @@
 //! Implements per-word MFM streaming with sync word detection, proper DMA
 //! transfer gating, and correct interrupt timing.
 
-use alloc::vec::Vec;
-
 /// Sectors per track in an ADF image.
 const SECTORS_PER_TRACK: u32 = 11;
 
@@ -385,7 +383,6 @@ const fn mfm_encode_long_even(v: u32) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::vec;
 
     #[test]
     fn dsklen_double_write_starts_dma() {

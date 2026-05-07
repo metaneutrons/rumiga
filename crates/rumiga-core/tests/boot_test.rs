@@ -3,7 +3,7 @@
 
 //! Integration test: boot a real Kickstart ROM and verify emulation progresses.
 
-use rumiga_core::emulator::Emulator;
+use rumiga_core::emulator::{Emulator, ProcessingState};
 use rumiga_core::memory::MemoryConfig;
 use std::fs;
 use std::path::PathBuf;
@@ -145,15 +145,17 @@ fn test_kickstart_13_boots_past_memory_test_without_crashing() {
 
     // The CPU should have progressed past the initial boot code ($FC00xx)
     // into the exec initialization ($FC30xx+) or hit STOP waiting for interrupts
-    let pc = emu.cpu.regs.pc.0;
+    let pc = emu.cpu.pc;
     assert!(
-        pc > 0x00FC_0100 || emu.cpu.stop,
+        pc > 0x00FC_0100 || emu.cpu.processing_state == ProcessingState::Stopped,
         "CPU should have progressed past boot or be in STOP state, PC=${pc:08X}"
     );
 
     println!(
-        "After 150 frames: PC=${:08X} cycles={} stop={}",
-        pc, emu.total_cycles, emu.cpu.stop
+        "After 150 frames: PC=${:08X} cycles={} stopped={}",
+        pc,
+        emu.total_cycles,
+        emu.cpu.processing_state == ProcessingState::Stopped
     );
 }
 
