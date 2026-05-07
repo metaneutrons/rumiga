@@ -69,7 +69,8 @@ impl InterruptController for AmigaInterruptController {
 
     fn acknowledge_interrupt(&mut self, priority: u8) -> Option<u8> {
         // Autovector: vector = 24 + priority level
-        self.level = 0;
+        // Don't clear level here — the Amiga holds the interrupt line asserted
+        // until software clears INTREQ. The CPU's SR IPL mask prevents re-entry.
         Some(24 + priority)
     }
 }
