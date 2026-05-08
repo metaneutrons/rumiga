@@ -311,6 +311,7 @@ impl Emulator {
                 }
             }
             for (offset, value) in copper_writes {
+                self.cpu.mem.custom_regs[(offset / 2) as usize] = value;
                 self.dispatch_register_write(offset, value);
             }
         }
@@ -433,6 +434,21 @@ impl Emulator {
                 cia.cia_b.cra |= 0x01;
                 if cia.cia_a.cra & 0x01 == 0 {
                     cia.cia_a.cra |= 0x01;
+                }
+            }
+
+            // Set unit+$126 = 1 (disk changed) once trackdisk's unit exists.
+            // On real hardware, CIA-B FLAG fires on DSKCHANGE when no disk is
+            // present, and trackdisk's EXTER handler sets this flag. We set it
+            // directly because the FLAG timing during early boot is complex.
+            {
+                let off = 0x4856usize; // unit ($C04730) + $126 = $C04856
+                if self.cpu.mem.slow_ram.len() > off
+                    && self.cpu.mem.slow_ram[off] == 0
+                    && self.cpu.mem.slow_ram[0x4730] != 0
+                // unit exists
+                {
+                    self.cpu.mem.slow_ram[off] = 1;
                 }
             }
 
