@@ -142,6 +142,17 @@ impl AmigaMemory {
             data.len()
         );
         self.rom.copy_from_slice(data);
+
+        // The drive parameter table default step rate is 3000 ($0BB8).
+        // On real hardware, the drive detection timing measurement updates
+        // this to ~80 based on the actual drive response time. Our CIA timer
+        // doesn't provide accurate enough timing during the measurement loop,
+        // so we set the correct measured value directly.
+        // $FE9F40 - $FC0000 = $29F40
+        if self.rom.len() > 0x2_9F41 && self.rom[0x2_9F40] == 0x0B && self.rom[0x2_9F41] == 0xB8 {
+            self.rom[0x2_9F40] = 0x00;
+            self.rom[0x2_9F41] = 0x50; // 80 (measured step rate for DD drive)
+        }
     }
 
     /// Returns a reference to the chip RAM slice.
