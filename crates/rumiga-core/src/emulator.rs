@@ -436,9 +436,19 @@ impl Emulator {
                 }
             }
 
-            // Disk change state at unit+$126 must be 0 (no change) for strap
-            // to proceed to the boot block read attempt. The read will fail
-            // (no valid data) and strap will then show the hand.
+            // On real hardware with no disk, DSKCHANGE is LOW from power-on.
+            // trackdisk's disk change handler (CIA-B FLAG) sets unit+$126 to
+            // non-zero. Our FLAG delivery timing doesn't trigger the handler
+            // before strap polls TD_CHANGESTATE, so set it directly.
+            // unit block $C04730 + $126 = $C04856 = slow_ram[0x4856]
+            if self.total_cycles > FORCE_CIA_TIMER_THRESHOLD {
+                let off = 0x4856usize;
+                if self.cpu.mem.slow_ram.len() > off + 3
+                    && self.cpu.mem.slow_ram[off..off + 4] == [0, 0, 0, 0]
+                {
+                    self.cpu.mem.slow_ram[off + 3] = 1;
+                }
+            }
         }
 
         // Sync INTREQR/INTENAR so the CPU reads correct values in interrupt handlers

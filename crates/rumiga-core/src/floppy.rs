@@ -198,9 +198,10 @@ impl FloppyController {
                     self.word = 0;
                     self.bit_offset = 0;
                 } else {
-                    // No disk: fire DSKBLK immediately so trackdisk sees the
-                    // DMA "complete" with invalid data and returns an error.
+                    // No disk: fire DSKSYNC and DSKBLK immediately so trackdisk
+                    // sees sync "found" and DMA "complete" with invalid data.
                     self.dma_state = DskDmaState::Off;
+                    self.pending_sync_irq = true;
                     self.pending_blk_irq = true;
                 }
             }
