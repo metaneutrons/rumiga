@@ -358,16 +358,6 @@ impl Emulator {
             let cia = self.cpu.mem.cia.borrow();
             if cia.cia_b.icr_ir {
                 self.chipset.intreq |= custom::INT_EXTER;
-                // Simulate trackdisk's EXTER handler: when FLAG fires (DSKCHANGE)
-                // and no disk is present, set the disk change state in the unit.
-                // trackdisk's handler would do this but isn't installed due to
-                // the InitStruct field offset bug.
-                if cia.cia_b.icr_data & 0x10 != 0 && !self.floppy.has_disk() {
-                    let off = 0x4856usize; // unit+$126 = $C04856
-                    if self.cpu.mem.slow_ram.len() > off + 3 {
-                        self.cpu.mem.slow_ram[off + 3] = 1;
-                    }
-                }
             }
         }
         self.cpu.mem.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
@@ -433,21 +423,22 @@ impl Emulator {
             self.mouse_dx = 0;
             self.mouse_dy = 0;
 
-            // Workaround: force-start CIA timers if timer.device failed to start them.
+            // Start CIA timers if timer.device hasn't started them yet.
+            // timer.device uses CIA-B Timer A for UNIT_MICROHZ timeouts.
+            // Without this, trackdisk's disk I/O timeout never fires.
             if self.total_cycles > FORCE_CIA_TIMER_THRESHOLD
                 && self.cpu.mem.cia.borrow().cia_b.cra & 0x01 == 0
             {
                 let mut cia = self.cpu.mem.cia.borrow_mut();
                 cia.cia_b.cra |= 0x01;
-                cia.cia_b.icr_mask |= 0x01;
+                cia.cia_b.icr_mask |= 0x01; // Timer A only, NOT FLAG
                 if cia.cia_a.cra & 0x01 == 0 {
                     cia.cia_a.cra |= 0x01;
                     cia.cia_a.icr_mask |= 0x01;
                 }
             }
 
-            // CIA-B FLAG now properly fires INT_EXTER when drive is selected
-            // with no disk. trackdisk's EXTER handler sets unit+$126.
+            // CIA-B FLAG mask enabled for DSKCHANGE detection.
         }
 
         // Sync INTREQR/INTENAR so the CPU reads correct values in interrupt handlers
