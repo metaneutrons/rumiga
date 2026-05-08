@@ -424,17 +424,15 @@ impl Emulator {
             self.mouse_dy = 0;
 
             // Start CIA timers if timer.device hasn't started them yet.
-            // timer.device uses CIA-B Timer A for UNIT_MICROHZ timeouts.
-            // Without this, trackdisk's disk I/O timeout never fires.
+            // Only start the timer (CRA bit 0), don't enable ICR mask.
+            // timer.device manages the ICR mask itself.
             if self.total_cycles > FORCE_CIA_TIMER_THRESHOLD
                 && self.cpu.mem.cia.borrow().cia_b.cra & 0x01 == 0
             {
                 let mut cia = self.cpu.mem.cia.borrow_mut();
                 cia.cia_b.cra |= 0x01;
-                cia.cia_b.icr_mask |= 0x01; // Timer A only, NOT FLAG
                 if cia.cia_a.cra & 0x01 == 0 {
                     cia.cia_a.cra |= 0x01;
-                    cia.cia_a.icr_mask |= 0x01;
                 }
             }
 
