@@ -118,6 +118,8 @@ pub struct Emulator {
     mouse_dx: i16,
     /// Mouse delta Y accumulator.
     mouse_dy: i16,
+    /// Cached `GfxBase` address (discovered once from library list).
+    gfxbase_cache: u32,
     /// Mouse button state (left pressed).
     mouse_left: bool,
     /// Mouse button state (right pressed).
@@ -154,6 +156,7 @@ impl Emulator {
             key_events: Vec::new(),
             mouse_dx: 0,
             mouse_dy: 0,
+            gfxbase_cache: 0,
             mouse_left: false,
             mouse_right: false,
         }
@@ -416,6 +419,17 @@ impl Emulator {
                 self.chipset.intreq |= custom::INT_VERTB;
                 self.cpu.mem.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
             }
+            // On real hardware, the graphics.library VBLANK server writes
+            // GfxBase->copinit to COP1LC every frame. Our interrupt delivery
+            // timing doesn't allow the handler to run before restart, so we
+            // read copinit directly. GfxBase is cached after first discovery.
+            if let Some(copinit) = self.gfx_copinit() {
+                if copinit != 0
+                    && copinit < u32::try_from(self.cpu.mem.chip_ram().len()).unwrap_or(u32::MAX)
+                {
+                    self.copper.cop1lc = copinit;
+                }
+            }
             self.copper.restart_vertical_blank();
             self.frame_ready = true;
             // CIA-A TOD clocked by VSync (once per frame)
@@ -514,6 +528,7 @@ impl Emulator {
             }
             custom::COP1LCH => {
                 self.copper.cop1lc = (self.copper.cop1lc & 0x0000_FFFF) | (u32::from(value) << 16);
+                self.copper.cop1lc &= (self.cpu.mem.chip_ram().len() as u32).wrapping_sub(1);
             }
             custom::COP1LCL => {
                 self.copper.cop1lc = (self.copper.cop1lc & 0xFFFF_0000) | u32::from(value & 0xFFFE);
@@ -521,6 +536,7 @@ impl Emulator {
             }
             custom::COP2LCH => {
                 self.copper.cop2lc = (self.copper.cop2lc & 0x0000_FFFF) | (u32::from(value) << 16);
+                self.copper.cop2lc &= (self.cpu.mem.chip_ram().len() as u32).wrapping_sub(1);
             }
             custom::COP2LCL => {
                 self.copper.cop2lc = (self.copper.cop2lc & 0xFFFF_0000) | u32::from(value & 0xFFFE);
@@ -614,6 +630,70 @@ impl Emulator {
     #[must_use]
     pub fn framebuffer(&self) -> &[u16] {
         &self.framebuffer
+    }
+
+    /// Read GfxBase->copinit (the system copper list pointer).
+    /// Caches `GfxBase` after first successful lookup.
+    fn gfx_copinit(&mut self) -> Option<u32> {
+        if self.gfxbase_cache == 0 {
+            // Find GfxBase by traversing the library list
+            let chip = self.cpu.mem.chip_ram();
+            if chip.len() < 8 {
+                return None;
+            }
+            let eb = u32::from_be_bytes([chip[4], chip[5], chip[6], chip[7]]);
+            if eb < 0x00C0_0000 {
+                return None;
+            }
+            // LibList at ExecBase + $17A: traverse nodes looking for graphics.library
+            let list_off = (eb + 0x17A - 0x00C0_0000) as usize;
+            if list_off + 4 > self.cpu.mem.slow_ram.len() {
+                return None;
+            }
+            let mut node = u32::from_be_bytes(
+                self.cpu.mem.slow_ram[list_off..list_off + 4]
+                    .try_into()
+                    .ok()?,
+            );
+            for _ in 0..30 {
+                if node == 0 || node < 0x00C0_0000 {
+                    break;
+                }
+                let n_off = (node - 0x00C0_0000) as usize;
+                if n_off + 14 > self.cpu.mem.slow_ram.len() {
+                    break;
+                }
+                // Check lib_IdString or lib_Node.ln_Name for "graphics"
+                let name_ptr = u32::from_be_bytes(
+                    self.cpu.mem.slow_ram[n_off + 10..n_off + 14]
+                        .try_into()
+                        .ok()?,
+                );
+                if (0x00FC_0000..0x0100_0000).contains(&name_ptr) {
+                    // Name in ROM - check it
+                    let rom_off = (name_ptr - 0x00FC_0000) as usize;
+                    if rom_off + 8 < self.cpu.mem.rom_data().len()
+                        && &self.cpu.mem.rom_data()[rom_off..rom_off + 8] == b"graphics"
+                    {
+                        self.gfxbase_cache = node;
+                        break;
+                    }
+                }
+                // Next node
+                node = u32::from_be_bytes(self.cpu.mem.slow_ram[n_off..n_off + 4].try_into().ok()?);
+            }
+        }
+        if self.gfxbase_cache == 0 {
+            return None;
+        }
+        // Read copinit at GfxBase + $26
+        let ci_off = (self.gfxbase_cache + 0x26 - 0x00C0_0000) as usize;
+        if ci_off + 4 > self.cpu.mem.slow_ram.len() {
+            return None;
+        }
+        let copinit =
+            u32::from_be_bytes(self.cpu.mem.slow_ram[ci_off..ci_off + 4].try_into().ok()?);
+        Some(copinit)
     }
 
     /// Returns `true` if a complete frame has been rendered.

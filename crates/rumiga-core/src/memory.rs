@@ -161,6 +161,12 @@ impl AmigaMemory {
         &self.chip_ram
     }
 
+    /// Returns a reference to the ROM data.
+    #[must_use]
+    pub fn rom_data(&self) -> &[u8] {
+        &self.rom
+    }
+
     /// Returns a mutable reference to the chip RAM slice for DMA access.
     pub fn chip_ram_mut(&mut self) -> &mut [u8] {
         &mut self.chip_ram
