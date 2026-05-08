@@ -331,11 +331,6 @@ impl Emulator {
             self.playfield.diwstop = regs[(0x090 / 2) as usize];
             self.playfield.ddfstrt = regs[(0x092 / 2) as usize];
             self.playfield.ddfstop = regs[(0x094 / 2) as usize];
-            for i in 0u16..6 {
-                let h = u32::from(regs[(0x0E0 / 2 + i * 2) as usize]);
-                let l = u32::from(regs[(0x0E2 / 2 + i * 2) as usize]);
-                self.playfield.bplpt[usize::from(i)] = (h << 16) | l;
-            }
             for i in 0usize..32 {
                 let c = regs[0x180 / 2 + i];
                 self.playfield.color[i] = c & 0x0FFF;
@@ -343,6 +338,22 @@ impl Emulator {
             let chip_ram = self.cpu.mem.chip_ram();
             self.playfield
                 .render_scanline(vpos, chip_ram, &mut line_buffer);
+            // Add modulo to bitplane pointers at end of line
+            #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+            {
+                let bpl1mod = self.cpu.mem.custom_regs[(0x108 / 2) as usize] as i16;
+                let bpl2mod = self.cpu.mem.custom_regs[(0x10A / 2) as usize] as i16;
+                let num_planes = self.playfield.num_planes().min(6);
+                for i in 0..num_planes {
+                    let m = if i % 2 == 0 { bpl1mod } else { bpl2mod };
+                    if m >= 0 {
+                        self.playfield.bplpt[i] = self.playfield.bplpt[i].wrapping_add(m as u32);
+                    } else {
+                        self.playfield.bplpt[i] =
+                            self.playfield.bplpt[i].wrapping_sub(m.unsigned_abs().into());
+                    }
+                }
+            }
             let offset = usize::from(vpos) * DISPLAY_WIDTH;
             self.framebuffer[offset..offset + DISPLAY_WIDTH].copy_from_slice(&line_buffer);
         }
