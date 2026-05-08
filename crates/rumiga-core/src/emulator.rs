@@ -436,8 +436,16 @@ impl Emulator {
                 }
             }
 
-            // unit+$126 (disk change state) stays 0 so strap attempts CMD_READ.
-            // The read fails (no valid data) and strap shows the hand.
+            // Set disk change flag: on real hardware with no disk, DSKCHANGE
+            // is LOW from power-on, causing unit+$126 to be non-zero.
+            if self.total_cycles > FORCE_CIA_TIMER_THRESHOLD {
+                let off = 0x4856usize;
+                if self.cpu.mem.slow_ram.len() > off + 3
+                    && self.cpu.mem.slow_ram[off..off + 4] == [0, 0, 0, 0]
+                {
+                    self.cpu.mem.slow_ram[off + 3] = 1;
+                }
+            }
         }
 
         // Sync INTREQR/INTENAR so the CPU reads correct values in interrupt handlers
