@@ -256,22 +256,20 @@ impl Emulator {
                 // DSKRDY (bit 5):
                 // - No drive selected: HIGH (not ready)
                 // - Drive selected, motor on, disk present: LOW (ready)
-                // - Drive selected, motor off: shows drive ID bit (0=LOW for std DD)
                 // - Drive selected, motor on, no disk: HIGH (not ready)
+                // - Drive selected, motor off: shows drive ID (LOW for std DD)
                 if self.floppy.any_drive_selected() {
                     if self.floppy.motor_on() {
                         if self.floppy.has_disk() {
                             st &= !0x20; // Ready
                         }
-                        // else: not ready (bit 5 stays set)
                     } else {
-                        // Motor off: show drive ID bit
+                        // Motor off: drive ID bit (0 for standard DD)
                         if self.floppy.drive_id_bit() == 0 {
-                            st &= !0x20; // ID bit 0 = RDY low
+                            st &= !0x20;
                         }
                     }
                 }
-                // else: no drive selected, DSKRDY stays HIGH
                 self.cpu.mem.disk_status = st;
             }
             // Run a disk DMA cycle per instruction

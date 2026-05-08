@@ -124,7 +124,7 @@ impl AmigaMemory {
             reg_write_log: Vec::new(),
             cia_a_pra: 0,
             cia_b_prb_dirty: false,
-            disk_status: 0x00, // DF0: DSKCHANGE=0(changed), TK0=0, DSKRDY=0, DSKPROT=0
+            disk_status: 0x00, // DF0: DSKCHANGE=0(no disk), TK0=0, DSKRDY=0, DSKPROT=0
             cia: RefCell::new(CiaPair::new()),
         }
     }
@@ -240,7 +240,9 @@ impl AmigaMemory {
                     // Bits 6-7: joystick fire buttons (active low = 1 when not pressed)
                     let cia = self.cia.borrow();
                     let output_bits = self.cia_a_pra & cia.cia_a.ddra;
-                    let input_bits: u8 = (self.disk_status & 0x3C) | 0xC0;
+                    let mut input_bits: u8 = (self.disk_status & 0x3C) | 0xC0;
+                    // Always clear DSKCHANGE when no disk is inserted
+                    input_bits &= !0x04;
                     return output_bits | (input_bits & !cia.cia_a.ddra);
                 }
                 return self.cia.borrow_mut().cia_a.read(reg);

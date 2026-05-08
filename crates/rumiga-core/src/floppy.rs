@@ -198,9 +198,10 @@ impl FloppyController {
                     self.word = 0;
                     self.bit_offset = 0;
                 } else {
-                    // No disk: don't start DMA, don't fire DSKBLK.
-                    // trackdisk will timeout via CIA timer.
+                    // No disk: fire DSKBLK immediately so trackdisk sees the
+                    // DMA "complete" with invalid data and returns an error.
                     self.dma_state = DskDmaState::Off;
+                    self.pending_blk_irq = true;
                 }
             }
         } else if value & 0x8000 == 0 {
