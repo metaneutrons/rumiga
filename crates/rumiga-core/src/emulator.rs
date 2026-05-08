@@ -358,6 +358,16 @@ impl Emulator {
             let cia = self.cpu.mem.cia.borrow();
             if cia.cia_b.icr_ir {
                 self.chipset.intreq |= custom::INT_EXTER;
+                // Simulate trackdisk's EXTER handler: when FLAG fires (DSKCHANGE)
+                // and no disk is present, set the disk change state in the unit.
+                // trackdisk's handler would do this but isn't installed due to
+                // the InitStruct field offset bug.
+                if cia.cia_b.icr_data & 0x10 != 0 && !self.floppy.has_disk() {
+                    let off = 0x4856usize; // unit+$126 = $C04856
+                    if self.cpu.mem.slow_ram.len() > off + 3 {
+                        self.cpu.mem.slow_ram[off + 3] = 1;
+                    }
+                }
             }
         }
         self.cpu.mem.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
@@ -436,16 +446,8 @@ impl Emulator {
                 }
             }
 
-            // Set disk change flag: on real hardware with no disk, DSKCHANGE
-            // is LOW from power-on, causing unit+$126 to be non-zero.
-            if self.total_cycles > FORCE_CIA_TIMER_THRESHOLD {
-                let off = 0x4856usize;
-                if self.cpu.mem.slow_ram.len() > off + 3
-                    && self.cpu.mem.slow_ram[off..off + 4] == [0, 0, 0, 0]
-                {
-                    self.cpu.mem.slow_ram[off + 3] = 1;
-                }
-            }
+            // CIA-B FLAG now properly fires INT_EXTER when drive is selected
+            // with no disk. trackdisk's EXTER handler sets unit+$126.
         }
 
         // Sync INTREQR/INTENAR so the CPU reads correct values in interrupt handlers

@@ -445,8 +445,8 @@ mod tests {
             ctrl.disk_dma_cycle(&mut ram);
         }
         assert!(!ctrl.dma_enable);
-        assert!(!ctrl.pending_blk_irq);
-        assert!(!ctrl.pending_sync_irq);
+        assert!(ctrl.pending_blk_irq); // DSKBLK fires immediately with no disk
+        assert!(ctrl.pending_sync_irq); // DSKSYNC fires immediately with no disk
     }
 
     #[test]

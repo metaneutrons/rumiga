@@ -336,13 +336,18 @@ impl AmigaMemory {
                 self.cia.borrow_mut().cia_b.write(reg, value);
                 if reg == 1 {
                     self.cia_b_prb_dirty = true;
-                    // Fire CIA-B FLAG when drive selected and no disk present.
-                    // On real hardware, DSKCHANGE line triggers FLAG on transition.
-                    // With no disk, DSKCHANGE is LOW; selecting the drive causes
-                    // trackdisk to see the FLAG interrupt and set the change state.
+                    // DSKCHANGE is connected to CIA-B FLAG pin. Enable FLAG
+                    // interrupt mask on first drive selection (trackdisk's init
+                    // should do this via AddICRVector but the call fails due to
+                    // the InitStruct field offset bug).
                     if value & 0x78 != 0x78 {
-                        // A drive is selected
-                        self.cia.borrow_mut().cia_b.icr_data |= 0x10; // FLAG
+                        let mut cia = self.cia.borrow_mut();
+                        // Enable FLAG mask if not already enabled
+                        if cia.cia_b.icr_mask & 0x10 == 0 {
+                            cia.cia_b.icr_mask |= 0x10;
+                        }
+                        // Fire FLAG (DSKCHANGE is LOW with no disk)
+                        cia.cia_b.icr_data |= 0x10;
                     }
                 }
             }
