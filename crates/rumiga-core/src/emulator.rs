@@ -570,7 +570,7 @@ impl Emulator {
                     }
                 }
             }
-            o if (custom::BLTCON0..=custom::BLTSIZE).contains(&o) => {
+            o if (custom::BLTCON0..=custom::BLTADAT).contains(&o) => {
                 self.dispatch_blitter_write(o, value);
             }
             _ => {}
@@ -613,6 +613,19 @@ impl Emulator {
             custom::BLTDPTL => {
                 self.blitter.bltdpt = (self.blitter.bltdpt & 0xFFFF_0000) | u32::from(value);
             }
+            custom::BLTCMOD | custom::BLTBMOD | custom::BLTAMOD | custom::BLTDMOD => {
+                #[allow(clippy::cast_possible_wrap)]
+                let signed = value as i16;
+                match offset {
+                    custom::BLTCMOD => self.blitter.bltcmod = signed,
+                    custom::BLTBMOD => self.blitter.bltbmod = signed,
+                    custom::BLTAMOD => self.blitter.bltamod = signed,
+                    _ => self.blitter.bltdmod = signed,
+                }
+            }
+            custom::BLTCDAT => self.blitter.bltcdat = value,
+            custom::BLTBDAT => self.blitter.bltbdat = value,
+            custom::BLTADAT => self.blitter.bltadat = value,
             custom::BLTSIZE => {
                 self.blitter.bltsize = value;
                 self.blitter.start_blit();
