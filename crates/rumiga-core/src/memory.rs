@@ -143,15 +143,18 @@ impl AmigaMemory {
         );
         self.rom.copy_from_slice(data);
 
-        // Workaround: drive detection doesn't update the step rate from its
-        // default of 3000 ($0BB8). With step_rate >= 300, trackdisk does a
-        // self-referential DoIO that deadlocks. Patch the default to 80 ($50)
-        // which matches a standard DD drive.
+        // Workaround: drive detection doesn't update the step rate and drive
+        // type from their defaults. Patch to match a standard DD drive:
+        // - Step rate: 3000 ($0BB8) → 80 ($0050)
+        // - Drive type: 0 (none) → 1 (DD drive)
         // TODO: implement proper drive detection timing measurement.
-        let sr_off = 0x2_9F40usize; // $FE9F40 - $FC0000
-        if sr_off + 1 < self.rom.len() && self.rom[sr_off] == 0x0B && self.rom[sr_off + 1] == 0xB8 {
+        let sr_off = 0x2_9F40usize; // $FE9F40: step rate (word)
+        if sr_off + 3 < self.rom.len() && self.rom[sr_off] == 0x0B && self.rom[sr_off + 1] == 0xB8 {
             self.rom[sr_off] = 0x00;
-            self.rom[sr_off + 1] = 0x50; // 80
+            self.rom[sr_off + 1] = 0x50; // step rate = 80
+            // $FE9F42: drive type (word) - immediately after step rate
+            self.rom[sr_off + 2] = 0x00;
+            self.rom[sr_off + 3] = 0x01; // drive type = 1 (DD)
         }
     }
 
