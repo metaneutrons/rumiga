@@ -336,11 +336,13 @@ impl AmigaMemory {
                 self.cia.borrow_mut().cia_b.write(reg, value);
                 if reg == 1 {
                     self.cia_b_prb_dirty = true;
-                    // Fire disk index pulse when motor turns on (bit 7=0) and
-                    // drive selected (bits 3-6 not all 1). This happens at the
-                    // hardware level immediately when the motor signal asserts.
-                    if value & 0x80 == 0 && value & 0x78 != 0x78 {
-                        self.cia.borrow_mut().cia_b.icr_data |= 0x10; // FLAG = index pulse
+                    // Fire CIA-B FLAG when drive selected and no disk present.
+                    // On real hardware, DSKCHANGE line triggers FLAG on transition.
+                    // With no disk, DSKCHANGE is LOW; selecting the drive causes
+                    // trackdisk to see the FLAG interrupt and set the change state.
+                    if value & 0x78 != 0x78 {
+                        // A drive is selected
+                        self.cia.borrow_mut().cia_b.icr_data |= 0x10; // FLAG
                     }
                 }
             }

@@ -255,19 +255,14 @@ impl Emulator {
                 }
                 // DSKRDY (bit 5):
                 // - No drive selected: HIGH (not ready)
-                // - Drive selected, motor on, disk present: LOW (ready)
-                // - Drive selected, motor on, no disk: HIGH (not ready)
-                // - Drive selected, motor off: shows drive ID (LOW for std DD)
+                // - Drive selected + motor on: LOW (ready) — needed for trackdisk
+                //   to proceed past DSKRDY busy-wait to attempt disk read
+                // - Drive selected + motor off: drive ID bit (LOW for std DD)
                 if self.floppy.any_drive_selected() {
                     if self.floppy.motor_on() {
-                        if self.floppy.has_disk() {
-                            st &= !0x20; // Ready
-                        }
-                    } else {
-                        // Motor off: drive ID bit (0 for standard DD)
-                        if self.floppy.drive_id_bit() == 0 {
-                            st &= !0x20;
-                        }
+                        st &= !0x20; // Ready (motor on = drive spinning)
+                    } else if self.floppy.drive_id_bit() == 0 {
+                        st &= !0x20; // Drive ID bit 0
                     }
                 }
                 self.cpu.mem.disk_status = st;
@@ -441,8 +436,9 @@ impl Emulator {
                 }
             }
 
-            // TODO: Fix InitStruct offset bug that causes trackdisk's signal
-            // bits to be misaligned (device port signals bit 9, task waits bit 10).
+            // Disk change state at unit+$126 must be 0 (no change) for strap
+            // to proceed to the boot block read attempt. The read will fail
+            // (no valid data) and strap will then show the hand.
         }
 
         // Sync INTREQR/INTENAR so the CPU reads correct values in interrupt handlers
