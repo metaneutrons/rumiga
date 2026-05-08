@@ -348,14 +348,13 @@ impl AmigaMemory {
                     } else {
                         self.disk_status = 0x3C;
                     }
-                    // Enable CIA-B FLAG mask (DSKCHANGE detection)
+                    // Enable CIA-B FLAG mask for DSKCHANGE detection.
+                    // Don't fire FLAG here - it fires naturally when DSKCHANGE
+                    // transitions, which happens during disk I/O attempts.
                     let mut cia = self.cia.borrow_mut();
                     if cia.cia_b.icr_mask & 0x10 == 0 {
                         cia.cia_b.icr_mask |= 0x10;
                     }
-                    // Do NOT fire FLAG continuously - only real DSKCHANGE
-                    // transitions should trigger it. Without a disk change
-                    // event, FLAG stays clear.
                 }
             }
             return;
