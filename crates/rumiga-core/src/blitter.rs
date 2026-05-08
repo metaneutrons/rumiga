@@ -244,8 +244,15 @@ impl BlitterState {
         let ash = (self.bltcon0 >> 12) & 0xF;
         let bsh = (self.bltcon1 >> 12) & 0xF;
         let minterm = (self.bltcon0 & 0xFF) as u8;
+        let desc = (self.bltcon1 & 0x02) != 0; // Descending mode
+        let efe = (self.bltcon1 & 0x10) != 0; // Exclusive fill enable
+        let ife = (self.bltcon1 & 0x08) != 0; // Inclusive fill enable
+        let fill = efe || ife;
+        let fci = (self.bltcon1 & 0x04) != 0; // Fill carry in
+        let step: u32 = if desc { 0u32.wrapping_sub(2) } else { 2 };
 
         for _row in 0..height {
+            let mut fill_state = fci;
             for col in 0..width {
                 let a_raw = if self.bltcon0 & USE_A != 0 {
                     read_word(chip_ram, self.bltapt)
@@ -277,21 +284,47 @@ impl BlitterState {
 
                 let result = apply_minterm(a_shifted, b_shifted, c, minterm);
 
+                // Apply fill mode (processes bits right-to-left within each word)
+                let output = if fill {
+                    let mut filled: u16 = 0;
+                    for bit in 0..16u16 {
+                        let src_bit = (result >> bit) & 1;
+                        if src_bit != 0 {
+                            if ife {
+                                // Inclusive: set bit, then toggle state
+                                filled |= 1 << bit;
+                                fill_state = !fill_state;
+                            } else {
+                                // Exclusive: toggle state, then set if state
+                                fill_state = !fill_state;
+                                if fill_state {
+                                    filled |= 1 << bit;
+                                }
+                            }
+                        } else if fill_state {
+                            filled |= 1 << bit;
+                        }
+                    }
+                    filled
+                } else {
+                    result
+                };
+
                 if self.bltcon0 & USE_D != 0 {
-                    write_word(chip_ram, self.bltdpt, result);
+                    write_word(chip_ram, self.bltdpt, output);
                 }
 
                 if self.bltcon0 & USE_A != 0 {
-                    self.bltapt = self.bltapt.wrapping_add(2);
+                    self.bltapt = self.bltapt.wrapping_add(step);
                 }
                 if self.bltcon0 & USE_B != 0 {
-                    self.bltbpt = self.bltbpt.wrapping_add(2);
+                    self.bltbpt = self.bltbpt.wrapping_add(step);
                 }
                 if self.bltcon0 & USE_C != 0 {
-                    self.bltcpt = self.bltcpt.wrapping_add(2);
+                    self.bltcpt = self.bltcpt.wrapping_add(step);
                 }
                 if self.bltcon0 & USE_D != 0 {
-                    self.bltdpt = self.bltdpt.wrapping_add(2);
+                    self.bltdpt = self.bltdpt.wrapping_add(step);
                 }
             }
 
