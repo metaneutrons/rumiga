@@ -124,7 +124,7 @@ impl AmigaMemory {
             reg_write_log: Vec::new(),
             cia_a_pra: 0,
             cia_b_prb_dirty: false,
-            disk_status: 0x00, // DF0: DSKCHANGE=0(no disk), TK0=0, DSKRDY=0, DSKPROT=0
+            disk_status: 0x3C, // Default: all status bits high (no drive selected state)
             cia: RefCell::new(CiaPair::new()),
         }
     }
@@ -325,17 +325,30 @@ impl AmigaMemory {
                 self.cia.borrow_mut().cia_b.write(reg, value);
                 if reg == 1 {
                     self.cia_b_prb_dirty = true;
-                    // DSKCHANGE is connected to CIA-B FLAG pin. Enable FLAG
-                    // interrupt mask on first drive selection (trackdisk's init
-                    // should do this via AddICRVector but the call fails due to
-                    // the InitStruct field offset bug).
-                    if value & 0x78 != 0x78 {
+                    // Update disk_status immediately for drive ID reads.
+                    // DSKRDY reflects the ID bit of the selected drive.
+                    // Only DF0 exists (ID=$FFFFFFFF → DSKRDY=1).
+                    // Other drives don't exist (ID=$00000000 → DSKRDY=0).
+                    let selected = (value >> 3) & 0x0F;
+                    let df0_selected = selected & 1 == 0;
+                    let any_selected = selected != 0x0F;
+                    if any_selected {
+                        if df0_selected {
+                            // DF0: DSKRDY=1 (ID bit=1 for standard DD $FFFFFFFF)
+                            self.disk_status = 0x20;
+                        } else {
+                            // Non-existent drive: DSKRDY=0 (ID bit=0 for $00000000)
+                            self.disk_status = 0x00;
+                        }
+                    } else {
+                        self.disk_status = 0x3C; // No drive selected
+                    }
+                    // Enable CIA-B FLAG for DSKCHANGE detection
+                    if any_selected {
                         let mut cia = self.cia.borrow_mut();
-                        // Enable FLAG mask if not already enabled
                         if cia.cia_b.icr_mask & 0x10 == 0 {
                             cia.cia_b.icr_mask |= 0x10;
                         }
-                        // Fire FLAG (DSKCHANGE is LOW with no disk)
                         cia.cia_b.icr_data |= 0x10;
                     }
                 }

@@ -136,8 +136,9 @@ impl FloppyController {
             let was_sel = prev_selected & (1 << dr) == 0;
             let now_sel = self.selected & (1 << dr) == 0;
             if !was_sel && now_sel {
-                // Reset ID register (standard DD drive = $00000000)
-                self.drives[dr as usize].drive_id = 0x0000_0000;
+                // Reset ID register: DF0 = $FFFFFFFF (standard DD), others = $00000000 (no drive)
+                let id = if dr == 0 { 0xFFFF_FFFF } else { 0x0000_0000 };
+                self.drives[dr as usize].drive_id = id;
                 self.drives[dr as usize].id_shift_count = 32;
             } else if was_sel && !now_sel && self.drives[dr as usize].id_shift_count > 0 {
                 // Shift out one ID bit
