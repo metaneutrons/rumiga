@@ -174,7 +174,7 @@ impl CopperState {
             // WAIT or SKIP
             let target_v = (self.ir1 >> 8) & 0xFF;
             let target_h = (self.ir1 >> 1) & 0x7F;
-            let vmask = (self.ir2 >> 8) & 0x7F;
+            let vmask = (self.ir2 >> 8) | 0x80;
             let hmask = (self.ir2 >> 1) & 0x7F;
             let is_skip = self.ir2 & 1 != 0;
 
