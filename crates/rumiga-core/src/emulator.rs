@@ -648,6 +648,8 @@ impl Emulator {
                         self.sprites.sprites[sprite].active = false;
                     }
                 }
+                // Copper list sets up sprite pointers — ensure sprite DMA is active
+                self.chipset.dmacon |= custom::DMA_SPRITE;
             }
             o if (custom::SPR0POS..=custom::SPR7DATB).contains(&o) => {
                 let reg_idx = ((o - custom::SPR0POS) / 2) as usize;
