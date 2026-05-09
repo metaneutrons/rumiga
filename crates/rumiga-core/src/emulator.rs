@@ -338,6 +338,21 @@ impl Emulator {
             let chip_ram = self.cpu.mem.chip_ram();
             self.playfield
                 .render_scanline(vpos, chip_ram, &mut line_buffer);
+
+            // Sprite DMA and rendering
+            self.sprites.begin_scanline(vpos);
+            let diw_hstart = self.playfield.diwstrt & 0xFF;
+            for i in 0..8 {
+                if self.sprites.sprites[i].active && self.sprites.sprites[i].dma_enabled {
+                    self.sprites.fetch_data(i, chip_ram);
+                }
+                self.sprites.render_into_line(
+                    &mut line_buffer,
+                    &self.playfield.color,
+                    i,
+                    diw_hstart,
+                );
+            }
             // Add modulo to bitplane pointers at end of line
             #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
             {
@@ -583,6 +598,33 @@ impl Emulator {
                     } else {
                         self.playfield.bplpt[plane] =
                             (self.playfield.bplpt[plane] & 0xFFFF_0000) | u32::from(value);
+                    }
+                }
+            }
+            o if (custom::SPR0PTH..=custom::SPR7PTL).contains(&o) => {
+                let reg_idx = ((o - custom::SPR0PTH) / 2) as usize;
+                let sprite = reg_idx / 2;
+                if sprite < 8 {
+                    if reg_idx & 1 == 0 {
+                        self.sprites.sprites[sprite].pt = (self.sprites.sprites[sprite].pt
+                            & 0x0000_FFFF)
+                            | (u32::from(value) << 16);
+                    } else {
+                        self.sprites.sprites[sprite].pt =
+                            (self.sprites.sprites[sprite].pt & 0xFFFF_0000) | u32::from(value);
+                    }
+                    self.sprites.sprites[sprite].dma_enabled = true;
+                }
+            }
+            o if (custom::SPR0POS..=custom::SPR7DATB).contains(&o) => {
+                let reg_idx = ((o - custom::SPR0POS) / 2) as usize;
+                let sprite = reg_idx / 4;
+                if sprite < 8 {
+                    match reg_idx % 4 {
+                        0 => self.sprites.sprites[sprite].pos = value,
+                        1 => self.sprites.sprites[sprite].ctl = value,
+                        2 => self.sprites.sprites[sprite].data_a = value,
+                        _ => self.sprites.sprites[sprite].data_b = value,
                     }
                 }
             }

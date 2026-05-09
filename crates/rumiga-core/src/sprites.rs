@@ -3,6 +3,8 @@
 
 //! Sprite DMA and rendering for the Amiga OCS chipset.
 
+use crate::playfield::amiga_to_rgb565;
+
 /// Number of hardware sprites.
 pub const NUM_SPRITES: usize = 8;
 
@@ -120,10 +122,19 @@ impl SpriteEngine {
 
     /// Render a single sprite into the line buffer.
     ///
+    /// `diw_hstart` is the display window horizontal start (from DIWSTRT low byte)
+    /// used to convert sprite hardware coordinates to buffer pixel positions.
+    ///
     /// Sprite pair N (sprites 2N, 2N+1) uses palette colors `16 + N*4` through
     /// `16 + N*4 + 3`. Color index 0 (both planes zero) is transparent and does
     /// not overwrite the buffer.
-    pub fn render_into_line(&self, line_buffer: &mut [u16], colors: &[u16; 32], sprite_idx: usize) {
+    pub fn render_into_line(
+        &self,
+        line_buffer: &mut [u16],
+        colors: &[u16; 32],
+        sprite_idx: usize,
+        diw_hstart: u16,
+    ) {
         let Some(sprite) = self.sprites.get(sprite_idx) else {
             return;
         };
@@ -131,7 +142,7 @@ impl SpriteEngine {
             return;
         }
 
-        let hstart = Self::hstart(sprite) as usize;
+        let hstart = Self::hstart(sprite);
         let pair = sprite_idx / 2;
         let palette_base = 16 + pair * 4;
 
@@ -143,9 +154,13 @@ impl SpriteEngine {
             if idx == 0 {
                 continue;
             }
-            let px = hstart + bit as usize;
+            let hpos = hstart + bit;
+            if hpos < diw_hstart {
+                continue;
+            }
+            let px = (hpos - diw_hstart) as usize;
             if let Some(dest) = line_buffer.get_mut(px) {
-                *dest = colors[palette_base + idx as usize];
+                *dest = amiga_to_rgb565(colors[palette_base + idx as usize]);
             }
         }
     }
@@ -243,13 +258,12 @@ mod tests {
         engine.sprites[0].data_b = 0x0000;
 
         let mut colors = [0u16; 32];
-        colors[17] = 0x1234; // pair 0, index 1
+        colors[17] = 0x0F00; // pair 0, index 1 — red
 
         let mut buf = [0u16; 256];
-        engine.render_into_line(&mut buf, &colors, 0);
+        engine.render_into_line(&mut buf, &colors, 0, 0);
 
-        assert_eq!(buf[0x40], 0x1234);
-        // Pixel before and after should be untouched
+        assert_eq!(buf[0x40], amiga_to_rgb565(0x0F00));
         assert_eq!(buf[0x3F], 0);
         assert_eq!(buf[0x41], 0);
     }
@@ -267,7 +281,7 @@ mod tests {
         colors[17] = 0xFFFF;
 
         let mut buf = [0xAAAA_u16; 256];
-        engine.render_into_line(&mut buf, &colors, 0);
+        engine.render_into_line(&mut buf, &colors, 0, 0);
 
         // Buffer should be unchanged
         for px in &buf {
@@ -286,12 +300,12 @@ mod tests {
         engine.sprites[4].data_b = 0x8000; // index 3 at pixel 0
 
         let mut colors = [0u16; 32];
-        colors[24 + 3] = 0xBEEF; // pair 2, index 3
+        colors[24 + 3] = 0x00F0; // pair 2, index 3 — green
 
         let mut buf = [0u16; 256];
-        engine.render_into_line(&mut buf, &colors, 4);
+        engine.render_into_line(&mut buf, &colors, 4, 0);
 
-        assert_eq!(buf[0], 0xBEEF);
+        assert_eq!(buf[0], amiga_to_rgb565(0x00F0));
     }
 
     #[test]
