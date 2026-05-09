@@ -340,18 +340,42 @@ impl Emulator {
                 .render_scanline(vpos, chip_ram, &mut line_buffer);
 
             // Sprite DMA and rendering
-            self.sprites.begin_scanline(vpos);
             let diw_hstart = self.playfield.diwstrt & 0xFF;
+            let sprite_dma = self.chipset.dmaen(custom::DMA_SPRITE);
             for i in 0..8 {
-                if self.sprites.sprites[i].active && self.sprites.sprites[i].dma_enabled {
-                    self.sprites.fetch_data(i, chip_ram);
+                if !sprite_dma {
+                    continue;
                 }
-                self.sprites.render_into_line(
-                    &mut line_buffer,
-                    &self.playfield.color,
-                    i,
-                    diw_hstart,
-                );
+                if self.sprites.sprites[i].active {
+                    // Active: fetch image data, then render
+                    self.sprites.fetch_data(i, chip_ram);
+                    self.sprites.render_into_line(
+                        &mut line_buffer,
+                        &self.playfield.color,
+                        i,
+                        diw_hstart,
+                    );
+                    // Deactivate at vstop
+                    if vpos + 1 == SpriteEngine::vstop(&self.sprites.sprites[i]) {
+                        self.sprites.sprites[i].active = false;
+                        self.sprites.sprites[i].armed = false;
+                    }
+                } else if !self.sprites.sprites[i].armed {
+                    // Not yet armed: fetch pos/ctl to learn vstart/vstop
+                    self.sprites.fetch_data(i, chip_ram);
+                    self.sprites.sprites[i].armed = true;
+                } else if vpos == SpriteEngine::vstart(&self.sprites.sprites[i]) {
+                    // Armed and vstart matches: activate
+                    self.sprites.sprites[i].active = true;
+                    // Fetch first line of data immediately
+                    self.sprites.fetch_data(i, chip_ram);
+                    self.sprites.render_into_line(
+                        &mut line_buffer,
+                        &self.playfield.color,
+                        i,
+                        diw_hstart,
+                    );
+                }
             }
             // Add modulo to bitplane pointers at end of line
             #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
@@ -463,6 +487,11 @@ impl Emulator {
             self.sync_colormap_to_copper();
             self.copper.restart_vertical_blank();
             self.frame_ready = true;
+            // Reset sprites for new frame — they re-fetch pos/ctl from DMA
+            for sprite in &mut self.sprites.sprites {
+                sprite.active = false;
+                sprite.armed = false;
+            }
             // CIA-A TOD clocked by VSync (once per frame)
             self.cpu.mem.cia.borrow_mut().cia_a.tick_tod();
             // Reset mouse deltas at frame boundary
@@ -613,7 +642,11 @@ impl Emulator {
                         self.sprites.sprites[sprite].pt =
                             (self.sprites.sprites[sprite].pt & 0xFFFF_0000) | u32::from(value);
                     }
-                    self.sprites.sprites[sprite].dma_enabled = true;
+                    // Writing PTL re-arms the sprite for pos/ctl fetch
+                    if reg_idx & 1 == 1 {
+                        self.sprites.sprites[sprite].armed = false;
+                        self.sprites.sprites[sprite].active = false;
+                    }
                 }
             }
             o if (custom::SPR0POS..=custom::SPR7DATB).contains(&o) => {
