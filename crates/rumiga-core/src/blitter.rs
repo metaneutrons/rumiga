@@ -122,115 +122,128 @@ impl BlitterState {
     ///
     /// Implements the Amiga blitter Bresenham line algorithm using the
     /// hardware register conventions from the HRM and FS-UAE reference.
+    /// Execute a line-draw blit — direct port of FS-UAE/WinUAE logic.
+    #[allow(
+        clippy::cast_sign_loss,
+        clippy::cast_possible_truncation,
+        clippy::similar_names
+    )]
     fn execute_line(&mut self, chip_ram: &mut [u8]) {
-        let length = self.bltsize >> 6;
-        let single_dot = (self.bltcon1 & 0x02) != 0;
-        let aulbit = (self.bltcon1 & 0x04) != 0; // AUL
-        let sulbit = (self.bltcon1 & 0x08) != 0; // SUL
-        let sud = (self.bltcon1 & 0x10) != 0; // SUD: true=Y major
-        let mut sign = (self.bltcon1 & 0x40) != 0;
+        let mut vblitsize = self.bltsize >> 6;
+        let hblitsize = self.bltsize & 0x3F;
+        if vblitsize == 0 || hblitsize < 2 {
+            return;
+        }
+        let single = (self.bltcon1 & 0x02) != 0;
         let minterm = (self.bltcon0 & 0xFF) as u8;
-        let mut ashift = (self.bltcon0 >> 12) & 0xF;
-        let mut ptr = self.bltcpt;
-        #[allow(clippy::cast_possible_truncation)]
-        let mut error = self.bltapt as i16;
-        let mut texture = self.bltbdat;
-        let bpr = self.bltcmod; // bytes per row (unsigned, used for Y step)
-        let mut one_dot = 0u32;
+        let mut blitonedot: bool = false;
 
-        for _ in 0..length {
-            // Plot pixel: A = bltadat masked and shifted, B = texture, C = read from ptr
-            if !single_dot || ptr != one_dot || one_dot == 0 {
+        while vblitsize > 0 {
+            // proc_status
+            let draw_pixel = !single || !blitonedot;
+            blitonedot = true;
+
+            // proc_apt: update error using CURRENT sign
+            let negative = (self.bltcon1 & 0x40) != 0;
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            {
+                let apt = self.bltapt as i16;
+                let new_apt = if negative {
+                    apt.wrapping_add(self.bltbmod)
+                } else {
+                    apt.wrapping_add(self.bltamod)
+                };
+                self.bltapt = u32::from(new_apt as u16);
+            }
+
+            // Draw pixel at current position
+            if draw_pixel && (self.bltcon0 & USE_C) != 0 {
+                let ashift = (self.bltcon0 >> 12) & 0xF;
                 let a = (self.bltadat & self.bltafwm) >> ashift;
-                let b = if texture & 0x8000 != 0 { 0xFFFF } else { 0 };
-                let c = read_word(chip_ram, ptr);
+                // B texture: check bit 0 of rotated bltbdat
+                let bshift = (self.bltcon1 >> 12) & 0xF;
+                let blineb =
+                    (self.bltbdat >> bshift) | (self.bltbdat << (16u16.wrapping_sub(bshift) & 15));
+                let b: u16 = if blineb & 1 != 0 { 0xFFFF } else { 0 };
+                let c = read_word(chip_ram, self.bltcpt);
                 let result = apply_minterm(a, b, c, minterm);
-                write_word(chip_ram, ptr, result);
-                if single_dot {
-                    one_dot = ptr | 1;
-                }
+                write_word(chip_ram, self.bltcpt, result);
             }
 
-            // Rotate texture
-            texture = texture.rotate_left(1);
+            // proc_cpt_x: X stepping (uses OLD sign from bltcon1)
+            let sgn = (self.bltcon1 & 0x40) != 0;
+            let sud = (self.bltcon1 & 0x10) != 0;
+            let sul = (self.bltcon1 & 0x08) != 0;
+            let aul = (self.bltcon1 & 0x04) != 0;
 
-            // Update error accumulator
-            if sign {
-                error = error.wrapping_add(self.bltbmod);
-            } else {
-                error = error.wrapping_add(self.bltamod);
-            }
-
-            // Y stepping: step_y adds/subtracts bpr to ptr
-            let step_y_up = |p: u32, m: i16| p.wrapping_sub(m.unsigned_abs().into());
-            let step_y_down = |p: u32, m: i16| p.wrapping_add(m.unsigned_abs().into());
-
-            if !sign && sud {
-                ptr = if sulbit {
-                    step_y_up(ptr, bpr)
+            if !sgn && !sud {
+                if sul {
+                    self.line_decx();
                 } else {
-                    step_y_down(ptr, bpr)
-                };
-                if single_dot {
-                    one_dot = 0;
-                }
-            }
-            if !sud {
-                ptr = if aulbit {
-                    step_y_up(ptr, bpr)
-                } else {
-                    step_y_down(ptr, bpr)
-                };
-                if single_dot {
-                    one_dot = 0;
-                }
-            }
-
-            // X stepping
-            if !sign && !sud {
-                if sulbit {
-                    if ashift == 0 {
-                        ptr = ptr.wrapping_sub(2);
-                    }
-                    ashift = (ashift.wrapping_sub(1)) & 15;
-                } else {
-                    if ashift == 15 {
-                        ptr = ptr.wrapping_add(2);
-                    }
-                    ashift = (ashift + 1) & 15;
+                    self.line_incx();
                 }
             }
             if sud {
-                if aulbit {
-                    if ashift == 0 {
-                        ptr = ptr.wrapping_sub(2);
-                    }
-                    ashift = (ashift.wrapping_sub(1)) & 15;
+                if aul {
+                    self.line_decx();
                 } else {
-                    if ashift == 15 {
-                        ptr = ptr.wrapping_add(2);
-                    }
-                    ashift = (ashift + 1) & 15;
+                    self.line_incx();
                 }
             }
 
-            // Update sign from error
-            sign = error < 0;
-        }
+            // proc_cpt_y: Y stepping
+            if !sgn && sud {
+                if sul {
+                    self.bltcpt = self.bltcpt.wrapping_sub(u32::from(self.bltcmod as u16));
+                } else {
+                    self.bltcpt = self.bltcpt.wrapping_add(u32::from(self.bltcmod as u16));
+                }
+                blitonedot = false;
+            }
+            if !sud {
+                if aul {
+                    self.bltcpt = self.bltcpt.wrapping_sub(u32::from(self.bltcmod as u16));
+                } else {
+                    self.bltcpt = self.bltcpt.wrapping_add(u32::from(self.bltcmod as u16));
+                }
+                blitonedot = false;
+            }
 
-        // Update registers with final state
-        #[allow(clippy::cast_sign_loss)]
-        {
-            self.bltapt = u32::from(error as u16);
+            // sign: update SIGN from new error
+            if (self.bltapt & 0x8000) != 0 {
+                self.bltcon1 |= 0x40;
+            } else {
+                self.bltcon1 &= !0x40;
+            }
+
+            // nxline: advance texture (decrement bshift)
+            let mut bs = (self.bltcon1 >> 12) & 0xF;
+            bs = bs.wrapping_sub(1) & 15;
+            self.bltcon1 = (self.bltcon1 & 0x0FFF) | (bs << 12);
+
+            // Sync D with C
+            self.bltdpt = self.bltcpt;
+
+            vblitsize -= 1;
         }
-        self.bltcpt = ptr;
-        self.bltdpt = ptr;
-        self.bltcon0 = (self.bltcon0 & 0x0FFF) | (ashift << 12);
-        if sign {
-            self.bltcon1 |= 0x40;
-        } else {
-            self.bltcon1 &= !0x40;
+    }
+
+    fn line_incx(&mut self) {
+        let ashift = (self.bltcon0 >> 12) & 0xF;
+        if ashift == 15 {
+            self.bltcpt = self.bltcpt.wrapping_add(2);
         }
+        let new_shift = (ashift + 1) & 15;
+        self.bltcon0 = (self.bltcon0 & 0x0FFF) | (new_shift << 12);
+    }
+
+    fn line_decx(&mut self) {
+        let ashift = (self.bltcon0 >> 12) & 0xF;
+        if ashift == 0 {
+            self.bltcpt = self.bltcpt.wrapping_sub(2);
+        }
+        let new_shift = ashift.wrapping_sub(1) & 15;
+        self.bltcon0 = (self.bltcon0 & 0x0FFF) | (new_shift << 12);
     }
 
     /// Execute an area (copy/fill) blit.
