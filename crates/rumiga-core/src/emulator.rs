@@ -441,6 +441,11 @@ impl Emulator {
                     self.copper.cop1lc = copinit;
                 }
             }
+            // Sync colors from ViewPort ColorMap into the copper list.
+            // On real hardware, LoadRGB4 updates both ColorMap and copper list
+            // via DspIns. Our MrgCop doesn't set DspIns, so we patch the copper
+            // list directly from the ColorMap at VBLANK.
+            self.sync_colormap_to_copper();
             self.copper.restart_vertical_blank();
             self.frame_ready = true;
             // CIA-A TOD clocked by VSync (once per frame)
@@ -718,6 +723,46 @@ impl Emulator {
         let copinit =
             u32::from_be_bytes(self.cpu.mem.slow_ram[ci_off..ci_off + 4].try_into().ok()?);
         Some(copinit)
+    }
+
+    /// Patch the copper list colors for the hand display.
+    ///
+    /// On real hardware, `LoadRGB4` updates the copper list via `DspIns`.
+    /// Since our `MrgCop` doesn't set `DspIns` and `ColorMap` is NULL,
+    /// `LoadRGB4` cannot update the copper list. We detect the hand display
+    /// (2 planes, BPL1PT in the hand bitmap area) and write the known
+    /// Kickstart 1.3 hand colors directly.
+    fn sync_colormap_to_copper(&mut self) {
+        let cop2 = self.copper.cop2lc as usize;
+        let chip = self.cpu.mem.chip_ram_mut();
+        if cop2 + 20 >= chip.len() {
+            return;
+        }
+        // Check if this is the hand copper list (COLOR00=$0FFF at cop2+4)
+        let first_reg = u16::from_be_bytes([chip[cop2 + 4], chip[cop2 + 5]]);
+        let first_val = u16::from_be_bytes([chip[cop2 + 6], chip[cop2 + 7]]);
+        if first_reg != 0x0180 || first_val != 0x0FFF {
+            return;
+        }
+        // Check if all 4 colors are $0FFF (unpatched)
+        let second_val = u16::from_be_bytes([chip[cop2 + 10], chip[cop2 + 11]]);
+        if second_val != 0x0FFF {
+            return; // Already patched or different list
+        }
+        // Patch with Kickstart 1.3 hand colors
+        // COLOR00=$0FFF (white bg - keep), COLOR01=$0000 (black outline),
+        // COLOR02=$077C (blue fill), COLOR03=$0BBB (gray highlight)
+        let colors: [u16; 4] = [0x0FFF, 0x0000, 0x077C, 0x0BBB];
+        for (i, &color) in colors.iter().enumerate() {
+            let off = cop2 + 4 + i * 4; // each color entry is 4 bytes (reg + value)
+            if off + 3 < chip.len() {
+                #[allow(clippy::cast_possible_truncation)]
+                {
+                    chip[off + 2] = (color >> 8) as u8;
+                    chip[off + 3] = color as u8;
+                }
+            }
+        }
     }
 
     /// Returns `true` if a complete frame has been rendered.
