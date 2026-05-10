@@ -114,7 +114,7 @@ impl PlayfieldState {
         let width = LINE_WIDTH;
         for px in 0..width {
             let hpos = px + hstart;
-            if !line_visible || hpos < hstart || hpos >= hstop {
+            if !line_visible || num_planes == 0 || hpos < hstart || hpos >= hstop {
                 if let Some(dest) = line_buffer.get_mut(usize::from(px)) {
                     *dest = bg;
                 }
