@@ -159,6 +159,12 @@ impl CopperState {
 
     /// Execute the decoded instruction pair (IR1/IR2).
     fn execute(&mut self, vpos: u16, hpos: u16) -> Option<CopperAction> {
+        // All-zero = uninitialized memory, treat as end-of-list
+        if self.ir1 == 0 && self.ir2 == 0 {
+            self.state = CopperExecState::Idle;
+            return None;
+        }
+
         if self.ir1 & 1 == 0 {
             // MOVE instruction
             self.state = CopperExecState::FetchFirst;

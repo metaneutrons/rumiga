@@ -306,7 +306,9 @@ impl Emulator {
                             // COPJMP1/2 must be handled immediately (affects copper PC)
                             match offset {
                                 custom::COPJMP1 => self.copper.strobe_cop1(),
-                                custom::COPJMP2 => self.copper.strobe_cop2(),
+                                custom::COPJMP2 => {
+                                    self.copper.strobe_cop2();
+                                }
                                 _ => copper_writes.push((offset, value)),
                             }
                         }
@@ -566,7 +568,7 @@ impl Emulator {
     }
 
     /// Dispatch a single custom chip register write to the appropriate subsystem.
-    #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::cast_possible_truncation, clippy::too_many_lines)]
     pub fn dispatch_register_write(&mut self, offset: u16, value: u16) {
         use crate::custom;
         match offset {
