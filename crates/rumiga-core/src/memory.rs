@@ -47,7 +47,7 @@ impl MemoryConfig {
     pub const fn a500() -> Self {
         Self {
             chip_ram_size: 512 * 1024,
-            slow_ram_size: 512 * 1024,
+            slow_ram_size: 0,
             fast_ram_size: 0,
             rom_size: 256 * 1024,
         }
@@ -577,7 +577,9 @@ mod tests {
 
     #[test]
     fn slow_ram_access() {
-        let mut mem = AmigaMemory::new(MemoryConfig::a500());
+        let mut cfg = MemoryConfig::a500();
+        cfg.slow_ram_size = 512 * 1024;
+        let mut mem = AmigaMemory::new(cfg);
         mem.write_byte(SUPERVISOR_DATA, 0xC0_0000, 0x77);
         assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0xC0_0000), 0x77);
     }

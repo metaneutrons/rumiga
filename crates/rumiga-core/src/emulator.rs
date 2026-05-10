@@ -750,35 +750,18 @@ impl Emulator {
                 return None;
             }
             let eb = u32::from_be_bytes([chip[4], chip[5], chip[6], chip[7]]);
-            if eb < 0x00C0_0000 {
+            if eb == 0 {
                 return None;
             }
             // LibList at ExecBase + $17A: traverse nodes looking for graphics.library
-            let list_off = (eb + 0x17A - 0x00C0_0000) as usize;
-            if list_off + 4 > self.cpu.mem.slow_ram.len() {
-                return None;
-            }
-            let mut node = u32::from_be_bytes(
-                self.cpu.mem.slow_ram[list_off..list_off + 4]
-                    .try_into()
-                    .ok()?,
-            );
+            let mut node = self.read_long_phys(eb + 0x17A)?;
             for _ in 0..30 {
-                if node == 0 || node < 0x00C0_0000 {
+                if node == 0 {
                     break;
                 }
-                let n_off = (node - 0x00C0_0000) as usize;
-                if n_off + 14 > self.cpu.mem.slow_ram.len() {
-                    break;
-                }
-                // Check lib_IdString or lib_Node.ln_Name for "graphics"
-                let name_ptr = u32::from_be_bytes(
-                    self.cpu.mem.slow_ram[n_off + 10..n_off + 14]
-                        .try_into()
-                        .ok()?,
-                );
+                // Check lib_Node.ln_Name for "graphics"
+                let name_ptr = self.read_long_phys(node + 10)?;
                 if (0x00FC_0000..0x0100_0000).contains(&name_ptr) {
-                    // Name in ROM - check it
                     let rom_off = (name_ptr - 0x00FC_0000) as usize;
                     if rom_off + 8 < self.cpu.mem.rom_data().len()
                         && &self.cpu.mem.rom_data()[rom_off..rom_off + 8] == b"graphics"
@@ -788,20 +771,44 @@ impl Emulator {
                     }
                 }
                 // Next node
-                node = u32::from_be_bytes(self.cpu.mem.slow_ram[n_off..n_off + 4].try_into().ok()?);
+                node = self.read_long_phys(node)?;
             }
         }
         if self.gfxbase_cache == 0 {
             return None;
         }
         // Read copinit at GfxBase + $26
-        let ci_off = (self.gfxbase_cache + 0x26 - 0x00C0_0000) as usize;
-        if ci_off + 4 > self.cpu.mem.slow_ram.len() {
-            return None;
-        }
-        let copinit =
-            u32::from_be_bytes(self.cpu.mem.slow_ram[ci_off..ci_off + 4].try_into().ok()?);
+        let copinit = self.read_long_phys(self.gfxbase_cache + 0x26)?;
         Some(copinit)
+    }
+
+    /// Read a big-endian u32 from physical memory (chip RAM or slow RAM).
+    fn read_long_phys(&self, addr: u32) -> Option<u32> {
+        let a = addr as usize;
+        if a + 3 < self.cpu.mem.chip_ram().len() {
+            let ram = self.cpu.mem.chip_ram();
+            Some(u32::from_be_bytes([
+                ram[a],
+                ram[a + 1],
+                ram[a + 2],
+                ram[a + 3],
+            ]))
+        } else if addr >= 0x00C0_0000 {
+            let off = (addr - 0x00C0_0000) as usize;
+            if off + 3 < self.cpu.mem.slow_ram.len() {
+                let ram = &self.cpu.mem.slow_ram;
+                Some(u32::from_be_bytes([
+                    ram[off],
+                    ram[off + 1],
+                    ram[off + 2],
+                    ram[off + 3],
+                ]))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     }
 
     /// Patch the copper list colors for the hand display.

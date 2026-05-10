@@ -1013,7 +1013,9 @@ mod winuae_memory_map_golden_vectors {
     /// WinUAE memory.cpp: Slow RAM at $C00000-$C80000.
     #[test]
     fn test_slow_ram_at_c00000() {
-        let mut mem = AmigaMemory::new(MemoryConfig::a500());
+        let mut cfg = MemoryConfig::a500();
+        cfg.slow_ram_size = 512 * 1024;
+        let mut mem = AmigaMemory::new(cfg);
         mem.write_byte(SUPERVISOR_DATA, 0xC00000, 0x77);
         assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0xC00000), 0x77);
         mem.write_byte(SUPERVISOR_DATA, 0xC7FFFF, 0x88);
