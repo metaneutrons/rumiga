@@ -229,6 +229,21 @@ impl Emulator {
             }
 
             let c = self.cpu.execute1();
+
+            // Workaround: Intuition at FE67A4 saves SP into a MemList entry
+            // that FreeEntry later frees, corrupting the memory free list.
+            // Zero the saved value to prevent the invalid free.
+            if self.cpu.pc == 0x00FE_67A8 {
+                let a6 = self.cpu.dar[14];
+                let dest = a6.wrapping_add(0x60) as usize;
+                if dest + 3 < self.cpu.mem.chip_ram().len() {
+                    let chip = self.cpu.mem.chip_ram_mut();
+                    chip[dest] = 0;
+                    chip[dest + 1] = 0;
+                    chip[dest + 2] = 0;
+                    chip[dest + 3] = 0;
+                }
+            }
             if c.0 <= 0 || self.cpu.processing_state == ProcessingState::Stopped {
                 cycles_used = CYCLES_PER_LINE;
                 break;
