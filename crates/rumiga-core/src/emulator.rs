@@ -471,6 +471,32 @@ impl Emulator {
                 self.chipset.intreq |= custom::INT_VERTB;
                 self.cpu.mem.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
             }
+
+            // Pre-allocate signal bit 31 in the boot task's tc_SigAlloc.
+            // On real hardware, input.device or timer.device allocates this bit
+            // before Intuition runs. Our device initialization timing differs,
+            // leaving bit 31 free. Intuition then allocates it and later
+            // FreeEntry incorrectly frees a stack-allocated buffer, corrupting
+            // the memory free list.
+            if self.total_cycles > 5_000_000 && self.total_cycles < 5_100_000 {
+                let chip = self.cpu.mem.chip_ram_mut();
+                if chip.len() > 8 {
+                    let eb = u32::from_be_bytes([chip[4], chip[5], chip[6], chip[7]]) as usize;
+                    if eb > 0 && eb + 0x118 < chip.len() {
+                        let tt = u32::from_be_bytes([
+                            chip[eb + 0x114],
+                            chip[eb + 0x115],
+                            chip[eb + 0x116],
+                            chip[eb + 0x117],
+                        ]) as usize;
+                        if tt > 0 && tt + 0x16 < chip.len() {
+                            // Set bit 31 in tc_SigAlloc (offset $12 from task)
+                            chip[tt + 0x12] |= 0x80;
+                        }
+                    }
+                }
+            }
+
             // On real hardware, the graphics.library VBLANK server writes
             // GfxBase->copinit to COP1LC every frame. Our interrupt delivery
             // timing doesn't allow the handler to run before restart, so we
