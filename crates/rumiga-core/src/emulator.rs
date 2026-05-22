@@ -321,7 +321,7 @@ impl Emulator {
             }
         }
 
-        // Render this scanline AFTER copper sets up registers for this line
+        // Render this scanline AFTER copper sets up registers for this line.
         if vpos < VISIBLE_LINES {
             let mut line_buffer = [0u16; DISPLAY_WIDTH];
             // Sync playfield state from shadow registers (copper has updated them)
@@ -638,7 +638,7 @@ impl Emulator {
                 self.floppy.dskpt = (self.floppy.dskpt & 0x0000_FFFF) | (u32::from(value) << 16);
             }
             custom::DSKPTL => {
-                self.floppy.dskpt = (self.floppy.dskpt & 0xFFFF_0000) | u32::from(value);
+                self.floppy.dskpt = (self.floppy.dskpt & 0xFFFF_0000) | u32::from(value & 0xFFFE);
             }
             o if (custom::COLOR00..=custom::COLOR31).contains(&o) => {
                 self.chipset.write_register(o, value);
@@ -654,7 +654,7 @@ impl Emulator {
                             (self.playfield.bplpt[plane] & 0x0000_FFFF) | (u32::from(value) << 16);
                     } else {
                         self.playfield.bplpt[plane] =
-                            (self.playfield.bplpt[plane] & 0xFFFF_0000) | u32::from(value);
+                            (self.playfield.bplpt[plane] & 0xFFFF_0000) | u32::from(value & 0xFFFE);
                     }
                 }
             }
@@ -667,8 +667,9 @@ impl Emulator {
                             & 0x0000_FFFF)
                             | (u32::from(value) << 16);
                     } else {
-                        self.sprites.sprites[sprite].pt =
-                            (self.sprites.sprites[sprite].pt & 0xFFFF_0000) | u32::from(value);
+                        self.sprites.sprites[sprite].pt = (self.sprites.sprites[sprite].pt
+                            & 0xFFFF_0000)
+                            | u32::from(value & 0xFFFE);
                     }
                     // Writing PTL re-arms the sprite for pos/ctl fetch
                     if reg_idx & 1 == 1 {
@@ -711,28 +712,32 @@ impl Emulator {
                     (self.blitter.bltcpt & 0x0000_FFFF) | (u32::from(value) << 16);
             }
             custom::BLTCPTL => {
-                self.blitter.bltcpt = (self.blitter.bltcpt & 0xFFFF_0000) | u32::from(value);
+                self.blitter.bltcpt =
+                    (self.blitter.bltcpt & 0xFFFF_0000) | u32::from(value & 0xFFFE);
             }
             custom::BLTBPTH => {
                 self.blitter.bltbpt =
                     (self.blitter.bltbpt & 0x0000_FFFF) | (u32::from(value) << 16);
             }
             custom::BLTBPTL => {
-                self.blitter.bltbpt = (self.blitter.bltbpt & 0xFFFF_0000) | u32::from(value);
+                self.blitter.bltbpt =
+                    (self.blitter.bltbpt & 0xFFFF_0000) | u32::from(value & 0xFFFE);
             }
             custom::BLTAPTH => {
                 self.blitter.bltapt =
                     (self.blitter.bltapt & 0x0000_FFFF) | (u32::from(value) << 16);
             }
             custom::BLTAPTL => {
-                self.blitter.bltapt = (self.blitter.bltapt & 0xFFFF_0000) | u32::from(value);
+                self.blitter.bltapt =
+                    (self.blitter.bltapt & 0xFFFF_0000) | u32::from(value & 0xFFFE);
             }
             custom::BLTDPTH => {
                 self.blitter.bltdpt =
                     (self.blitter.bltdpt & 0x0000_FFFF) | (u32::from(value) << 16);
             }
             custom::BLTDPTL => {
-                self.blitter.bltdpt = (self.blitter.bltdpt & 0xFFFF_0000) | u32::from(value);
+                self.blitter.bltdpt =
+                    (self.blitter.bltdpt & 0xFFFF_0000) | u32::from(value & 0xFFFE);
             }
             custom::BLTCMOD | custom::BLTBMOD | custom::BLTAMOD | custom::BLTDMOD => {
                 #[allow(clippy::cast_possible_wrap)]
@@ -745,7 +750,7 @@ impl Emulator {
                 }
             }
             custom::BLTCDAT => self.blitter.bltcdat = value,
-            custom::BLTBDAT => self.blitter.bltbdat = value,
+            custom::BLTBDAT => self.blitter.load_bdat(value),
             custom::BLTADAT => self.blitter.bltadat = value,
             custom::BLTSIZE => {
                 self.blitter.bltsize = value;
@@ -861,9 +866,9 @@ impl Emulator {
         if second_val != 0x0FFF {
             return; // Already patched or different list
         }
-        // Patch with Kickstart 1.3 hand colors
-        // COLOR00=$0FFF (white bg - keep), COLOR01=$0000 (black outline),
-        // COLOR02=$077C (blue fill), COLOR03=$0BBB (gray highlight)
+        // Patch with Kickstart 1.3 hand colors.
+        // COLOR00=$0FFF (white bg), COLOR01=$0000 (black outline),
+        // COLOR02=$077C (blue fill), COLOR03=$0BBB (gray highlight).
         let colors: [u16; 4] = [0x0FFF, 0x0000, 0x077C, 0x0BBB];
         for (i, &color) in colors.iter().enumerate() {
             let off = cop2 + 4 + i * 4; // each color entry is 4 bytes (reg + value)
@@ -934,5 +939,26 @@ mod tests {
             pc >= 0x00FC_0008,
             "PC should point to reset vector address, got {pc:#010X}"
         );
+    }
+
+    #[test]
+    fn custom_pointer_low_writes_are_word_aligned() {
+        let mut emu = Emulator::new(MemoryConfig::a500());
+
+        emu.dispatch_register_write(custom::BLTDPTH, 0x0001);
+        emu.dispatch_register_write(custom::BLTDPTL, 0x2345);
+        assert_eq!(emu.blitter.bltdpt, 0x0001_2344);
+
+        emu.dispatch_register_write(custom::BPL1PTH, 0x0002);
+        emu.dispatch_register_write(custom::BPL1PTL, 0x3457);
+        assert_eq!(emu.playfield.bplpt[0], 0x0002_3456);
+
+        emu.dispatch_register_write(custom::SPR0PTH, 0x0003);
+        emu.dispatch_register_write(custom::SPR0PTL, 0x4569);
+        assert_eq!(emu.sprites.sprites[0].pt, 0x0003_4568);
+
+        emu.dispatch_register_write(custom::DSKPTH, 0x0004);
+        emu.dispatch_register_write(custom::DSKPTL, 0x567B);
+        assert_eq!(emu.floppy.dskpt, 0x0004_567A);
     }
 }
