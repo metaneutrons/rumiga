@@ -14,39 +14,81 @@ use rumiga_platform_desktop::DesktopVideo;
 
 const WIDTH: usize = 320;
 const HEIGHT: usize = 256;
+const ROM_SIZE_256K: usize = 256 * 1024;
+const ROM_SIZE_512K: usize = 512 * 1024;
 
 /// Amiga ESC keycode.
 const AMIGA_KEY_ESC: u8 = 0x45;
 
-fn main() {
-    let args: Vec<String> = std::env::args().collect();
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MachineModel {
+    A500,
+    A500Plus,
+    A600,
+    A1200,
+}
 
-    if args.len() < 2 {
-        eprintln!("Usage: rumiga-desktop <kickstart.rom> [adf-file]");
-        process::exit(1);
+impl MachineModel {
+    const fn config(self) -> MemoryConfig {
+        match self {
+            Self::A500 => MemoryConfig::a500(),
+            Self::A500Plus | Self::A600 => MemoryConfig::a500_plus(),
+            Self::A1200 => MemoryConfig::a1200(),
+        }
     }
 
-    let rom_path = &args[1];
+    const fn name(self) -> &'static str {
+        match self {
+            Self::A500 => "a500",
+            Self::A500Plus => "a500-plus",
+            Self::A600 => "a600",
+            Self::A1200 => "a1200",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match value.to_ascii_lowercase().as_str() {
+            "a500" => Some(Self::A500),
+            "a500+" | "a500-plus" | "a500plus" => Some(Self::A500Plus),
+            "a600" => Some(Self::A600),
+            "a1200" => Some(Self::A1200),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct LaunchArgs {
+    model: Option<MachineModel>,
+    rom_path: String,
+    adf_path: Option<String>,
+}
+
+fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let launch_args = parse_args(&args).unwrap_or_else(|e| {
+        eprintln!("{e}");
+        print_usage();
+        process::exit(1);
+    });
+
+    let rom_path = &launch_args.rom_path;
     let rom_data = fs::read(rom_path).unwrap_or_else(|e| {
         eprintln!("Failed to read ROM file '{rom_path}': {e}");
         process::exit(1);
     });
 
-    let mut emulator = Emulator::new(match rom_data.len() {
-        262_144 => MemoryConfig::a500(),
-        524_288 => MemoryConfig::a500_plus(),
-        _ => {
-            eprintln!(
-                "Unsupported ROM size: {} bytes (expected 256KB or 512KB)",
-                rom_data.len()
-            );
-            process::exit(1);
-        }
+    let model = select_model(&launch_args, rom_data.len()).unwrap_or_else(|e| {
+        eprintln!("{e}");
+        process::exit(1);
     });
+    eprintln!("Starting Rumiga with {} profile", model.name());
+
+    let mut emulator = Emulator::new(model.config());
     emulator.load_rom(&rom_data);
 
     // Load ADF disk image if provided
-    if let Some(adf_path) = args.get(2) {
+    if let Some(adf_path) = launch_args.adf_path.as_deref() {
         let adf_data = fs::read(adf_path).unwrap_or_else(|e| {
             eprintln!("Failed to read ADF file '{adf_path}': {e}");
             process::exit(1);
@@ -89,6 +131,91 @@ fn main() {
         video.present_frame(emulator.framebuffer(), w, h);
         emulator.clear_frame_ready();
     }
+}
+
+fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
+    let mut model = None;
+    let mut positional = Vec::new();
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--model" | "-m" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--model requires a value".to_owned());
+                };
+                model = Some(
+                    MachineModel::parse(value)
+                        .ok_or_else(|| format!("Unsupported machine model '{value}'"))?,
+                );
+                index += 2;
+            }
+            "--help" | "-h" => return Err(String::new()),
+            value if value.starts_with('-') => return Err(format!("Unknown option '{value}'")),
+            value => {
+                positional.push(value.to_owned());
+                index += 1;
+            }
+        }
+    }
+
+    let Some(rom_path) = positional.first() else {
+        return Err("Missing Kickstart ROM path".to_owned());
+    };
+    if positional.len() > 2 {
+        return Err("Too many positional arguments".to_owned());
+    }
+
+    Ok(LaunchArgs {
+        model,
+        rom_path: rom_path.clone(),
+        adf_path: positional.get(1).cloned(),
+    })
+}
+
+fn select_model(args: &LaunchArgs, rom_size: usize) -> Result<MachineModel, String> {
+    let model = args
+        .model
+        .unwrap_or_else(|| infer_model_from_rom(&args.rom_path, rom_size));
+
+    if rom_size != expected_rom_size(model) {
+        return Err(format!(
+            "{} profile expects a {} KB ROM, got {} bytes",
+            model.name(),
+            expected_rom_size(model) / 1024,
+            rom_size
+        ));
+    }
+
+    Ok(model)
+}
+
+fn infer_model_from_rom(rom_path: &str, rom_size: usize) -> MachineModel {
+    if rom_size == ROM_SIZE_256K {
+        return MachineModel::A500;
+    }
+
+    let lower_path = rom_path.to_ascii_lowercase();
+    if lower_path.contains("a1200") {
+        MachineModel::A1200
+    } else if lower_path.contains("a600") {
+        MachineModel::A600
+    } else {
+        MachineModel::A500Plus
+    }
+}
+
+const fn expected_rom_size(model: MachineModel) -> usize {
+    match model {
+        MachineModel::A500 => ROM_SIZE_256K,
+        MachineModel::A500Plus | MachineModel::A600 | MachineModel::A1200 => ROM_SIZE_512K,
+    }
+}
+
+fn print_usage() {
+    eprintln!(
+        "Usage: rumiga-desktop [--model a500|a500-plus|a600|a1200] <kickstart.rom> [disk.adf]"
+    );
 }
 
 /// Map a minifb key to an Amiga raw keycode.
@@ -140,5 +267,51 @@ const fn map_key_to_amiga(key: Key) -> Option<u8> {
         Key::Key8 => Some(0x08),
         Key::Key9 => Some(0x09),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_args_accepts_model_rom_and_disk() {
+        let args = vec![
+            "--model".to_owned(),
+            "a1200".to_owned(),
+            "kick.rom".to_owned(),
+            "workbench.adf".to_owned(),
+        ];
+
+        assert_eq!(
+            parse_args(&args),
+            Ok(LaunchArgs {
+                model: Some(MachineModel::A1200),
+                rom_path: "kick.rom".to_owned(),
+                adf_path: Some("workbench.adf".to_owned()),
+            })
+        );
+    }
+
+    #[test]
+    fn select_model_infers_a1200_from_rom_name() {
+        let args = LaunchArgs {
+            model: None,
+            rom_path: "kick.a1200.46.143.rom".to_owned(),
+            adf_path: None,
+        };
+
+        assert_eq!(select_model(&args, ROM_SIZE_512K), Ok(MachineModel::A1200));
+    }
+
+    #[test]
+    fn select_model_rejects_wrong_rom_size() {
+        let args = LaunchArgs {
+            model: Some(MachineModel::A1200),
+            rom_path: "kick.a500.34.005.rom".to_owned(),
+            adf_path: None,
+        };
+
+        assert!(select_model(&args, ROM_SIZE_256K).is_err());
     }
 }
