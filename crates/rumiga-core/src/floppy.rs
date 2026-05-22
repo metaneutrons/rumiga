@@ -35,7 +35,7 @@ enum DskDmaState {
 }
 
 /// State of a single floppy drive.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct DriveState {
     /// ADF image data (`None` = no disk inserted).
     pub data: Option<Vec<u8>>,
@@ -51,6 +51,29 @@ pub struct DriveState {
     pub drive_id: u32,
     /// Number of ID bits remaining to shift out.
     pub id_shift_count: u8,
+    /// Motor spin-up delay (in scanlines).
+    pub dskready_up_time: u16,
+    /// Dynamic ready state of the drive.
+    pub dskready: bool,
+    /// Latch indicating disk was inserted/changed since last step.
+    pub disk_changed: bool,
+}
+
+impl Default for DriveState {
+    fn default() -> Self {
+        Self {
+            data: None,
+            mfm_track: Vec::new(),
+            cyl: 0,
+            motor: false,
+            mfm_pos: 0,
+            drive_id: 0,
+            id_shift_count: 0,
+            dskready_up_time: 0,
+            dskready: false,
+            disk_changed: true, // starts true (disk changed/none state)
+        }
+    }
 }
 
 /// Floppy disk controller managing up to four drives.
@@ -63,7 +86,7 @@ pub struct FloppyController {
     pub selected: u8,
     /// Current side (0 or 1), derived from CIA-B PRB bit 2.
     pub side: u8,
-    /// Current step direction (0=outward, 1=inward).
+    /// Current step direction (0=inward, 1=outward/toward track 0).
     pub direction: u8,
     /// Previous step pulse state (for edge detection).
     prev_step: bool,
@@ -91,14 +114,18 @@ pub struct FloppyController {
     pub pending_blk_irq: bool,
     /// Disk DMA pointer (DSKPT).
     pub dskpt: u32,
+    /// DSKBYTR register value.
+    pub dskbytr_val: u16,
 }
 
 impl FloppyController {
     /// Create a new floppy controller with all drives empty.
     #[must_use]
     pub fn new() -> Self {
+        let mut drives = core::array::from_fn(|_| DriveState::default());
+        drives[0].drive_id = 0xFFFF_FFFF; // DF0 standard DD ID
         Self {
-            drives: core::array::from_fn(|_| DriveState::default()),
+            drives,
             selected: 0x0F, // all deselected (active low)
             side: 0,
             direction: 0,
@@ -115,6 +142,7 @@ impl FloppyController {
             pending_sync_irq: false,
             pending_blk_irq: false,
             dskpt: 0,
+            dskbytr_val: 0,
         }
     }
 
@@ -123,6 +151,9 @@ impl FloppyController {
         if let Some(d) = self.drives.get_mut(drive) {
             d.data = Some(data);
             d.mfm_track.clear();
+            d.drive_id = 0xFFFF_FFFF; // Standard present DD drive ID
+            d.disk_changed = true; // Mark disk as changed so /DSKCHANGE goes low until step!
+            d.dskready = false;
         }
     }
 
@@ -138,28 +169,26 @@ impl FloppyController {
         self.side = 1 - ((data >> 2) & 1);
         self.direction = (data >> 1) & 1;
 
-        // Drive ID protocol: deselect→select resets, select→deselect shifts
+        // Drive ID and motor protocol: the motor/id flip-flop only updates on
+        // a drive select high→low transition, matching Paula/WinUAE behavior.
         for dr in 0..4u8 {
             let was_sel = prev_selected & (1 << dr) == 0;
             let now_sel = self.selected & (1 << dr) == 0;
             if !was_sel && now_sel {
-                // Reset ID register: DF0 = $FFFFFFFF (standard DD), others = $00000000 (no drive)
-                let id = if dr == 0 { 0xFFFF_FFFF } else { 0x0000_0000 };
-                self.drives[dr as usize].drive_id = id;
-                self.drives[dr as usize].id_shift_count = 32;
-            } else if was_sel && !now_sel && self.drives[dr as usize].id_shift_count > 0 {
-                // Shift out one ID bit
-                self.drives[dr as usize].drive_id <<= 1;
-                self.drives[dr as usize].id_shift_count -= 1;
-            }
-        }
+                let d = &mut self.drives[dr as usize];
+                d.id_shift_count = (d.id_shift_count + 1) & 31;
 
-        // Motor: bit 7 (0=on, 1=off). Applies to selected drives.
-        let motor_on = data & 0x80 == 0;
-        for dr in 0..4u8 {
-            if self.selected & (1 << dr) == 0 {
-                // Drive is selected (active low)
-                self.drives[dr as usize].motor = motor_on;
+                let next_motor = (prev_data & 0x80 == 0) || (data & 0x80 == 0);
+                let prev_motor = d.motor;
+                d.motor = next_motor;
+                if !prev_motor && next_motor {
+                    d.dskready_up_time = 5616; // 18 frames * 312 scanlines
+                    d.dskready = false;
+                } else if prev_motor && !next_motor {
+                    d.id_shift_count = 0;
+                    d.dskready = false;
+                    d.dskready_up_time = 0;
+                }
             }
         }
 
@@ -172,14 +201,17 @@ impl FloppyController {
                     // Drive was selected
                     let d = &mut self.drives[dr as usize];
                     if self.direction != 0 {
-                        if d.cyl < 79 {
-                            d.cyl += 1;
-                        }
-                    } else {
                         d.cyl = d.cyl.saturating_sub(1);
+                    } else if d.cyl < 79 {
+                        d.cyl += 1;
                     }
                     // Invalidate MFM cache on track change
                     d.mfm_track.clear();
+
+                    // Clear disk changed latch if drive is not empty
+                    if d.data.is_some() {
+                        d.disk_changed = false;
+                    }
                 }
             }
         }
@@ -187,7 +219,7 @@ impl FloppyController {
     }
 
     /// Write the DSKLEN register. Double-write with bit 15 starts DMA.
-    pub fn write_dsklen(&mut self, value: u16) {
+    pub fn write_dsklen(&mut self, value: u16, adkcon: u16) {
         let prev = self.prev_dsklen;
         self.prev_dsklen = value;
         self.dsklen = value;
@@ -201,7 +233,8 @@ impl FloppyController {
                 });
                 if has_disk {
                     self.dma_state = DskDmaState::Read;
-                    self.dma_enable = false;
+                    // If WORDSYNC (bit 10 of ADKCON) is disabled, enable DMA immediately
+                    self.dma_enable = (adkcon & 0x0400) == 0;
                     self.dsk_length = value & 0x3FFF;
                     self.word = 0;
                     self.bit_offset = 0;
@@ -261,6 +294,20 @@ impl FloppyController {
 
         // Shift into word register for sync detection
         self.word = mfm_word;
+
+        // Populate DSKBYTR value
+        let mut bytr = mfm_word & 0x00FF;
+        bytr |= 0x8000; // BYTERDY (byte is ready)
+        if self.dma_state != DskDmaState::Off {
+            bytr |= 0x4000; // DMAON
+        }
+        if self.dsklen & 0x4000 != 0 {
+            bytr |= 0x2000; // DISKWRITE
+        }
+        if self.word == self.dsksync {
+            bytr |= 0x1000; // WORDEQUAL
+        }
+        self.dskbytr_val = bytr;
 
         // Check for sync word match
         if !self.dma_enable && self.word == self.dsksync {
@@ -328,13 +375,26 @@ impl FloppyController {
     #[must_use]
     pub fn drive_id_bit(&self) -> u8 {
         let dr = self.first_selected_drive();
-        u8::from(self.drives[dr].drive_id & 0x8000_0000 != 0)
+        let d = &self.drives[dr];
+        u8::from(d.drive_id & (1 << (31 - d.id_shift_count)) != 0)
     }
 
     /// Check if any drive is currently selected.
     #[must_use]
     pub const fn any_drive_selected(&self) -> bool {
         self.selected != 0x0F
+    }
+
+    /// Advance floppy drive motor spin-up delays by one scanline.
+    pub fn tick_scanline(&mut self) {
+        for d in &mut self.drives {
+            if d.dskready_up_time > 0 && d.data.is_some() {
+                d.dskready_up_time = d.dskready_up_time.saturating_sub(1);
+                if d.dskready_up_time == 0 && d.motor {
+                    d.dskready = true;
+                }
+            }
+        }
     }
 }
 
@@ -452,9 +512,9 @@ mod tests {
         let adf = vec![0u8; (TRACK_SIZE * 160) as usize];
         ctrl.insert_disk(0, adf);
         ctrl.selected = 0x0E; // DF0 selected
-        ctrl.write_dsklen(0x8000 | 100);
+        ctrl.write_dsklen(0x8000 | 100, 0x0400);
         assert_eq!(ctrl.dma_state, DskDmaState::Off);
-        ctrl.write_dsklen(0x8000 | 100);
+        ctrl.write_dsklen(0x8000 | 100, 0x0400);
         assert_eq!(ctrl.dma_state, DskDmaState::Read);
     }
 
@@ -462,8 +522,8 @@ mod tests {
     fn no_disk_no_sync_no_dma() {
         let mut ctrl = FloppyController::new();
         ctrl.selected = 0x0E; // DF0 selected
-        ctrl.write_dsklen(0x8000 | 100);
-        ctrl.write_dsklen(0x8000 | 100);
+        ctrl.write_dsklen(0x8000 | 100, 0x0400);
+        ctrl.write_dsklen(0x8000 | 100, 0x0400);
 
         let mut ram = vec![0u8; 65536];
         // Run many cycles — no sync should be found
@@ -483,8 +543,8 @@ mod tests {
         ctrl.selected = 0x0E; // DF0 selected
         ctrl.drives[0].motor = true;
         ctrl.dskpt = 0x1000;
-        ctrl.write_dsklen(0x8000 | 10); // 10 words
-        ctrl.write_dsklen(0x8000 | 10);
+        ctrl.write_dsklen(0x8000 | 10, 0x0400); // 10 words
+        ctrl.write_dsklen(0x8000 | 10, 0x0400);
 
         let mut ram = vec![0u8; 65536];
         let mut cycles = 0;
@@ -513,20 +573,28 @@ mod tests {
     fn step_changes_track() {
         let mut ctrl = FloppyController::new();
         ctrl.selected = 0x0E; // DF0 selected
-        // Step inward: direction=1, then rising edge on step
-        ctrl.disk_select(0b1000_0010); // SEL0=0, DIR=1, STEP=0, MTR=0
-        ctrl.disk_select(0b1000_0011); // STEP rising edge
+        // Step inward: direction=0, then rising edge on step
+        ctrl.disk_select(0b1111_0000); // DF0 selected, DIR=0, STEP=0, motor off
+        ctrl.disk_select(0b1111_0001); // STEP rising edge
         assert_eq!(ctrl.drives[0].cyl, 1);
+
+        // Step outward: direction=1 moves back toward track 0
+        ctrl.disk_select(0b1111_0010); // DIR=1, STEP=0
+        ctrl.disk_select(0b1111_0011); // STEP rising edge
+        assert_eq!(ctrl.drives[0].cyl, 0);
     }
 
     #[test]
     fn motor_control() {
         let mut ctrl = FloppyController::new();
-        // Select DF0, motor on (bit 7 = 0)
-        ctrl.disk_select(0b0000_0110); // SEL0=0, MTR=0
+        // Select DF0 with motor bit low: motor turns on.
+        ctrl.disk_select(0b0111_0000);
         assert!(ctrl.drives[0].motor);
-        // Motor off (bit 7 = 1)
-        ctrl.disk_select(0b1000_0110); // SEL0=0, MTR=1
+
+        // The motor flip-flop only changes on the next high→low select edge.
+        ctrl.disk_select(0b1111_1000); // all drives deselected
+        assert!(ctrl.drives[0].motor);
+        ctrl.disk_select(0b1111_0000); // DF0 selected with motor bit high
         assert!(!ctrl.drives[0].motor);
     }
 

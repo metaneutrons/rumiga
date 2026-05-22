@@ -127,6 +127,35 @@ pub struct Emulator {
 }
 
 impl Emulator {
+    /// Update the dynamic disk status byte read by the CPU from CIA-A PRA.
+    pub fn update_disk_status(&mut self) {
+        let mut st: u8 = 0x3C; // default: all status bits high (active-low deasserted)
+        if self.floppy.any_drive_selected() {
+            let dr = self.floppy.first_selected_drive();
+            let d = &self.floppy.drives[dr];
+
+            // DSKTRACK0 (bit 4, active low)
+            if d.cyl == 0 {
+                st &= !0x10;
+            }
+
+            // DSKCHANGE (bit 2, active low)
+            // Active (0) if there is no disk OR if the disk changed latch is true
+            if d.data.is_none() || d.disk_changed {
+                st &= !0x04;
+            }
+
+            // DSKRDY (bit 5, active low)
+            if d.motor {
+                if d.dskready {
+                    st &= !0x20; // Ready (motor on + finished spin-up)
+                }
+            } else if self.floppy.drive_id_bit() != 0 {
+                st &= !0x20; // Active-low drive ID bit
+            }
+        }
+        self.cpu.mem.disk_status = st;
+    }
     /// Create a new emulator with the given memory configuration.
     ///
     /// Schedules the initial `HSync` event.
@@ -249,31 +278,15 @@ impl Emulator {
                 self.cpu.mem.cia_b_prb_dirty = false;
                 let prb = self.cpu.mem.cia.borrow().cia_b.prb;
                 self.floppy.disk_select(prb);
-                let mut st: u8 = 0x3C; // default: all high
-                if self.floppy.at_track0() {
-                    st &= !0x10;
-                }
-                if !self.floppy.has_disk() {
-                    st &= !0x04; // DSKCHANGE=0 (no disk)
-                }
-                // DSKRDY (bit 5):
-                // - No drive selected: HIGH (not ready)
-                // - Drive selected + motor on: LOW (ready) — needed for trackdisk
-                //   to proceed past DSKRDY busy-wait to attempt disk read
-                // - Drive selected + motor off: drive ID bit (LOW for std DD)
-                if self.floppy.any_drive_selected() {
-                    if self.floppy.motor_on() {
-                        st &= !0x20; // Ready (motor on = drive spinning)
-                    } else if self.floppy.drive_id_bit() == 0 {
-                        st &= !0x20; // Drive ID bit 0
-                    }
-                }
-                self.cpu.mem.disk_status = st;
+                self.update_disk_status();
             }
             // Run a disk DMA cycle per instruction
             if self.chipset.dmaen(crate::custom::DMA_DISK) {
-                let chip_ram = self.cpu.mem.chip_ram_mut();
-                self.floppy.disk_dma_cycle(chip_ram);
+                {
+                    let chip_ram = self.cpu.mem.chip_ram_mut();
+                    self.floppy.disk_dma_cycle(chip_ram);
+                }
+                self.cpu.mem.dskbytr.set(self.floppy.dskbytr_val);
                 if self.floppy.pending_sync_irq {
                     self.floppy.pending_sync_irq = false;
                     self.chipset.intreq |= 0x1000;
@@ -321,25 +334,37 @@ impl Emulator {
             }
         }
 
+        // Sync playfield state from shadow registers (copper has updated them)
+        let regs = &self.cpu.mem.custom_regs;
+        self.playfield.bplcon0 = regs[(custom::BPLCON0 / 2) as usize];
+        self.playfield.bplcon1 = regs[(0x102 / 2) as usize];
+        self.playfield.bplcon2 = regs[(0x104 / 2) as usize];
+        self.playfield.diwstrt = regs[(0x08E / 2) as usize];
+        self.playfield.diwstop = regs[(0x090 / 2) as usize];
+        self.playfield.ddfstrt = regs[(0x092 / 2) as usize];
+        self.playfield.ddfstop = regs[(0x094 / 2) as usize];
+        for i in 0usize..32 {
+            let c = regs[0x180 / 2 + i];
+            self.playfield.color[i] = c & 0x0FFF;
+        }
+
         // Render this scanline AFTER copper sets up registers for this line.
-        if vpos < VISIBLE_LINES {
-            let mut line_buffer = [0u16; DISPLAY_WIDTH];
-            // Sync playfield state from shadow registers (copper has updated them)
-            let regs = &self.cpu.mem.custom_regs;
-            self.playfield.bplcon0 = regs[(custom::BPLCON0 / 2) as usize];
-            self.playfield.bplcon1 = regs[(0x102 / 2) as usize];
-            self.playfield.bplcon2 = regs[(0x104 / 2) as usize];
-            self.playfield.diwstrt = regs[(0x08E / 2) as usize];
-            self.playfield.diwstop = regs[(0x090 / 2) as usize];
-            self.playfield.ddfstrt = regs[(0x092 / 2) as usize];
-            self.playfield.ddfstop = regs[(0x094 / 2) as usize];
-            for i in 0usize..32 {
-                let c = regs[0x180 / 2 + i];
-                self.playfield.color[i] = c & 0x0FFF;
+        let (_, _, vstart, vstop) = self.playfield.display_window();
+        let framebuffer_line = vpos
+            .checked_sub(vstart)
+            .filter(|line| *line < VISIBLE_LINES);
+        if let Some(framebuffer_line) = framebuffer_line {
+            let bitplane_dma = self.chipset.dmaen(custom::DMA_BITPLANE);
+            let saved_bplcon0 = self.playfield.bplcon0;
+            if !bitplane_dma {
+                self.playfield.bplcon0 = 0;
             }
+
+            let mut line_buffer = [0u16; DISPLAY_WIDTH];
             let chip_ram = self.cpu.mem.chip_ram();
             self.playfield
                 .render_scanline(vpos, chip_ram, &mut line_buffer);
+            self.playfield.bplcon0 = saved_bplcon0;
 
             // Sprite DMA and rendering
             let diw_hstart = self.playfield.diwstrt & 0xFF;
@@ -381,6 +406,10 @@ impl Emulator {
             }
             // Add modulo to bitplane pointers at end of line
             #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+            if bitplane_dma
+                && vpos >= vstart
+                && vpos < vstop
+                && self.playfield.num_planes().min(6) > 0
             {
                 let bpl1mod = self.cpu.mem.custom_regs[(0x108 / 2) as usize] as i16;
                 let bpl2mod = self.cpu.mem.custom_regs[(0x10A / 2) as usize] as i16;
@@ -395,7 +424,7 @@ impl Emulator {
                     }
                 }
             }
-            let offset = usize::from(vpos) * DISPLAY_WIDTH;
+            let offset = usize::from(framebuffer_line) * DISPLAY_WIDTH;
             self.framebuffer[offset..offset + DISPLAY_WIDTH].copy_from_slice(&line_buffer);
         }
 
@@ -409,9 +438,12 @@ impl Emulator {
                 self.chipset.intreq |= custom::INT_EXTER;
             }
         }
-        // Also fire INT_EXTER if CIA-B has any masked interrupt pending
+        // Also fire INT_PORTS / INT_EXTER if CIA-A/B has any masked interrupt pending
         {
             let cia = self.cpu.mem.cia.borrow();
+            if cia.cia_a.icr_ir {
+                self.chipset.intreq |= custom::INT_PORTS;
+            }
             if cia.cia_b.icr_ir {
                 self.chipset.intreq |= custom::INT_EXTER;
             }
@@ -421,18 +453,23 @@ impl Emulator {
         // CIA-B TOD clocked by HSync (every scanline)
         self.cpu.mem.cia.borrow_mut().cia_b.tick_tod();
 
+        // Tick floppy drive spin-up delays and update status
+        self.floppy.tick_scanline();
+        self.update_disk_status();
+
         // Disk index pulse: only fires when a disk is present and spinning.
         // Without a disk, no index hole exists so no pulse is generated.
         // This is critical: without index pulses, trackdisk.device times out
         // and the boot code shows the "insert disk" hand.
         // Disk index pulse: fires once per revolution when motor is spinning.
-        // Use raw CIA-B PRB bit 7 (0=motor on) since floppy.motor_on() may not
-        // reflect the state during init (disk_select hasn't processed it yet).
-        if self.cpu.mem.cia.borrow().cia_b.prb & 0x80 == 0 && self.chipset.vpos == 0 {
+        if self.floppy.any_drive_selected()
+            && self.floppy.motor_on()
+            && self.floppy.has_disk()
+            && self.chipset.vpos == 0
+        {
             // Fire index pulse once per revolution (~300ms real, once per frame here)
             let mut cia = self.cpu.mem.cia.borrow_mut();
-            cia.cia_b.icr_data |= 0x10; // FLAG bit
-            if cia.cia_b.icr_mask & 0x10 != 0 {
+            if cia.cia_b.set_flag() {
                 self.chipset.intreq |= custom::INT_EXTER;
                 self.cpu.mem.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
             }
@@ -448,9 +485,12 @@ impl Emulator {
 
         // Floppy DMA: run ~32 word cycles per scanline
         if self.chipset.dmaen(crate::custom::DMA_DISK) {
-            let chip_ram = self.cpu.mem.chip_ram_mut();
             for _ in 0..32 {
-                self.floppy.disk_dma_cycle(chip_ram);
+                {
+                    let chip_ram = self.cpu.mem.chip_ram_mut();
+                    self.floppy.disk_dma_cycle(chip_ram);
+                }
+                self.cpu.mem.dskbytr.set(self.floppy.dskbytr_val);
             }
             // Deliver pending disk interrupts
             if self.floppy.pending_sync_irq {
@@ -529,13 +569,13 @@ impl Emulator {
             // Start CIA timers if timer.device hasn't started them yet.
             // Only start the timer (CRA bit 0), don't enable ICR mask.
             // timer.device manages the ICR mask itself.
-            if self.total_cycles > FORCE_CIA_TIMER_THRESHOLD
-                && self.cpu.mem.cia.borrow().cia_b.cra & 0x01 == 0
-            {
+            if self.total_cycles > FORCE_CIA_TIMER_THRESHOLD {
                 let mut cia = self.cpu.mem.cia.borrow_mut();
-                cia.cia_b.cra |= 0x01;
                 if cia.cia_a.cra & 0x01 == 0 {
                     cia.cia_a.cra |= 0x01;
+                }
+                if cia.cia_b.cra & 0x01 == 0 {
+                    cia.cia_b.cra |= 0x01;
                 }
             }
 
@@ -632,7 +672,10 @@ impl Emulator {
             }
             custom::COPJMP1 => self.copper.strobe_cop1(),
             custom::COPJMP2 => self.copper.strobe_cop2(),
-            custom::DSKLEN => self.floppy.write_dsklen(value),
+            custom::DSKLEN => {
+                let adkcon = self.cpu.mem.read_custom_reg(custom::ADKCONR);
+                self.floppy.write_dsklen(value, adkcon);
+            }
             custom::DSKSYNC => self.floppy.write_dsksync(value),
             custom::DSKPTH => {
                 self.floppy.dskpt = (self.floppy.dskpt & 0x0000_FFFF) | (u32::from(value) << 16);
@@ -960,5 +1003,21 @@ mod tests {
         emu.dispatch_register_write(custom::DSKPTH, 0x0004);
         emu.dispatch_register_write(custom::DSKPTL, 0x567B);
         assert_eq!(emu.floppy.dskpt, 0x0004_567A);
+    }
+
+    #[test]
+    fn disk_status_reports_active_low_drive_id_bit() {
+        let mut emu = Emulator::new(MemoryConfig::a500_plus());
+        emu.insert_floppy(1, Vec::new());
+
+        emu.floppy.selected = 0x0D; // DF1 selected, motor off
+        emu.floppy.drives[1].drive_id = 0xFFFF_FFFF;
+        emu.floppy.drives[1].id_shift_count = 0;
+        emu.update_disk_status();
+        assert_eq!(emu.cpu.mem.disk_status & 0x20, 0);
+
+        emu.floppy.drives[1].drive_id = 0;
+        emu.update_disk_status();
+        assert_eq!(emu.cpu.mem.disk_status & 0x20, 0x20);
     }
 }

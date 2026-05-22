@@ -6,7 +6,7 @@
 //! Implements the Amiga memory map with chip RAM, slow RAM, fast RAM,
 //! Kickstart ROM, custom chip registers, and CIA registers.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 use r68k_emu::ram::{AddressBus, AddressSpace};
 
@@ -101,6 +101,8 @@ pub struct AmigaMemory {
     pub disk_status: u8,
     /// CIA pair (A and B) — lives here so `AddressBus` can read/write registers.
     pub cia: RefCell<CiaPair>,
+    /// DSKBYTR shadow register for read-clearing behavior.
+    pub dskbytr: Cell<u16>,
 }
 
 impl AmigaMemory {
@@ -126,6 +128,7 @@ impl AmigaMemory {
             cia_b_prb_dirty: false,
             disk_status: 0x3C, // Default: all status bits high (no drive selected state)
             cia: RefCell::new(CiaPair::new()),
+            dskbytr: Cell::new(0),
         }
     }
 
@@ -246,9 +249,7 @@ impl AmigaMemory {
                     // Bits 6-7: joystick fire buttons (active low = 1 when not pressed)
                     let cia = self.cia.borrow();
                     let output_bits = self.cia_a_pra & cia.cia_a.ddra;
-                    let mut input_bits: u8 = (self.disk_status & 0x3C) | 0xC0;
-                    // Always clear DSKCHANGE when no disk is inserted
-                    input_bits &= !0x04;
+                    let input_bits: u8 = (self.disk_status & 0x3C) | 0xC0;
                     return output_bits | (input_bits & !cia.cia_a.ddra);
                 }
                 return self.cia.borrow_mut().cia_a.read(reg);
@@ -272,7 +273,12 @@ impl AmigaMemory {
         // Custom chip registers: 0xDFF000–0xE00000
         if (CUSTOM_BASE..CUSTOM_END).contains(&addr) {
             let offset = (addr - CUSTOM_BASE) & 0x1FE;
-            let word = self.custom_regs[(offset / 2) as usize];
+            let mut word = self.custom_regs[(offset / 2) as usize];
+            if offset == 0x01A {
+                word = self.dskbytr.get();
+                // Clear bit 15 (BYTERDY) on read
+                self.dskbytr.set(word & !0x8000);
+            }
             // Even address = high byte, odd address = low byte
             return if addr & 1 == 0 {
                 (word >> 8) as u8
@@ -342,18 +348,7 @@ impl AmigaMemory {
                 self.cia.borrow_mut().cia_b.write(reg, value);
                 if reg == 1 {
                     self.cia_b_prb_dirty = true;
-                    let selected = (value >> 3) & 0x0F;
-                    let df0_selected = selected & 1 == 0;
-                    let any_selected = selected != 0x0F;
-                    if any_selected {
-                        if df0_selected {
-                            self.disk_status = 0x20; // DF0: DSKRDY=1 (ID bit)
-                        } else {
-                            self.disk_status = 0x00; // No drive: DSKRDY=0
-                        }
-                    } else {
-                        self.disk_status = 0x3C;
-                    }
+
                     // Enable CIA-B FLAG mask for DSKCHANGE detection.
                     // Don't fire FLAG here - it fires naturally when DSKCHANGE
                     // transitions, which happens during disk I/O attempts.
@@ -408,6 +403,7 @@ impl AddressBus for AmigaMemory {
         self.cia_b_prb_dirty = other.cia_b_prb_dirty;
         self.disk_status = other.disk_status;
         *self.cia.borrow_mut() = other.cia.borrow().clone();
+        self.dskbytr.set(other.dskbytr.get());
     }
 
     fn read_byte(&self, _address_space: AddressSpace, addr: u32) -> u32 {
@@ -421,7 +417,14 @@ impl AddressBus for AmigaMemory {
             let offset = ((masked - CUSTOM_BASE) & 0x1FE) as u16;
             let idx = (offset / 2) as usize;
             return if idx < CUSTOM_REG_COUNT {
-                u32::from(self.custom_regs[idx])
+                if offset == 0x01A {
+                    let word = self.dskbytr.get();
+                    // Clear bit 15 (BYTERDY) on read
+                    self.dskbytr.set(word & !0x8000);
+                    u32::from(word)
+                } else {
+                    u32::from(self.custom_regs[idx])
+                }
             } else {
                 0
             };

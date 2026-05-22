@@ -61,7 +61,7 @@ impl MachineModel {
 struct LaunchArgs {
     model: Option<MachineModel>,
     rom_path: String,
-    adf_path: Option<String>,
+    adf_paths: Vec<String>,
 }
 
 fn main() {
@@ -87,13 +87,14 @@ fn main() {
     let mut emulator = Emulator::new(model.config());
     emulator.load_rom(&rom_data);
 
-    // Load ADF disk image if provided
-    if let Some(adf_path) = launch_args.adf_path.as_deref() {
+    // Load ADF disk images into DF0-DF3 in argument order.
+    for (drive, adf_path) in launch_args.adf_paths.iter().enumerate() {
         let adf_data = fs::read(adf_path).unwrap_or_else(|e| {
             eprintln!("Failed to read ADF file '{adf_path}': {e}");
             process::exit(1);
         });
-        emulator.insert_floppy(0, adf_data);
+        eprintln!("Inserted {adf_path} as DF{drive}");
+        emulator.insert_floppy(drive, adf_data);
     }
 
     let mut video = DesktopVideo::new("Rumiga", WIDTH, HEIGHT, 2).unwrap_or_else(|| {
@@ -162,14 +163,14 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
     let Some(rom_path) = positional.first() else {
         return Err("Missing Kickstart ROM path".to_owned());
     };
-    if positional.len() > 2 {
-        return Err("Too many positional arguments".to_owned());
+    if positional.len() > 5 {
+        return Err("Too many disk images; Rumiga supports DF0 through DF3".to_owned());
     }
 
     Ok(LaunchArgs {
         model,
         rom_path: rom_path.clone(),
-        adf_path: positional.get(1).cloned(),
+        adf_paths: positional.iter().skip(1).cloned().collect(),
     })
 }
 
@@ -214,7 +215,7 @@ const fn expected_rom_size(model: MachineModel) -> usize {
 
 fn print_usage() {
     eprintln!(
-        "Usage: rumiga-desktop [--model a500|a500-plus|a600|a1200] <kickstart.rom> [disk.adf]"
+        "Usage: rumiga-desktop [--model a500|a500-plus|a600|a1200] <kickstart.rom> [df0.adf] [df1.adf] [df2.adf] [df3.adf]"
     );
 }
 
@@ -288,7 +289,32 @@ mod tests {
             Ok(LaunchArgs {
                 model: Some(MachineModel::A1200),
                 rom_path: "kick.rom".to_owned(),
-                adf_path: Some("workbench.adf".to_owned()),
+                adf_paths: vec!["workbench.adf".to_owned()],
+            })
+        );
+    }
+
+    #[test]
+    fn parse_args_accepts_up_to_four_disks() {
+        let args = vec![
+            "kick.rom".to_owned(),
+            "df0.adf".to_owned(),
+            "df1.adf".to_owned(),
+            "df2.adf".to_owned(),
+            "df3.adf".to_owned(),
+        ];
+
+        assert_eq!(
+            parse_args(&args),
+            Ok(LaunchArgs {
+                model: None,
+                rom_path: "kick.rom".to_owned(),
+                adf_paths: vec![
+                    "df0.adf".to_owned(),
+                    "df1.adf".to_owned(),
+                    "df2.adf".to_owned(),
+                    "df3.adf".to_owned(),
+                ],
             })
         );
     }
@@ -298,7 +324,7 @@ mod tests {
         let args = LaunchArgs {
             model: None,
             rom_path: "kick.a1200.46.143.rom".to_owned(),
-            adf_path: None,
+            adf_paths: Vec::new(),
         };
 
         assert_eq!(select_model(&args, ROM_SIZE_512K), Ok(MachineModel::A1200));
@@ -309,7 +335,7 @@ mod tests {
         let args = LaunchArgs {
             model: Some(MachineModel::A1200),
             rom_path: "kick.a500.34.005.rom".to_owned(),
-            adf_path: None,
+            adf_paths: Vec::new(),
         };
 
         assert!(select_model(&args, ROM_SIZE_256K).is_err());

@@ -109,6 +109,9 @@ impl PlayfieldState {
         let (hstart, hstop, vstart, vstop) = self.display_window();
         let bg = amiga_to_rgb565(self.color[0]);
         let num_planes = self.num_planes().min(MAX_PLANES);
+        let hires = self.bplcon0 & 0x8000 != 0;
+        let fetch_words = self.data_fetch_words(hires);
+        let mut words_fetched = 0usize;
         let line_visible = line >= vstart && line < vstop;
 
         let width = LINE_WIDTH;
@@ -122,23 +125,59 @@ impl PlayfieldState {
             }
 
             // Fetch new words every 16 pixels
-            if px % PIXELS_PER_WORD == 0 {
+            let source_px = if hires { px * 2 } else { px };
+            if source_px % PIXELS_PER_WORD == 0 && words_fetched < fetch_words {
                 for plane in 0..num_planes {
                     self.fetch_bitplane_word(plane, chip_ram);
                 }
+                words_fetched += 1;
             }
 
-            // Combine bits from each plane (bit 15 = leftmost pixel)
-            let bit_index = 15 - (px % PIXELS_PER_WORD);
-            let mut color_index: u16 = 0;
-            for plane in 0..num_planes {
-                color_index |= ((self.bpldat[plane] >> bit_index) & 1) << plane;
+            // Combine bits from each plane (bit 15 = leftmost pixel).
+            let bit_index = 15 - (source_px % PIXELS_PER_WORD);
+            let mut color_index = self.color_index_at_bit(num_planes, bit_index);
+            if hires && color_index == 0 {
+                let next_bit_index = 15 - ((source_px + 1) % PIXELS_PER_WORD);
+                color_index = self.color_index_at_bit(num_planes, next_bit_index);
             }
 
             let rgb = amiga_to_rgb565(self.color[usize::from(color_index) & 0x1F]);
             if let Some(dest) = line_buffer.get_mut(usize::from(px)) {
                 *dest = rgb;
             }
+        }
+
+        while line_visible && words_fetched < fetch_words {
+            for plane in 0..num_planes {
+                self.fetch_bitplane_word(plane, chip_ram);
+            }
+            words_fetched += 1;
+        }
+    }
+
+    fn color_index_at_bit(&self, num_planes: usize, bit_index: u16) -> u16 {
+        let mut color_index: u16 = 0;
+        for plane in 0..num_planes {
+            color_index |= ((self.bpldat[plane] >> bit_index) & 1) << plane;
+        }
+        color_index
+    }
+
+    fn data_fetch_words(&self, hires: bool) -> usize {
+        if self.ddfstrt == 0 && self.ddfstop == 0 {
+            return if hires { 40 } else { 20 };
+        }
+
+        let start = self.ddfstrt & 0x00FC;
+        let stop = self.ddfstop & 0x00FC;
+        if stop < start {
+            return 0;
+        }
+
+        if hires {
+            usize::from(((stop - start) / 4) + 2)
+        } else {
+            usize::from(((stop - start) / 8) + 1)
         }
     }
 }
@@ -290,6 +329,50 @@ mod tests {
         assert_eq!(line_buffer[2], amiga_to_rgb565(0x0F00));
         // Pixel 3: plane0=0, plane1=0 -> index 0 (black)
         assert_eq!(line_buffer[3], amiga_to_rgb565(0x0000));
+    }
+
+    #[test]
+    fn highres_fetches_two_source_pixels_per_output_pixel() {
+        let mut pf = PlayfieldState::new();
+        pf.bplcon0 = 0x8000 | 0x1000; // high-res, 1 plane
+        pf.diwstrt = 0x2C81;
+        pf.diwstop = 0x2CC1;
+        pf.color[0] = 0x0000;
+        pf.color[1] = 0x0FFF;
+
+        let mut chip_ram = [0u8; 128];
+        chip_ram[0] = 0xAA; // even high-res pixels are set
+        chip_ram[1] = 0xAA;
+        chip_ram[2] = 0x55; // odd high-res pixels are set
+        chip_ram[3] = 0x55;
+
+        pf.bplpt[0] = 0;
+
+        let mut line_buffer = [0u16; DISPLAY_WIDTH as usize];
+        pf.render_scanline(0x2C, &chip_ram, &mut line_buffer);
+
+        let white = amiga_to_rgb565(0x0FFF);
+        assert!(line_buffer[0..8].iter().all(|&px| px == white));
+        assert!(line_buffer[8..16].iter().all(|&px| px == white));
+        assert_eq!(pf.bplpt[0], 80);
+    }
+
+    #[test]
+    fn highres_ddf_window_controls_words_fetched() {
+        let mut pf = PlayfieldState::new();
+        pf.bplcon0 = 0x8000 | 0x1000;
+        pf.diwstrt = 0x2C81;
+        pf.diwstop = 0x2CC1;
+        pf.ddfstrt = 0x0038;
+        pf.ddfstop = 0x00D8;
+        pf.color[0] = 0x0000;
+        pf.color[1] = 0x0FFF;
+
+        let chip_ram = [0xFFu8; 256];
+        let mut line_buffer = [0u16; DISPLAY_WIDTH as usize];
+        pf.render_scanline(0x2C, &chip_ram, &mut line_buffer);
+
+        assert_eq!(pf.bplpt[0], 84);
     }
 
     #[test]

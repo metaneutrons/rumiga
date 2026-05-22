@@ -290,6 +290,18 @@ impl CiaState {
     pub const fn irq_pending(&self) -> bool {
         self.icr_ir
     }
+
+    /// Trigger the /FLAG interrupt (bit 4, 0x10).
+    /// Returns true if an interrupt should be asserted to the CPU.
+    pub fn set_flag(&mut self) -> bool {
+        self.icr_data |= 0x10; // ICR_FLG (bit 4)
+        if self.icr_data & self.icr_mask & 0x1F != 0 && !self.icr_ir {
+            self.icr_ir = true;
+            true
+        } else {
+            false
+        }
+    }
 }
 
 impl Default for CiaState {
