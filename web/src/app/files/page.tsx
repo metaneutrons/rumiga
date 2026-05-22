@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { getFiles, uploadFile, deleteFile, formatSd, type FileEntry } from '@/lib/api';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { deleteFile, formatSd, getFiles, uploadFile, type FileEntry } from '@/lib/api';
 
 export default function FilesPage() {
   const [files, setFiles] = useState<FileEntry[]>([]);
@@ -10,22 +10,31 @@ export default function FilesPage() {
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  function load() {
-    setLoading(true);
-    getFiles('/')
-      .then((r) => {
-        if (r.success && r.data) {
-          setFiles(r.data.files);
-          setFreeBytes(r.data.free_bytes);
-        } else {
-          setError(r.error ?? 'Failed to load files');
-        }
-      })
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setLoading(false));
-  }
+  const load = useCallback(async (showLoading = true) => {
+    if (showLoading) {
+      setLoading(true);
+    }
+    try {
+      const r = await getFiles('/');
+      if (r.success && r.data) {
+        setFiles(r.data.files);
+        setFreeBytes(r.data.free_bytes);
+      } else {
+        setError(r.error ?? 'Failed to load files');
+      }
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to load files');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  useEffect(load, []);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void load(false);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -33,7 +42,7 @@ export default function FilesPage() {
     try {
       const r = await uploadFile(file);
       if (!r.success) setError(r.error ?? 'Upload failed');
-      else load();
+      else void load();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Upload failed');
     }
@@ -44,7 +53,7 @@ export default function FilesPage() {
     try {
       const r = await deleteFile(name);
       if (!r.success) setError(r.error ?? 'Delete failed');
-      else load();
+      else void load();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Delete failed');
     }
@@ -56,7 +65,7 @@ export default function FilesPage() {
     try {
       const r = await formatSd(token);
       if (!r.success) setError(r.error ?? 'Format failed');
-      else load();
+      else void load();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Format failed');
     }
