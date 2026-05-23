@@ -342,6 +342,18 @@ mod winuae_register_offset_golden_vectors {
         assert_eq!(BPLCON0, 0x100);
     }
 
+    /// WinUAE identify.cpp: BEAMCON0 at offset 0x1dc.
+    #[test]
+    fn test_register_beamcon0_offset_matches_winuae_0x1dc() {
+        assert_eq!(BEAMCON0, 0x1DC);
+    }
+
+    /// WinUAE custom.h: BEAMCON0_PAL marks PAL beam timing.
+    #[test]
+    fn test_beamcon0_pal_bit_matches_winuae_0x0020() {
+        assert_eq!(BEAMCON0_PAL, 0x0020);
+    }
+
     /// WinUAE identify.cpp: BPL1PTH at offset 0x0E0.
     #[test]
     fn test_register_bpl1pth_offset_matches_winuae_0x0e0() {
@@ -717,7 +729,14 @@ mod winuae_copper_execution_golden_vectors {
 }
 
 mod winuae_playfield_rendering_golden_vectors {
-    use rumiga_core::playfield::{DISPLAY_WIDTH, PlayfieldState, amiga_to_rgb565};
+    use rumiga_core::playfield::{
+        DISPLAY_LEFT_HPOS, DISPLAY_WIDTH, PlayfieldState, amiga_to_rgb565,
+    };
+
+    fn active_start_px(pf: &PlayfieldState) -> usize {
+        let (hstart, _, _, _) = pf.display_window();
+        usize::from(hstart.saturating_sub(DISPLAY_LEFT_HPOS)) * 2
+    }
 
     /// WinUAE custom.h: $0000 → 0x0000 (black).
     #[test]
@@ -782,7 +801,8 @@ mod winuae_playfield_rendering_golden_vectors {
 
         // Bit 15=1, bit 14=0, bit 13=1, ... alternating, with each lores
         // source pixel doubled into the high-resolution output buffer.
-        for (i, px) in line_buffer.iter().enumerate().take(16) {
+        let start = active_start_px(&pf);
+        for (i, px) in line_buffer[start..start + 16].iter().enumerate() {
             let expected = if (i / 2) % 2 == 0 { white } else { black };
             assert_eq!(*px, expected, "pixel {i} mismatch");
         }
@@ -812,7 +832,8 @@ mod winuae_playfield_rendering_golden_vectors {
         pf.render_scanline(0x2C, &chip_ram, &mut line_buffer);
 
         let expected = amiga_to_rgb565(0x0F0F);
-        for (i, px) in line_buffer.iter().enumerate().take(16) {
+        let start = active_start_px(&pf);
+        for (i, px) in line_buffer[start..start + 16].iter().enumerate() {
             assert_eq!(*px, expected, "pixel {i} should be color 15");
         }
     }

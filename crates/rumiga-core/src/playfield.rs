@@ -3,11 +3,17 @@
 
 //! Bitplane DMA and playfield rendering for the Amiga OCS chipset.
 
-/// High-resolution pixels per standard PAL line.
+/// First visible low-resolution hardware position in the normal OCS viewport.
 ///
-/// Lores playfields are expanded 2x horizontally into this buffer so high-res
-/// Workbench screens can be rendered without horizontal downsampling.
-pub const DISPLAY_WIDTH: u32 = 640;
+/// `WinUAE`'s normal non-extreme overscan limits clamp the visible horizontal
+/// range to roughly hpos 92..460, which gives Workbench room for side borders.
+pub const DISPLAY_LEFT_HPOS: u16 = 92;
+
+/// High-resolution pixels per normal PAL line.
+///
+/// Lores playfields are expanded 2x horizontally into this buffer. The 736 px
+/// width matches `WinUAE`'s normal OCS visible span `(460 - 92) * 2`.
+pub const DISPLAY_WIDTH: u32 = 736;
 
 /// Maximum PAL display height in non-interlaced lines.
 ///
@@ -121,8 +127,8 @@ impl PlayfieldState {
         let line_visible = line >= vstart && line < vstop;
 
         for px in 0..LINE_WIDTH {
-            let window_hpos = hstart + (px / 2);
-            if !line_visible || num_planes == 0 || window_hpos < hstart || window_hpos >= hstop {
+            let raster_hpos = DISPLAY_LEFT_HPOS + (px / 2);
+            if !line_visible || num_planes == 0 || raster_hpos < hstart || raster_hpos >= hstop {
                 if let Some(dest) = line_buffer.get_mut(usize::from(px)) {
                     *dest = bg;
                 }
@@ -131,7 +137,12 @@ impl PlayfieldState {
 
             // Fetch new words every 16 source pixels. Lores source pixels are
             // doubled in the high-resolution output buffer.
-            let source_px = if hires { px } else { px / 2 };
+            let window_px = raster_hpos - hstart;
+            let source_px = if hires {
+                window_px * 2 + (px & 1)
+            } else {
+                window_px
+            };
             let starts_word = source_px % PIXELS_PER_WORD == 0 && (hires || px % 2 == 0);
             if starts_word && words_fetched < fetch_words {
                 for plane in 0..num_planes {
@@ -214,6 +225,11 @@ pub const fn amiga_to_rgb565(color12: u16) -> u16 {
 mod tests {
     use super::*;
 
+    fn active_start_px(pf: &PlayfieldState) -> usize {
+        let (hstart, _, _, _) = pf.display_window();
+        usize::from(hstart.saturating_sub(DISPLAY_LEFT_HPOS)) * 2
+    }
+
     #[test]
     fn amiga_to_rgb565_black() {
         assert_eq!(amiga_to_rgb565(0x0000), 0x0000);
@@ -279,21 +295,22 @@ mod tests {
 
         let white = amiga_to_rgb565(0x0FFF);
         let black = amiga_to_rgb565(0x0000);
+        let start = active_start_px(&pf);
 
         // First 8 lores pixels are doubled into 16 high-res output pixels.
-        for px in &line_buffer[0..16] {
+        for px in &line_buffer[start..start + 16] {
             assert_eq!(*px, white);
         }
         // Next 8 lores pixels are black, also doubled.
-        for px in &line_buffer[16..32] {
+        for px in &line_buffer[start + 16..start + 32] {
             assert_eq!(*px, black);
         }
         // Next word begins with 8 black lores pixels.
-        for px in &line_buffer[32..48] {
+        for px in &line_buffer[start + 32..start + 48] {
             assert_eq!(*px, black);
         }
         // Then 8 white lores pixels.
-        for px in &line_buffer[48..64] {
+        for px in &line_buffer[start + 48..start + 64] {
             assert_eq!(*px, white);
         }
     }
@@ -323,19 +340,20 @@ mod tests {
         let mut line_buffer = [0u16; DISPLAY_WIDTH as usize];
         pf.render_scanline(0x2C, &chip_ram, &mut line_buffer);
 
+        let start = active_start_px(&pf);
         // Lores pixels are doubled in the high-res output buffer.
         // Pixel 0: plane0=1, plane1=1 -> index 3 (blue)
-        assert_eq!(line_buffer[0], amiga_to_rgb565(0x000F));
-        assert_eq!(line_buffer[1], amiga_to_rgb565(0x000F));
+        assert_eq!(line_buffer[start], amiga_to_rgb565(0x000F));
+        assert_eq!(line_buffer[start + 1], amiga_to_rgb565(0x000F));
         // Pixel 1: plane0=0, plane1=1 -> index 2 (green)
-        assert_eq!(line_buffer[2], amiga_to_rgb565(0x00F0));
-        assert_eq!(line_buffer[3], amiga_to_rgb565(0x00F0));
+        assert_eq!(line_buffer[start + 2], amiga_to_rgb565(0x00F0));
+        assert_eq!(line_buffer[start + 3], amiga_to_rgb565(0x00F0));
         // Pixel 2: plane0=1, plane1=0 -> index 1 (red)
-        assert_eq!(line_buffer[4], amiga_to_rgb565(0x0F00));
-        assert_eq!(line_buffer[5], amiga_to_rgb565(0x0F00));
+        assert_eq!(line_buffer[start + 4], amiga_to_rgb565(0x0F00));
+        assert_eq!(line_buffer[start + 5], amiga_to_rgb565(0x0F00));
         // Pixel 3: plane0=0, plane1=0 -> index 0 (black)
-        assert_eq!(line_buffer[6], amiga_to_rgb565(0x0000));
-        assert_eq!(line_buffer[7], amiga_to_rgb565(0x0000));
+        assert_eq!(line_buffer[start + 6], amiga_to_rgb565(0x0000));
+        assert_eq!(line_buffer[start + 7], amiga_to_rgb565(0x0000));
     }
 
     #[test]
@@ -360,7 +378,8 @@ mod tests {
 
         let white = amiga_to_rgb565(0x0FFF);
         let black = amiga_to_rgb565(0x0000);
-        for (i, px) in line_buffer.iter().enumerate().take(16) {
+        let start = active_start_px(&pf);
+        for (i, px) in line_buffer[start..start + 16].iter().enumerate() {
             let expected = if i % 2 == 0 { white } else { black };
             assert_eq!(*px, expected, "pixel {i} mismatch");
         }
@@ -405,5 +424,31 @@ mod tests {
         for px in &line_buffer {
             assert_eq!(*px, bg);
         }
+    }
+
+    #[test]
+    fn normal_visible_raster_keeps_side_borders() {
+        let mut pf = PlayfieldState::new();
+        pf.bplcon0 = 0x1000;
+        pf.diwstrt = 0x2C81;
+        pf.diwstop = 0x2CC1;
+        pf.color[0] = 0x0123;
+        pf.color[1] = 0x0FFF;
+
+        let chip_ram = [0xFFu8; 1024];
+        let mut line_buffer = [0u16; DISPLAY_WIDTH as usize];
+        pf.render_scanline(0x2C, &chip_ram, &mut line_buffer);
+
+        let bg = amiga_to_rgb565(0x0123);
+        let fg = amiga_to_rgb565(0x0FFF);
+        let start = active_start_px(&pf);
+        let (hstart, hstop, _, _) = pf.display_window();
+        let end = start + usize::from(hstop - hstart) * 2;
+
+        assert_eq!(start, 74);
+        assert_eq!(line_buffer[start - 1], bg);
+        assert_eq!(line_buffer[start], fg);
+        assert_eq!(line_buffer[end - 1], fg);
+        assert_eq!(line_buffer[end], bg);
     }
 }

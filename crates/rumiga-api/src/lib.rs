@@ -170,7 +170,7 @@ impl Default for ViewportConfig {
 }
 
 const fn default_viewport_width() -> u16 {
-    640
+    736
 }
 
 const fn default_viewport_height() -> u16 {

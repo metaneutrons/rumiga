@@ -59,10 +59,28 @@ impl MachineModel {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ViewportMode {
+    Auto,
+    Raw,
+}
+
+impl ViewportMode {
+    fn parse(value: &str) -> Option<Self> {
+        match value.to_ascii_lowercase().as_str() {
+            "auto" => Some(Self::Auto),
+            "raw" => Some(Self::Raw),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 struct LaunchArgs {
     model: Option<MachineModel>,
     scale: usize,
+    viewport_mode: ViewportMode,
+    vertical_stretch: bool,
     rom_path: String,
     adf_paths: Vec<String>,
 }
@@ -110,6 +128,7 @@ fn main() {
 
     #[allow(clippy::cast_possible_truncation)]
     let (w, h) = (WIDTH as u32, HEIGHT as u32);
+    let mut presented_framebuffer = vec![0u16; WIDTH * HEIGHT];
 
     while video.is_open() {
         // Check ESC to quit
@@ -133,7 +152,24 @@ fn main() {
         }
 
         emulator.run_frame();
-        video.present_frame(emulator.framebuffer(), w, h);
+        let framebuffer = emulator.framebuffer();
+        if launch_args.viewport_mode == ViewportMode::Auto
+            && launch_args.vertical_stretch
+            && auto_vertical_bounds(framebuffer, WIDTH, HEIGHT).is_some_and(|(y_start, y_end)| {
+                stretch_vertical_viewport(
+                    framebuffer,
+                    WIDTH,
+                    HEIGHT,
+                    y_start,
+                    y_end,
+                    &mut presented_framebuffer,
+                )
+            })
+        {
+            video.present_frame(&presented_framebuffer, w, h);
+        } else {
+            video.present_frame(framebuffer, w, h);
+        }
         emulator.clear_frame_ready();
     }
 }
@@ -141,6 +177,8 @@ fn main() {
 fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
     let mut model = None;
     let mut scale = DEFAULT_SCALE;
+    let mut viewport_mode = ViewportMode::Auto;
+    let mut vertical_stretch = true;
     let mut positional = Vec::new();
     let mut index = 0;
 
@@ -163,6 +201,18 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
                 scale = parse_scale(value)?;
                 index += 2;
             }
+            "--viewport" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--viewport requires a value".to_owned());
+                };
+                viewport_mode = ViewportMode::parse(value)
+                    .ok_or_else(|| format!("Unsupported viewport mode '{value}'"))?;
+                index += 2;
+            }
+            "--no-vertical-stretch" => {
+                vertical_stretch = false;
+                index += 1;
+            }
             "--help" | "-h" => return Err(String::new()),
             value if value.starts_with('-') => return Err(format!("Unknown option '{value}'")),
             value => {
@@ -182,6 +232,8 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
     Ok(LaunchArgs {
         model,
         scale,
+        viewport_mode,
+        vertical_stretch,
         rom_path: rom_path.clone(),
         adf_paths: positional.iter().skip(1).cloned().collect(),
     })
@@ -238,8 +290,107 @@ const fn expected_rom_size(model: MachineModel) -> usize {
 
 fn print_usage() {
     eprintln!(
-        "Usage: rumiga-desktop [--model a500|a500-plus|a600|a1200] [--scale 1|2|4|8|16|32] <kickstart.rom> [df0.adf] [df1.adf] [df2.adf] [df3.adf]"
+        "Usage: rumiga-desktop [--model a500|a500-plus|a600|a1200] [--scale 1|2|4|8|16|32] [--viewport auto|raw] [--no-vertical-stretch] <kickstart.rom> [df0.adf] [df1.adf] [df2.adf] [df3.adf]"
     );
+}
+
+fn auto_vertical_bounds(
+    framebuffer: &[u16],
+    width: usize,
+    height: usize,
+) -> Option<(usize, usize)> {
+    if width == 0 || height == 0 {
+        return None;
+    }
+
+    let pixel_count = width.checked_mul(height)?;
+    if framebuffer.len() < pixel_count {
+        return None;
+    }
+
+    let background = framebuffer[0];
+    let mut first_content_row = None;
+    let mut last_content_row = 0usize;
+
+    for y in 0..height {
+        let row_start = y * width;
+        let row = &framebuffer[row_start..row_start + width];
+        if row_has_video_content(row, background) {
+            first_content_row.get_or_insert(y);
+            last_content_row = y;
+        }
+    }
+
+    first_content_row.map(|first| (first.saturating_sub(1), (last_content_row + 2).min(height)))
+}
+
+fn row_has_video_content(row: &[u16], background: u16) -> bool {
+    let Some((&first, rest)) = row.split_first() else {
+        return false;
+    };
+    let mut differs_from_first = false;
+    let mut differs_from_background = first != background;
+    let mut first_non_background = if first == background {
+        None
+    } else {
+        Some(0usize)
+    };
+    let mut last_non_background = first_non_background;
+
+    for (index, &pixel) in rest.iter().enumerate() {
+        differs_from_first |= pixel != first;
+        differs_from_background |= pixel != background;
+        if pixel != background {
+            let pixel_index = index + 1;
+            first_non_background.get_or_insert(pixel_index);
+            last_non_background = Some(pixel_index);
+        }
+    }
+
+    let Some(first_non_background) = first_non_background else {
+        return false;
+    };
+    let Some(last_non_background) = last_non_background else {
+        return false;
+    };
+
+    let minimum_screen_span = row.len() * 3 / 4;
+    differs_from_first
+        && differs_from_background
+        && last_non_background.saturating_sub(first_non_background) >= minimum_screen_span
+}
+
+fn stretch_vertical_viewport(
+    framebuffer: &[u16],
+    width: usize,
+    height: usize,
+    y_start: usize,
+    y_end: usize,
+    output: &mut [u16],
+) -> bool {
+    let Some(pixel_count) = width.checked_mul(height) else {
+        return false;
+    };
+    if width == 0
+        || height == 0
+        || y_start >= y_end
+        || y_end > height
+        || framebuffer.len() < pixel_count
+        || output.len() < pixel_count
+    {
+        return false;
+    }
+
+    let viewport_height = y_end - y_start;
+    for dest_y in 0..height {
+        let source_y = y_start + (dest_y * viewport_height / height);
+        let source_start = source_y * width;
+        let dest_start = dest_y * width;
+        output[dest_start..dest_start + width]
+            .copy_from_slice(&framebuffer[source_start..source_start + width]);
+    }
+
+    true
 }
 
 /// Map a minifb key to an Amiga raw keycode.
@@ -312,6 +463,8 @@ mod tests {
             Ok(LaunchArgs {
                 model: Some(MachineModel::A1200),
                 scale: DEFAULT_SCALE,
+                viewport_mode: ViewportMode::Auto,
+                vertical_stretch: true,
                 rom_path: "kick.rom".to_owned(),
                 adf_paths: vec!["workbench.adf".to_owned()],
             })
@@ -333,6 +486,8 @@ mod tests {
             Ok(LaunchArgs {
                 model: None,
                 scale: DEFAULT_SCALE,
+                viewport_mode: ViewportMode::Auto,
+                vertical_stretch: true,
                 rom_path: "kick.rom".to_owned(),
                 adf_paths: vec![
                     "df0.adf".to_owned(),
@@ -353,6 +508,8 @@ mod tests {
             Ok(LaunchArgs {
                 model: None,
                 scale: 1,
+                viewport_mode: ViewportMode::Auto,
+                vertical_stretch: true,
                 rom_path: "kick.rom".to_owned(),
                 adf_paths: Vec::new(),
             })
@@ -371,6 +528,8 @@ mod tests {
         let args = LaunchArgs {
             model: None,
             scale: DEFAULT_SCALE,
+            viewport_mode: ViewportMode::Auto,
+            vertical_stretch: true,
             rom_path: "kick.a1200.46.143.rom".to_owned(),
             adf_paths: Vec::new(),
         };
@@ -383,10 +542,96 @@ mod tests {
         let args = LaunchArgs {
             model: Some(MachineModel::A1200),
             scale: DEFAULT_SCALE,
+            viewport_mode: ViewportMode::Auto,
+            vertical_stretch: true,
             rom_path: "kick.a500.34.005.rom".to_owned(),
             adf_paths: Vec::new(),
         };
 
         assert!(select_model(&args, ROM_SIZE_256K).is_err());
+    }
+
+    #[test]
+    fn parse_args_accepts_raw_viewport_without_vertical_stretch() {
+        let args = vec![
+            "--viewport".to_owned(),
+            "raw".to_owned(),
+            "--no-vertical-stretch".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+
+        assert_eq!(
+            parse_args(&args),
+            Ok(LaunchArgs {
+                model: None,
+                scale: DEFAULT_SCALE,
+                viewport_mode: ViewportMode::Raw,
+                vertical_stretch: false,
+                rom_path: "kick.rom".to_owned(),
+                adf_paths: Vec::new(),
+            })
+        );
+    }
+
+    #[test]
+    fn auto_vertical_bounds_ignore_uniform_bottom_blank() {
+        let width = 4usize;
+        let height = 6usize;
+        let bg = 1u16;
+        let blue = 2u16;
+        let black = 0u16;
+        let framebuffer = [
+            bg, bg, bg, bg, //
+            blue, bg, bg, blue, //
+            blue, bg, bg, blue, //
+            bg, bg, bg, bg, //
+            black, black, black, black, //
+            black, black, black, black,
+        ];
+
+        assert_eq!(
+            auto_vertical_bounds(&framebuffer, width, height),
+            Some((0, 4))
+        );
+    }
+
+    #[test]
+    fn auto_vertical_bounds_ignore_centered_insert_disk_art() {
+        let width = 8usize;
+        let height = 4usize;
+        let bg = 1u16;
+        let fg = 2u16;
+        let framebuffer = [
+            bg, bg, bg, bg, bg, bg, bg, bg, //
+            bg, bg, bg, fg, fg, bg, bg, bg, //
+            bg, bg, bg, fg, fg, bg, bg, bg, //
+            bg, bg, bg, bg, bg, bg, bg, bg,
+        ];
+
+        assert_eq!(auto_vertical_bounds(&framebuffer, width, height), None);
+    }
+
+    #[test]
+    fn stretch_vertical_viewport_maps_crop_to_full_height() {
+        let width = 2usize;
+        let height = 4usize;
+        let framebuffer = [
+            10u16, 10, //
+            20, 20, //
+            30, 30, //
+            40, 40,
+        ];
+        let mut output = [0u16; 8];
+
+        assert!(stretch_vertical_viewport(
+            &framebuffer,
+            width,
+            height,
+            1,
+            3,
+            &mut output
+        ));
+
+        assert_eq!(output, [20, 20, 20, 20, 30, 30, 30, 30]);
     }
 }

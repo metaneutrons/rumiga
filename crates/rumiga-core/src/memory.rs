@@ -11,6 +11,7 @@ use std::cell::{Cell, RefCell};
 use r68k_emu::ram::{AddressBus, AddressSpace};
 
 use crate::cia::CiaPair;
+use crate::custom;
 
 /// Custom chip register address range.
 const CUSTOM_BASE: u32 = 0x00DF_F000;
@@ -115,6 +116,9 @@ impl AmigaMemory {
         let slow_ram = vec![0u8; config.slow_ram_size as usize];
         let fast_ram = vec![0u8; config.fast_ram_size as usize];
         let rom = vec![0xFFu8; config.rom_size as usize];
+        let mut custom_regs = [0; CUSTOM_REG_COUNT];
+        custom_regs[(custom::BEAMCON0 / 2) as usize] = custom::BEAMCON0_PAL;
+
         Self {
             config,
             chip_ram,
@@ -122,7 +126,7 @@ impl AmigaMemory {
             fast_ram,
             rom,
             overlay: true,
-            custom_regs: [0; CUSTOM_REG_COUNT],
+            custom_regs,
             reg_write_log: Vec::new(),
             cia_a_pra: 0,
             cia_b_prb_dirty: false,
@@ -593,5 +597,11 @@ mod tests {
         mem.overlay = false;
         // Address in unmapped region (no fast RAM configured, 0x200000+)
         assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0x20_0000), 0xFF);
+    }
+
+    #[test]
+    fn beamcon0_defaults_to_pal_timing() {
+        let mem = AmigaMemory::new(MemoryConfig::a500());
+        assert_eq!(mem.read_custom_reg(custom::BEAMCON0), custom::BEAMCON0_PAL);
     }
 }

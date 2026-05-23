@@ -424,6 +424,8 @@ pub const VBSTRT: u16 = 0x1CC;
 pub const VBSTOP: u16 = 0x1CE;
 /// Beam counter control (ECS).
 pub const BEAMCON0: u16 = 0x1DC;
+/// `BEAMCON0` PAL timing bit.
+pub const BEAMCON0_PAL: u16 = 0x0020;
 /// Display window high bits (ECS).
 pub const DIWHIGH: u16 = 0x1E4;
 /// Fetch mode (AGA).

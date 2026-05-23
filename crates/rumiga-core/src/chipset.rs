@@ -115,6 +115,7 @@ impl CustomChipState {
             custom::DMACONR => self.dmacon,
             custom::VPOSR => self.vpos >> 8,
             custom::VHPOSR => (self.vpos << 8) | (self.hpos & 0xFF),
+            custom::BEAMCON0 => custom::BEAMCON0_PAL,
             custom::INTENAR => self.intena,
             custom::INTREQR => self.intreq,
             o if (custom::COLOR00..=custom::COLOR31).contains(&o) => {
@@ -225,5 +226,11 @@ mod tests {
         assert_eq!(state.read_register(custom::COLOR00), 0x0F00);
         state.write_register(custom::COLOR31, 0x0ABC);
         assert_eq!(state.read_register(custom::COLOR31), 0x0ABC);
+    }
+
+    #[test]
+    fn beamcon0_reports_pal_timing() {
+        let state = CustomChipState::new();
+        assert_eq!(state.read_register(custom::BEAMCON0), custom::BEAMCON0_PAL);
     }
 }

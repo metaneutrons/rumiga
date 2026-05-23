@@ -367,7 +367,6 @@ impl Emulator {
             self.playfield.bplcon0 = saved_bplcon0;
 
             // Sprite DMA and rendering
-            let diw_hstart = self.playfield.diwstrt & 0xFF;
             let sprite_dma = self.chipset.dmaen(custom::DMA_SPRITE);
             for i in 0..8 {
                 if !sprite_dma {
@@ -380,7 +379,7 @@ impl Emulator {
                         &mut line_buffer,
                         &self.playfield.color,
                         i,
-                        diw_hstart,
+                        playfield::DISPLAY_LEFT_HPOS,
                         2,
                     );
                     // Deactivate at vstop
@@ -401,7 +400,7 @@ impl Emulator {
                         &mut line_buffer,
                         &self.playfield.color,
                         i,
-                        diw_hstart,
+                        playfield::DISPLAY_LEFT_HPOS,
                         2,
                     );
                 }
@@ -623,6 +622,7 @@ impl Emulator {
         regs[(custom::DMACONR / 2) as usize] = self.chipset.dmacon & 0x7FFF;
         regs[(custom::INTENAR / 2) as usize] = self.chipset.intena & 0x7FFF;
         regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq & 0x7FFF;
+        regs[(custom::BEAMCON0 / 2) as usize] = custom::BEAMCON0_PAL;
         // SERDATR ($018): TBE (bit 13) + TSRE (bit 12) = transmit buffer empty
         regs[(0x018 / 2) as usize] = 0x3000;
         // POTGOR ($016): active-high button state (bits 8-15 = all buttons released)

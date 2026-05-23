@@ -122,8 +122,8 @@ impl SpriteEngine {
 
     /// Render a single sprite into the line buffer.
     ///
-    /// `diw_hstart` is the display window horizontal start (from DIWSTRT low byte)
-    /// used to convert sprite hardware coordinates to buffer pixel positions.
+    /// `display_left_hpos` is the left edge of the visible raster used to
+    /// convert sprite hardware coordinates to buffer pixel positions.
     ///
     /// Sprite pair N (sprites 2N, 2N+1) uses palette colors `16 + N*4` through
     /// `16 + N*4 + 3`. Color index 0 (both planes zero) is transparent and does
@@ -133,7 +133,7 @@ impl SpriteEngine {
         line_buffer: &mut [u16],
         colors: &[u16; 32],
         sprite_idx: usize,
-        diw_hstart: u16,
+        display_left_hpos: u16,
         horizontal_scale: u16,
     ) {
         let Some(sprite) = self.sprites.get(sprite_idx) else {
@@ -156,10 +156,10 @@ impl SpriteEngine {
                 continue;
             }
             let hpos = hstart + bit;
-            if hpos < diw_hstart {
+            if hpos < display_left_hpos {
                 continue;
             }
-            let px = usize::from((hpos - diw_hstart) * horizontal_scale);
+            let px = usize::from((hpos - display_left_hpos) * horizontal_scale);
             let color = amiga_to_rgb565(colors[palette_base + idx as usize]);
             for repeat in 0..horizontal_scale {
                 if let Some(dest) = line_buffer.get_mut(px + usize::from(repeat)) {
