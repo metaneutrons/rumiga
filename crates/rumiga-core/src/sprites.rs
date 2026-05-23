@@ -134,6 +134,7 @@ impl SpriteEngine {
         colors: &[u16; 32],
         sprite_idx: usize,
         diw_hstart: u16,
+        horizontal_scale: u16,
     ) {
         let Some(sprite) = self.sprites.get(sprite_idx) else {
             return;
@@ -158,9 +159,12 @@ impl SpriteEngine {
             if hpos < diw_hstart {
                 continue;
             }
-            let px = (hpos - diw_hstart) as usize;
-            if let Some(dest) = line_buffer.get_mut(px) {
-                *dest = amiga_to_rgb565(colors[palette_base + idx as usize]);
+            let px = usize::from((hpos - diw_hstart) * horizontal_scale);
+            let color = amiga_to_rgb565(colors[palette_base + idx as usize]);
+            for repeat in 0..horizontal_scale {
+                if let Some(dest) = line_buffer.get_mut(px + usize::from(repeat)) {
+                    *dest = color;
+                }
             }
         }
     }
@@ -261,7 +265,7 @@ mod tests {
         colors[17] = 0x0F00; // pair 0, index 1 — red
 
         let mut buf = [0u16; 256];
-        engine.render_into_line(&mut buf, &colors, 0, 0);
+        engine.render_into_line(&mut buf, &colors, 0, 0, 1);
 
         assert_eq!(buf[0x40], amiga_to_rgb565(0x0F00));
         assert_eq!(buf[0x3F], 0);
@@ -281,7 +285,7 @@ mod tests {
         colors[17] = 0xFFFF;
 
         let mut buf = [0xAAAA_u16; 256];
-        engine.render_into_line(&mut buf, &colors, 0, 0);
+        engine.render_into_line(&mut buf, &colors, 0, 0, 1);
 
         // Buffer should be unchanged
         for px in &buf {
@@ -303,7 +307,7 @@ mod tests {
         colors[24 + 3] = 0x00F0; // pair 2, index 3 — green
 
         let mut buf = [0u16; 256];
-        engine.render_into_line(&mut buf, &colors, 4, 0);
+        engine.render_into_line(&mut buf, &colors, 4, 0, 1);
 
         assert_eq!(buf[0], amiga_to_rgb565(0x00F0));
     }

@@ -106,7 +106,7 @@ pub struct Emulator {
     pub audio: AudioState,
     /// Sprite engine.
     pub sprites: SpriteEngine,
-    /// RGB565 framebuffer (320×256).
+    /// RGB565 framebuffer (high-res PAL width × visible PAL height).
     pub framebuffer: Vec<u16>,
     /// Whether a complete frame has been rendered.
     pub frame_ready: bool,
@@ -381,6 +381,7 @@ impl Emulator {
                         &self.playfield.color,
                         i,
                         diw_hstart,
+                        2,
                     );
                     // Deactivate at vstop
                     if vpos + 1 == SpriteEngine::vstop(&self.sprites.sprites[i]) {
@@ -401,6 +402,7 @@ impl Emulator {
                         &self.playfield.color,
                         i,
                         diw_hstart,
+                        2,
                     );
                 }
             }

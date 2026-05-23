@@ -780,9 +780,10 @@ mod winuae_playfield_rendering_golden_vectors {
         let white = amiga_to_rgb565(0x0FFF);
         let black = amiga_to_rgb565(0x0000);
 
-        // Bit 15=1, bit 14=0, bit 13=1, ... alternating
+        // Bit 15=1, bit 14=0, bit 13=1, ... alternating, with each lores
+        // source pixel doubled into the high-resolution output buffer.
         for (i, px) in line_buffer.iter().enumerate().take(16) {
-            let expected = if i % 2 == 0 { white } else { black };
+            let expected = if (i / 2) % 2 == 0 { white } else { black };
             assert_eq!(*px, expected, "pixel {i} mismatch");
         }
     }

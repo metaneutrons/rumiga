@@ -9,11 +9,13 @@ use std::process;
 use minifb::Key;
 use rumiga_core::emulator::Emulator;
 use rumiga_core::memory::MemoryConfig;
+use rumiga_core::playfield::{DISPLAY_HEIGHT, DISPLAY_WIDTH};
 use rumiga_platform::VideoOutput;
 use rumiga_platform_desktop::DesktopVideo;
 
-const WIDTH: usize = 320;
-const HEIGHT: usize = 256;
+const WIDTH: usize = DISPLAY_WIDTH as usize;
+const HEIGHT: usize = DISPLAY_HEIGHT as usize;
+const DEFAULT_SCALE: usize = 2;
 const ROM_SIZE_256K: usize = 256 * 1024;
 const ROM_SIZE_512K: usize = 512 * 1024;
 
@@ -60,6 +62,7 @@ impl MachineModel {
 #[derive(Debug, PartialEq, Eq)]
 struct LaunchArgs {
     model: Option<MachineModel>,
+    scale: usize,
     rom_path: String,
     adf_paths: Vec<String>,
 }
@@ -97,10 +100,11 @@ fn main() {
         emulator.insert_floppy(drive, adf_data);
     }
 
-    let mut video = DesktopVideo::new("Rumiga", WIDTH, HEIGHT, 2).unwrap_or_else(|| {
-        eprintln!("Failed to create video window");
-        process::exit(1);
-    });
+    let mut video =
+        DesktopVideo::new("Rumiga", WIDTH, HEIGHT, launch_args.scale).unwrap_or_else(|| {
+            eprintln!("Failed to create video window");
+            process::exit(1);
+        });
 
     let window_handle = video.window_handle();
 
@@ -136,6 +140,7 @@ fn main() {
 
 fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
     let mut model = None;
+    let mut scale = DEFAULT_SCALE;
     let mut positional = Vec::new();
     let mut index = 0;
 
@@ -149,6 +154,13 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
                     MachineModel::parse(value)
                         .ok_or_else(|| format!("Unsupported machine model '{value}'"))?,
                 );
+                index += 2;
+            }
+            "--scale" | "-s" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--scale requires a value".to_owned());
+                };
+                scale = parse_scale(value)?;
                 index += 2;
             }
             "--help" | "-h" => return Err(String::new()),
@@ -169,9 +181,20 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
 
     Ok(LaunchArgs {
         model,
+        scale,
         rom_path: rom_path.clone(),
         adf_paths: positional.iter().skip(1).cloned().collect(),
     })
+}
+
+fn parse_scale(value: &str) -> Result<usize, String> {
+    let scale = value
+        .parse::<usize>()
+        .map_err(|_| format!("Unsupported scale '{value}'"))?;
+    match scale {
+        1 | 2 | 4 | 8 | 16 | 32 => Ok(scale),
+        _ => Err(format!("Unsupported scale '{value}'")),
+    }
 }
 
 fn select_model(args: &LaunchArgs, rom_size: usize) -> Result<MachineModel, String> {
@@ -215,7 +238,7 @@ const fn expected_rom_size(model: MachineModel) -> usize {
 
 fn print_usage() {
     eprintln!(
-        "Usage: rumiga-desktop [--model a500|a500-plus|a600|a1200] <kickstart.rom> [df0.adf] [df1.adf] [df2.adf] [df3.adf]"
+        "Usage: rumiga-desktop [--model a500|a500-plus|a600|a1200] [--scale 1|2|4|8|16|32] <kickstart.rom> [df0.adf] [df1.adf] [df2.adf] [df3.adf]"
     );
 }
 
@@ -288,6 +311,7 @@ mod tests {
             parse_args(&args),
             Ok(LaunchArgs {
                 model: Some(MachineModel::A1200),
+                scale: DEFAULT_SCALE,
                 rom_path: "kick.rom".to_owned(),
                 adf_paths: vec!["workbench.adf".to_owned()],
             })
@@ -308,6 +332,7 @@ mod tests {
             parse_args(&args),
             Ok(LaunchArgs {
                 model: None,
+                scale: DEFAULT_SCALE,
                 rom_path: "kick.rom".to_owned(),
                 adf_paths: vec![
                     "df0.adf".to_owned(),
@@ -320,9 +345,32 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_accepts_scale() {
+        let args = vec!["--scale".to_owned(), "1".to_owned(), "kick.rom".to_owned()];
+
+        assert_eq!(
+            parse_args(&args),
+            Ok(LaunchArgs {
+                model: None,
+                scale: 1,
+                rom_path: "kick.rom".to_owned(),
+                adf_paths: Vec::new(),
+            })
+        );
+    }
+
+    #[test]
+    fn parse_args_rejects_unsupported_scale() {
+        let args = vec!["--scale".to_owned(), "3".to_owned(), "kick.rom".to_owned()];
+
+        assert!(parse_args(&args).is_err());
+    }
+
+    #[test]
     fn select_model_infers_a1200_from_rom_name() {
         let args = LaunchArgs {
             model: None,
+            scale: DEFAULT_SCALE,
             rom_path: "kick.a1200.46.143.rom".to_owned(),
             adf_paths: Vec::new(),
         };
@@ -334,6 +382,7 @@ mod tests {
     fn select_model_rejects_wrong_rom_size() {
         let args = LaunchArgs {
             model: Some(MachineModel::A1200),
+            scale: DEFAULT_SCALE,
             rom_path: "kick.a500.34.005.rom".to_owned(),
             adf_paths: Vec::new(),
         };

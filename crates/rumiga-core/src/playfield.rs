@@ -3,8 +3,11 @@
 
 //! Bitplane DMA and playfield rendering for the Amiga OCS chipset.
 
-/// Lores pixels per line.
-pub const DISPLAY_WIDTH: u32 = 320;
+/// High-resolution pixels per standard PAL line.
+///
+/// Lores playfields are expanded 2x horizontally into this buffer so high-res
+/// Workbench screens can be rendered without horizontal downsampling.
+pub const DISPLAY_WIDTH: u32 = 640;
 
 /// PAL visible lines.
 pub const DISPLAY_HEIGHT: u32 = 256;
@@ -114,19 +117,20 @@ impl PlayfieldState {
         let mut words_fetched = 0usize;
         let line_visible = line >= vstart && line < vstop;
 
-        let width = LINE_WIDTH;
-        for px in 0..width {
-            let hpos = px + hstart;
-            if !line_visible || num_planes == 0 || hpos < hstart || hpos >= hstop {
+        for px in 0..LINE_WIDTH {
+            let window_hpos = hstart + (px / 2);
+            if !line_visible || num_planes == 0 || window_hpos < hstart || window_hpos >= hstop {
                 if let Some(dest) = line_buffer.get_mut(usize::from(px)) {
                     *dest = bg;
                 }
                 continue;
             }
 
-            // Fetch new words every 16 pixels
-            let source_px = if hires { px * 2 } else { px };
-            if source_px % PIXELS_PER_WORD == 0 && words_fetched < fetch_words {
+            // Fetch new words every 16 source pixels. Lores source pixels are
+            // doubled in the high-resolution output buffer.
+            let source_px = if hires { px } else { px / 2 };
+            let starts_word = source_px % PIXELS_PER_WORD == 0 && (hires || px % 2 == 0);
+            if starts_word && words_fetched < fetch_words {
                 for plane in 0..num_planes {
                     self.fetch_bitplane_word(plane, chip_ram);
                 }
@@ -135,12 +139,7 @@ impl PlayfieldState {
 
             // Combine bits from each plane (bit 15 = leftmost pixel).
             let bit_index = 15 - (source_px % PIXELS_PER_WORD);
-            let mut color_index = self.color_index_at_bit(num_planes, bit_index);
-            if hires && color_index == 0 {
-                let next_bit_index = 15 - ((source_px + 1) % PIXELS_PER_WORD);
-                color_index = self.color_index_at_bit(num_planes, next_bit_index);
-            }
-
+            let color_index = self.color_index_at_bit(num_planes, bit_index);
             let rgb = amiga_to_rgb565(self.color[usize::from(color_index) & 0x1F]);
             if let Some(dest) = line_buffer.get_mut(usize::from(px)) {
                 *dest = rgb;
@@ -278,20 +277,20 @@ mod tests {
         let white = amiga_to_rgb565(0x0FFF);
         let black = amiga_to_rgb565(0x0000);
 
-        // First 8 pixels should be white (bits 15-8 of 0xFF00)
-        for px in &line_buffer[0..8] {
+        // First 8 lores pixels are doubled into 16 high-res output pixels.
+        for px in &line_buffer[0..16] {
             assert_eq!(*px, white);
         }
-        // Next 8 pixels should be black (bits 7-0 of 0xFF00)
-        for px in &line_buffer[8..16] {
+        // Next 8 lores pixels are black, also doubled.
+        for px in &line_buffer[16..32] {
             assert_eq!(*px, black);
         }
-        // Pixels 16-23 should be black (bits 15-8 of 0x00FF)
-        for px in &line_buffer[16..24] {
+        // Next word begins with 8 black lores pixels.
+        for px in &line_buffer[32..48] {
             assert_eq!(*px, black);
         }
-        // Pixels 24-31 should be white (bits 7-0 of 0x00FF)
-        for px in &line_buffer[24..32] {
+        // Then 8 white lores pixels.
+        for px in &line_buffer[48..64] {
             assert_eq!(*px, white);
         }
     }
@@ -321,18 +320,23 @@ mod tests {
         let mut line_buffer = [0u16; DISPLAY_WIDTH as usize];
         pf.render_scanline(0x2C, &chip_ram, &mut line_buffer);
 
+        // Lores pixels are doubled in the high-res output buffer.
         // Pixel 0: plane0=1, plane1=1 -> index 3 (blue)
         assert_eq!(line_buffer[0], amiga_to_rgb565(0x000F));
+        assert_eq!(line_buffer[1], amiga_to_rgb565(0x000F));
         // Pixel 1: plane0=0, plane1=1 -> index 2 (green)
-        assert_eq!(line_buffer[1], amiga_to_rgb565(0x00F0));
+        assert_eq!(line_buffer[2], amiga_to_rgb565(0x00F0));
+        assert_eq!(line_buffer[3], amiga_to_rgb565(0x00F0));
         // Pixel 2: plane0=1, plane1=0 -> index 1 (red)
-        assert_eq!(line_buffer[2], amiga_to_rgb565(0x0F00));
+        assert_eq!(line_buffer[4], amiga_to_rgb565(0x0F00));
+        assert_eq!(line_buffer[5], amiga_to_rgb565(0x0F00));
         // Pixel 3: plane0=0, plane1=0 -> index 0 (black)
-        assert_eq!(line_buffer[3], amiga_to_rgb565(0x0000));
+        assert_eq!(line_buffer[6], amiga_to_rgb565(0x0000));
+        assert_eq!(line_buffer[7], amiga_to_rgb565(0x0000));
     }
 
     #[test]
-    fn highres_fetches_two_source_pixels_per_output_pixel() {
+    fn highres_renders_native_source_pixels() {
         let mut pf = PlayfieldState::new();
         pf.bplcon0 = 0x8000 | 0x1000; // high-res, 1 plane
         pf.diwstrt = 0x2C81;
@@ -352,8 +356,11 @@ mod tests {
         pf.render_scanline(0x2C, &chip_ram, &mut line_buffer);
 
         let white = amiga_to_rgb565(0x0FFF);
-        assert!(line_buffer[0..8].iter().all(|&px| px == white));
-        assert!(line_buffer[8..16].iter().all(|&px| px == white));
+        let black = amiga_to_rgb565(0x0000);
+        for (i, px) in line_buffer.iter().enumerate().take(16) {
+            let expected = if i % 2 == 0 { white } else { black };
+            assert_eq!(*px, expected, "pixel {i} mismatch");
+        }
         assert_eq!(pf.bplpt[0], 80);
     }
 
