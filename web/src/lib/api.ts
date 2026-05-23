@@ -42,10 +42,21 @@ export interface AudioConfig {
 }
 
 export type ScalingMode = 'Integer' | 'AspectFit' | 'Stretch';
+export type ViewportMode = 'Raw' | 'Auto' | 'Manual';
+
+export interface ViewportConfig {
+  mode: ViewportMode;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  vertical_stretch: boolean;
+}
 
 export interface DisplayConfig {
   scaling: ScalingMode;
   orientation_landscape: boolean;
+  viewport: ViewportConfig;
 }
 
 export interface MachineConfig {

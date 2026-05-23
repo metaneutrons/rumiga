@@ -124,10 +124,69 @@ pub enum ScalingMode {
     Stretch,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub enum ViewportMode {
+    /// Use the emulator's raw framebuffer.
+    Raw,
+    /// Derive a sane viewport from the active Amiga display.
+    Auto,
+    /// Use the explicit viewport rectangle.
+    Manual,
+}
+
+impl Default for ViewportMode {
+    fn default() -> Self {
+        Self::Auto
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct ViewportConfig {
+    #[serde(default)]
+    pub mode: ViewportMode,
+    #[serde(default)]
+    pub x: i16,
+    #[serde(default)]
+    pub y: i16,
+    #[serde(default = "default_viewport_width")]
+    pub width: u16,
+    #[serde(default = "default_viewport_height")]
+    pub height: u16,
+    #[serde(default = "default_vertical_stretch")]
+    pub vertical_stretch: bool,
+}
+
+impl Default for ViewportConfig {
+    fn default() -> Self {
+        Self {
+            mode: ViewportMode::Auto,
+            x: 0,
+            y: 0,
+            width: default_viewport_width(),
+            height: default_viewport_height(),
+            vertical_stretch: true,
+        }
+    }
+}
+
+const fn default_viewport_width() -> u16 {
+    640
+}
+
+const fn default_viewport_height() -> u16 {
+    288
+}
+
+const fn default_vertical_stretch() -> bool {
+    true
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct DisplayConfig {
     pub scaling: ScalingMode,
     pub orientation_landscape: bool,
+    #[serde(default)]
+    pub viewport: ViewportConfig,
 }
 
 impl Default for DisplayConfig {
@@ -135,6 +194,7 @@ impl Default for DisplayConfig {
         Self {
             scaling: ScalingMode::Integer,
             orientation_landscape: true,
+            viewport: ViewportConfig::default(),
         }
     }
 }

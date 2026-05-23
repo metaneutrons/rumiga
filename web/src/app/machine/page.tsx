@@ -11,7 +11,30 @@ import {
   type MachineStatus,
   type AmigaModel,
   type ScalingMode,
+  type ViewportMode,
 } from '@/lib/api';
+
+const DEFAULT_VIEWPORT: MachineConfig['display']['viewport'] = {
+  mode: 'Auto',
+  x: 0,
+  y: 0,
+  width: 640,
+  height: 288,
+  vertical_stretch: true,
+};
+
+function normalizeConfig(config: MachineConfig): MachineConfig {
+  return {
+    ...config,
+    display: {
+      ...config.display,
+      viewport: {
+        ...DEFAULT_VIEWPORT,
+        ...config.display.viewport,
+      },
+    },
+  };
+}
 
 export default function MachinePage() {
   const [config, setConfig] = useState<MachineConfig | null>(null);
@@ -22,7 +45,7 @@ export default function MachinePage() {
   useEffect(() => {
     getMachineConfig()
       .then((r) => {
-        if (r.success && r.data) setConfig(r.data);
+        if (r.success && r.data) setConfig(normalizeConfig(r.data));
         else setError(r.error ?? 'Failed to load config');
       })
       .catch((e: Error) => setError(e.message));
@@ -77,6 +100,8 @@ export default function MachinePage() {
   if (!config) {
     return <p className="text-zinc-400">{error ?? 'Loading…'}</p>;
   }
+
+  const viewport = config.display.viewport ?? DEFAULT_VIEWPORT;
 
   return (
     <div className="space-y-6">
@@ -200,6 +225,117 @@ export default function MachinePage() {
               <option value="Stretch">Stretch</option>
             </select>
           </label>
+          <label className="block">
+            <span className="text-sm text-zinc-400">Viewport</span>
+            <select
+              value={viewport.mode}
+              onChange={(e) =>
+                setConfig({
+                  ...config,
+                  display: {
+                    ...config.display,
+                    viewport: { ...viewport, mode: e.target.value as ViewportMode },
+                  },
+                })
+              }
+              className="mt-1 block w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm"
+            >
+              <option value="Auto">Auto</option>
+              <option value="Raw">Raw</option>
+              <option value="Manual">Manual</option>
+            </select>
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={viewport.vertical_stretch}
+              onChange={(e) =>
+                setConfig({
+                  ...config,
+                  display: {
+                    ...config.display,
+                    viewport: { ...viewport, vertical_stretch: e.target.checked },
+                  },
+                })
+              }
+              className="rounded border-zinc-700"
+            />
+            <span className="text-sm">Stretch viewport vertically</span>
+          </label>
+          {viewport.mode === 'Manual' && (
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block">
+                <span className="text-sm text-zinc-400">X</span>
+                <input
+                  type="number"
+                  value={viewport.x}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      display: {
+                        ...config.display,
+                        viewport: { ...viewport, x: Number(e.target.value) },
+                      },
+                    })
+                  }
+                  className="mt-1 block w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm text-zinc-400">Y</span>
+                <input
+                  type="number"
+                  value={viewport.y}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      display: {
+                        ...config.display,
+                        viewport: { ...viewport, y: Number(e.target.value) },
+                      },
+                    })
+                  }
+                  className="mt-1 block w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm text-zinc-400">Width</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={viewport.width}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      display: {
+                        ...config.display,
+                        viewport: { ...viewport, width: Number(e.target.value) },
+                      },
+                    })
+                  }
+                  className="mt-1 block w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm text-zinc-400">Height</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={viewport.height}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      display: {
+                        ...config.display,
+                        viewport: { ...viewport, height: Number(e.target.value) },
+                      },
+                    })
+                  }
+                  className="mt-1 block w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm"
+                />
+              </label>
+            </div>
+          )}
           <label className="flex items-center gap-2">
             <input
               type="checkbox"

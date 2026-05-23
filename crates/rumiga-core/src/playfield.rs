@@ -9,8 +9,11 @@
 /// Workbench screens can be rendered without horizontal downsampling.
 pub const DISPLAY_WIDTH: u32 = 640;
 
-/// PAL visible lines.
-pub const DISPLAY_HEIGHT: u32 = 256;
+/// Maximum PAL display height in non-interlaced lines.
+///
+/// Matches `WinUAE`'s native PAL viewport height (`AMIGA_HEIGHT_MAX_PAL`) so
+/// overscan Workbench screens are not clipped at the old 256-line boundary.
+pub const DISPLAY_HEIGHT: u32 = 288;
 
 /// OCS maximum number of bitplanes.
 pub const MAX_PLANES: usize = 6;
