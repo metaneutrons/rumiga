@@ -741,9 +741,8 @@ impl Emulator {
     }
 
     fn process_gayle_ide_interrupts(&mut self) {
-        let mut ide = self.memory.ide.borrow_mut();
-        if ide.pending_irq {
-            ide.pending_irq = false;
+        let ide = self.memory.ide.borrow();
+        if ide.pending_irq && (ide.devcon & 0x02) == 0 {
             self.memory.gayle_irq |= 0x80;
         }
 

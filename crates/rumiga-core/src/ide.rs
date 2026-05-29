@@ -175,11 +175,16 @@ impl AtaController {
     pub fn write_register(&mut self, reg: usize, is_control: bool, value: u8) {
         if is_control {
             if reg == 7 {
+                let old_devcon = self.devcon;
                 self.devcon = value;
-                if (value & 0x04) != 0 {
+                if (old_devcon & 0x04) == 0 && (value & 0x04) != 0 {
                     // Software reset bit set
                     self.status = IDE_STATUS_DRDY | IDE_STATUS_DSC;
                     self.error = 0x01;
+                    self.nsector = 0x01;
+                    self.sector = 0x01;
+                    self.lcyl = 0x00;
+                    self.hcyl = 0x00;
                     self.data_direction = DataDirection::None;
                 }
             }
@@ -283,6 +288,10 @@ impl AtaController {
             0x90 => {
                 // Execute Diagnostics
                 self.error = 0x01; // Passed
+                self.nsector = 0x01;
+                self.sector = 0x01;
+                self.lcyl = 0x00;
+                self.hcyl = 0x00;
                 self.status &= !IDE_STATUS_BSY;
                 self.status |= IDE_STATUS_DRDY;
                 self.data_direction = DataDirection::None;
@@ -665,5 +674,50 @@ mod tests {
         // Word 1 is 0x0001, so offset 514 is 0x00, 515 is 0x01
         assert_eq!(written_disk[514], 0);
         assert_eq!(written_disk[515], 1);
+    }
+
+    #[test]
+    fn test_software_reset_initializes_signatures() {
+        let mut controller = AtaController::new();
+        controller.insert_disk(vec![0; 5120]);
+
+        // Manually modify registers to non-default values
+        controller.nsector = 0xAA;
+        controller.sector = 0x55;
+        controller.lcyl = 0x12;
+        controller.hcyl = 0x34;
+
+        // Devcon software reset transition 0 -> 4
+        controller.write_register(7, true, 0x04);
+
+        // Verify signatures are reset
+        assert_eq!(controller.nsector, 1);
+        assert_eq!(controller.sector, 1);
+        assert_eq!(controller.lcyl, 0);
+        assert_eq!(controller.hcyl, 0);
+        assert_eq!(controller.error, 0x01);
+    }
+
+    #[test]
+    fn test_execute_diagnostics_initializes_signatures() {
+        let mut controller = AtaController::new();
+        controller.insert_disk(vec![0; 5120]);
+
+        // Manually modify registers to non-default values
+        controller.nsector = 0xAA;
+        controller.sector = 0x55;
+        controller.lcyl = 0x12;
+        controller.hcyl = 0x34;
+
+        // Command 0x90
+        controller.write_command(0x90);
+
+        // Verify signatures are initialized
+        assert_eq!(controller.nsector, 1);
+        assert_eq!(controller.sector, 1);
+        assert_eq!(controller.lcyl, 0);
+        assert_eq!(controller.hcyl, 0);
+        assert_eq!(controller.error, 0x01);
+        assert!(controller.pending_irq);
     }
 }

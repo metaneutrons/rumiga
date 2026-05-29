@@ -259,7 +259,8 @@ impl AmigaMemory {
     }
 
     fn read_gayle_status(&self) -> u8 {
-        let pending_ide_irq = if self.ide.borrow().pending_irq {
+        let ide = self.ide.borrow();
+        let pending_ide_irq = if ide.pending_irq && (ide.devcon & 0x02) == 0 {
             GAYLE_IRQ_IDE
         } else {
             0
