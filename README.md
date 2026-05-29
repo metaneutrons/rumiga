@@ -8,7 +8,7 @@ Enterprise-grade Amiga emulator targeting the Seeed reTerminal D1001 (ESP32-P4),
 ## Features
 
 - **OCS/ECS/AGA** chipset emulation (progressive implementation)
-- **Motorola 68000** CPU with full instruction set, disassembler, and assembler
+- **Motorola 68000-family** CPU emulation with 68000/68010/68020/68030/68040 profiles
 - **Multi-platform**: Desktop (macOS/Linux) for development, ESP32-P4 for production
 - **Web UI**: Next.js management interface for file management, WiFi config, and machine setup
 - **On-device OSD**: Slint-based overlay in display black bars
@@ -21,7 +21,8 @@ Enterprise-grade Amiga emulator targeting the Seeed reTerminal D1001 (ESP32-P4),
 ```
 rumiga/
 ├── crates/
-│   ├── m68000/                  # Motorola 68000 CPU emulation
+│   ├── m68k/                    # Motorola 68000-family CPU emulation
+│   ├── m68000/                  # Legacy 68000 CPU comparison/reference crate
 │   ├── rumiga-core/             # no_std + alloc — emulation engine
 │   │   ├── audio.rs            # Paula 4-channel audio
 │   │   ├── blitter.rs          # Blitter DMA engine
@@ -32,7 +33,8 @@ rumiga/
 │   │   ├── emulator.rs         # Main emulation loop
 │   │   ├── events.rs           # Cycle-accurate event scheduler
 │   │   ├── floppy.rs           # Floppy disk controller
-│   │   ├── memory.rs           # Memory subsystem (Chip/Fast/ROM)
+│   │   ├── ide.rs              # Gayle ATA/IDE controller
+│   │   ├── memory.rs           # Memory subsystem (Chip/Fast/ROM/Gayle)
 │   │   ├── playfield.rs        # Bitplane-to-pixel rendering
 │   │   └── sprites.rs          # Hardware sprite engine
 │   ├── rumiga-platform/         # Platform trait definitions
@@ -69,8 +71,11 @@ cargo build --workspace
 # Run tests
 cargo test --workspace
 
+# Show desktop emulator options
+cargo run -p rumiga-desktop -- --help
+
 # Run desktop emulator
-cargo run -p rumiga-desktop -- [--model a500|a500-plus|a600|a1200] [--scale 1|2|4|8|16|32] [--viewport auto|raw] [--no-vertical-stretch] [--floppy-speed 100|200|400|800|turbo] <kickstart.rom> [df0.adf] [df1.adf] [df2.adf] [df3.adf]
+cargo run -p rumiga-desktop -- --model a1200 --cpu 68020 --hdf workbench.hdf <kickstart.rom> [df0.adf]
 ```
 
 ### ESP-IDF Target
@@ -111,16 +116,18 @@ The web UI connects to the device REST API for:
 
 ### Implemented
 
-- M68000 CPU: full instruction set, interpreter, disassembler, assembler
+- M68000-family CPU: 68000/68010/68020/68030/68040 profiles, disassembler, tracing
 - Memory subsystem: Chip RAM, Fast RAM, ROM mapping with configurable sizes
+- A1200 baseline: 2MB Chip RAM profile, 32-bit CPU address bus, PCMCIA/Gayle ranges
 - Custom chipset registers: address decoding and read/write dispatch
 - Copper coprocessor: MOVE, WAIT, SKIP instructions
 - Blitter: all 256 minterms, line draw mode, fill mode
-- Playfield: dual-playfield, bitplane-to-chunky conversion, HAM
+- Playfield: dual-playfield, bitplane-to-chunky conversion, HAM6/HAM8, AGA palette banking
 - Sprite engine: 8 hardware sprites with attach mode
 - Paula audio: 4-channel DMA with period/volume, stereo mixing
 - CIA-A/B: timers, TOD clock, keyboard handshake, disk control
-- Floppy controller: MFM decode, ADF read/write, step/seek
+- Floppy controller: MFM decode, ADF read/write, step/seek, configurable speed
+- Gayle IDE: in-memory HDF mount, ATA identify/read/write sectors
 - Event scheduler: cycle-accurate timing with priority queue
 - Emulation loop: frame-based execution with video/audio sync
 - Platform traits: video, audio, input, storage abstractions
@@ -134,8 +141,8 @@ The web UI connects to the device REST API for:
 
 - Slint OSD rendering (stub only)
 - ESP-IDF hardware drivers (stubs only)
-- AGA chipset extensions
-- Hard drive (HDA) emulation
+- Full AGA chipset coverage
+- Desktop/ESP REST backend serving the Web UI
 - Network stack on ESP32
 
 ## Contributing
