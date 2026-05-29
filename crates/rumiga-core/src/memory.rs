@@ -48,6 +48,19 @@ const GAYLE_LOW_START: u32 = 0x00D8_0000;
 const GAYLE_LOW_END: u32 = 0x00DD_0000;
 const GAYLE_HIGH_START: u32 = 0x00DD_0000;
 const GAYLE_HIGH_END: u32 = 0x00DF_0000;
+const GAYLE_IDE_START: u32 = 0x00DA_0000;
+const GAYLE_IDE_END: u32 = 0x00DA_4000;
+const GAYLE_CS_ADDR: u32 = 0x00DA_8000;
+const GAYLE_IRQ_ADDR: u32 = 0x00DA_9000;
+const GAYLE_INT_ADDR: u32 = 0x00DA_A000;
+const GAYLE_CFG_ADDR: u32 = 0x00DA_B000;
+const GAYLE_IRQ_IDE: u8 = 0x80;
+const IDE_DATA_REG: usize = 0x00;
+const IDE_STATUS_REG: usize = 0x07;
+const IDE_SECONDARY_REG: usize = 0x0400;
+const IDE_SECONDARY_LAST_REG: usize = IDE_SECONDARY_REG + 5;
+const IDE_DEVCON_REG: usize = 0x0406;
+const IDE_DRVADDR_REG: usize = 0x0407;
 
 /// Memory configuration for a specific Amiga model.
 #[derive(Clone, Debug)]
@@ -234,6 +247,59 @@ impl AmigaMemory {
         }
     }
 
+    fn gayle_ide_register(addr: u32) -> Option<usize> {
+        if !(GAYLE_IDE_START..GAYLE_IDE_END).contains(&addr) {
+            return None;
+        }
+
+        // FS-UAE/WinUAE-compatible Gayle alias decode. Bits A5 and A13 do not
+        // select the ATA register; bit A12 selects the control block.
+        let offset = addr & 0xFFFF;
+        Some(((offset & !0x2020_u32) >> 2) as usize)
+    }
+
+    fn read_gayle_status(&self) -> u8 {
+        let pending_ide_irq = if self.ide.borrow().pending_irq {
+            GAYLE_IRQ_IDE
+        } else {
+            0
+        };
+        self.gayle_status | (self.gayle_irq & GAYLE_IRQ_IDE) | pending_ide_irq
+    }
+
+    fn read_gayle_ide_register(&mut self, reg: usize) -> u8 {
+        match reg {
+            IDE_DATA_REG..=IDE_STATUS_REG => {
+                let mut ide = self.ide.borrow_mut();
+                let value = ide.read_register(reg, false);
+                if reg == IDE_STATUS_REG {
+                    ide.pending_irq = false;
+                    drop(ide);
+                    self.gayle_irq &= !GAYLE_IRQ_IDE;
+                }
+                value
+            }
+            IDE_SECONDARY_REG..=IDE_SECONDARY_LAST_REG => 0xFF,
+            IDE_DEVCON_REG => self.ide.borrow_mut().read_register(IDE_STATUS_REG, true),
+            IDE_DRVADDR_REG => self.ide.borrow().read_drive_address(),
+            _ => 0xFF,
+        }
+    }
+
+    fn write_gayle_ide_register(&self, reg: usize, value: u8) {
+        match reg {
+            IDE_DATA_REG..=IDE_STATUS_REG => {
+                self.ide.borrow_mut().write_register(reg, false, value);
+            }
+            IDE_DEVCON_REG => {
+                self.ide
+                    .borrow_mut()
+                    .write_register(IDE_STATUS_REG, true, value);
+            }
+            _ => {}
+        }
+    }
+
     /// Returns a reference to the chip RAM slice.
     #[must_use]
     pub fn chip_ram(&self) -> &[u8] {
@@ -287,7 +353,7 @@ impl AmigaMemory {
     }
 
     /// Read a byte from the memory map.
-    fn read_byte_internal(&self, addr: u32) -> u8 {
+    fn read_byte_internal(&mut self, addr: u32) -> u8 {
         let addr = addr; // 32-bit logical address bus
 
         // Overlay: ROM mapped at 0x000000 after reset
@@ -360,19 +426,15 @@ impl AmigaMemory {
         // Gayle Low Space: 0x00D80000–0x00DCFFFF
         if (GAYLE_LOW_START..GAYLE_LOW_END).contains(&addr) {
             match addr {
-                0x00DA_8000 => return self.gayle_status,
-                0x00DA_9000 => return self.gayle_irq,
-                0x00DA_A000 => return self.gayle_intena,
-                0x00DA_B000 => return self.gayle_config,
+                GAYLE_CS_ADDR => return self.read_gayle_status(),
+                GAYLE_IRQ_ADDR => return self.gayle_irq,
+                GAYLE_INT_ADDR => return self.gayle_intena,
+                GAYLE_CFG_ADDR => return self.gayle_config & 0x0F,
                 _ => {
-                    // IDE registers are mapped at 0xDA0000-0xDA3FFF (even/odd bytes)
-                    if (0x00DA_0000..0x00DA_4000).contains(&addr) {
-                        let offset = addr & 0x3FFF;
-                        let is_control = (offset & 0x2000) != 0;
-                        let reg = ((offset & 0x1F) >> 2) as usize;
-                        return self.ide.borrow_mut().read_register(reg, is_control);
+                    if let Some(reg) = Self::gayle_ide_register(addr) {
+                        return self.read_gayle_ide_register(reg);
                     }
-                    return 0xFF;
+                    return 0x00;
                 }
             }
         }
@@ -506,26 +568,21 @@ impl AmigaMemory {
         // Gayle Low Space: 0x00D80000–0x00DCFFFF
         if (GAYLE_LOW_START..GAYLE_LOW_END).contains(&addr) {
             match addr {
-                0x00DA_8000 => {
-                    self.gayle_status &= !3;
-                    self.gayle_status |= value & 3;
+                GAYLE_CS_ADDR => {
+                    self.gayle_status = value;
                 }
-                0x00DA_9000 => {
+                GAYLE_IRQ_ADDR => {
                     self.gayle_irq = (self.gayle_irq & value) | (value & 0x03);
                 }
-                0x00DA_A000 => {
+                GAYLE_INT_ADDR => {
                     self.gayle_intena = value;
                 }
-                0x00DA_B000 => {
+                GAYLE_CFG_ADDR => {
                     self.gayle_config = value;
                 }
                 _ => {
-                    // IDE registers are mapped at 0xDA0000-0xDA3FFF (even/odd bytes)
-                    if (0x00DA_0000..0x00DA_4000).contains(&addr) {
-                        let offset = addr & 0x3FFF;
-                        let is_control = (offset & 0x2000) != 0;
-                        let reg = ((offset & 0x1F) >> 2) as usize;
-                        self.ide.borrow_mut().write_register(reg, is_control, value);
+                    if let Some(reg) = Self::gayle_ide_register(addr) {
+                        self.write_gayle_ide_register(reg, value);
                     }
                 }
             }
@@ -604,8 +661,8 @@ impl AddressBus for AmigaMemory {
         } else {
             self.sync_blitter_lazy();
         }
-        // IDE Data Register read: offset 0x0000 in Gayle space (0x00DA0000)
-        if masked == 0x00DA_0000 {
+        // IDE Data Register read: all Gayle data-port aliases map to register 0.
+        if Self::gayle_ide_register(masked) == Some(IDE_DATA_REG) {
             return self.ide.borrow_mut().read_data_word();
         }
         // Custom chip registers: atomic word read
@@ -658,8 +715,8 @@ impl AddressBus for AmigaMemory {
         } else {
             self.sync_blitter_lazy();
         }
-        // IDE Data Register write: offset 0x0000 in Gayle space (0x00DA0000)
-        if masked == 0x00DA_0000 {
+        // IDE Data Register write: all Gayle data-port aliases map to register 0.
+        if Self::gayle_ide_register(masked) == Some(IDE_DATA_REG) {
             self.ide.borrow_mut().write_data_word(value);
             return;
         }
@@ -845,7 +902,7 @@ mod tests {
 
         // Test Gayle CONFIG write/read
         AddressBus::write_byte(&mut mem, 0x00DA_B000, 0xA5);
-        assert_eq!(AddressBus::read_byte(&mut mem, 0x00DA_B000), 0xA5);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x00DA_B000), 0x05);
 
         // Test Gayle Status write/read
         AddressBus::write_byte(&mut mem, 0x00DA_8000, 0x03);
@@ -854,6 +911,62 @@ mod tests {
         // Test Gayle IRQ write/read
         AddressBus::write_byte(&mut mem, 0x00DA_9000, 0x03);
         assert_eq!(AddressBus::read_byte(&mut mem, 0x00DA_9000), 0x03);
+    }
+
+    #[test]
+    fn gayle_ide_command_alias_matches_fs_uae_decode() {
+        let mut mem = AmigaMemory::new(MemoryConfig::a1200());
+        mem.overlay = false;
+        mem.ide.borrow_mut().insert_disk(vec![0; 1024 * 1024]);
+
+        AddressBus::write_byte(&mut mem, 0x00DA_201C, 0xEC);
+
+        let ide = mem.ide.borrow();
+        assert_eq!(ide.command, 0xEC);
+        assert_eq!(ide.devcon, 0x00);
+        assert_ne!(ide.status & crate::ide::IDE_STATUS_DRQ, 0);
+    }
+
+    #[test]
+    fn gayle_ide_devcon_alias_matches_fs_uae_decode() {
+        let mut mem = AmigaMemory::new(MemoryConfig::a1200());
+        mem.overlay = false;
+        mem.ide.borrow_mut().insert_disk(vec![0; 1024 * 1024]);
+
+        AddressBus::write_byte(&mut mem, 0x00DA_1018, 0x02);
+
+        let ide = mem.ide.borrow();
+        assert_eq!(ide.devcon, 0x02);
+        assert_eq!(ide.command, 0x00);
+    }
+
+    #[test]
+    fn gayle_status_reflects_and_acknowledges_ide_irq() {
+        let mut mem = AmigaMemory::new(MemoryConfig::a1200());
+        mem.overlay = false;
+        mem.ide.borrow_mut().insert_disk(vec![0; 1024 * 1024]);
+
+        AddressBus::write_byte(&mut mem, 0x00DA_201C, 0xEC);
+        assert_ne!(
+            AddressBus::read_byte(&mut mem, 0x00DA_8000) & GAYLE_IRQ_IDE,
+            0
+        );
+
+        let _ = AddressBus::read_byte(&mut mem, 0x00DA_201C);
+        assert_eq!(
+            AddressBus::read_byte(&mut mem, 0x00DA_8000) & GAYLE_IRQ_IDE,
+            0
+        );
+    }
+
+    #[test]
+    fn gayle_reserved_low_space_reads_zero() {
+        let mut mem = AmigaMemory::new(MemoryConfig::a1200());
+        mem.overlay = false;
+
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x00D8_0000), 0x00);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x00DA_4000), 0x00);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x00DA_FFFF), 0x00);
     }
 
     #[test]

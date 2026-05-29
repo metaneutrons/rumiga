@@ -40,6 +40,7 @@ pub struct AtaController {
     pub select: u8,
     pub devcon: u8,
     pub command: u8,
+    pub command_log: Vec<u8>,
 
     /// 512-byte sector data buffer for active transfers.
     pub data_buffer: Vec<u8>,
@@ -79,6 +80,7 @@ impl AtaController {
             select: 0x00,
             devcon: 0x00,
             command: 0x00,
+            command_log: Vec::new(),
             data_buffer: Vec::new(),
             data_index: 0,
             data_direction: DataDirection::None,
@@ -108,6 +110,14 @@ impl AtaController {
         }
     }
 
+    /// Total addressable 512-byte sectors in the mounted disk.
+    #[must_use]
+    pub fn total_sectors(&self) -> u32 {
+        self.disk_data
+            .as_ref()
+            .map_or(0, |data| (data.len() / 512).min(u32::MAX as usize) as u32)
+    }
+
     /// Read an ATA taskfile register.
     pub fn read_register(&mut self, reg: usize, is_control: bool) -> u8 {
         if self.disk_data.is_none() {
@@ -117,21 +127,23 @@ impl AtaController {
             return 0xFF;
         }
 
+        // If drive 1 (slave) is selected, emulate FS-UAE's missing-drive
+        // response while the master exists: status/alt-status reports ERR,
+        // other taskfile registers read as zero.
+        let is_slave = (self.select & 0x10) != 0;
+        if is_slave {
+            match reg {
+                7 => return IDE_STATUS_ERR, // Missing slave while master exists
+                _ => return 0x00,
+            }
+        }
+
         if is_control {
             // Control Block: index 7 represents Alternate Status.
             if reg == 7 {
                 return self.status;
             }
             return 0xFF;
-        }
-
-        // Standard Taskfile: if drive 1 (slave) is selected, return dummy offline values.
-        let is_slave = (self.select & 0x10) != 0;
-        if is_slave {
-            match reg {
-                7 => return 0x00, // Offline status
-                _ => return 0x00,
-            }
         }
 
         match reg {
@@ -151,6 +163,12 @@ impl AtaController {
             }
             _ => 0xFF,
         }
+    }
+
+    /// Read the ATA drive address register.
+    #[must_use]
+    pub fn read_drive_address(&self) -> u8 {
+        ((if (self.select & 0x10) != 0 { 2 } else { 1 }) | ((self.select & 0x0F) << 2)) ^ 0xFF
     }
 
     /// Write an ATA taskfile register.
@@ -195,6 +213,10 @@ impl AtaController {
     /// Execute an ATA command.
     pub fn write_command(&mut self, cmd: u8) {
         self.command = cmd;
+        if self.command_log.len() == 32 {
+            self.command_log.remove(0);
+        }
+        self.command_log.push(cmd);
         self.status |= IDE_STATUS_BSY;
         self.status &= !IDE_STATUS_ERR;
         self.error = 0x01;
@@ -408,18 +430,30 @@ impl AtaController {
     /// Populate standard IDE Identify Device buffer (512 bytes).
     fn populate_identify_buffer(&mut self) {
         self.data_buffer = vec![0; 512];
+        let total_lba_sectors = self.total_sectors();
+        let chs_sectors =
+            u32::from(self.cylinders) * u32::from(self.heads) * u32::from(self.sectors_per_track);
 
         // Word 0: Configuration
         self.write_word(0, 0x0040);
         // Word 1: Default cylinders
         self.write_word(1, self.cylinders);
+        // Word 2: Specific configuration (matches FS-UAE's generic ATA identity)
+        self.write_word(2, 0xC837);
         // Word 3: Default heads
         self.write_word(3, self.heads as u16);
+        // Words 4-5: Unformatted bytes per track/sector.
+        self.write_word(4, 512 * u16::from(self.sectors_per_track));
+        self.write_word(5, 512);
         // Word 6: Default sectors per track
         self.write_word(6, self.sectors_per_track as u16);
 
         // Word 10-19: Serial number (ATA byte-swapped ASCII)
         self.write_string(10, "RUMIGA-000001", 20);
+
+        self.write_word(20, 3);
+        self.write_word(21, 512);
+        self.write_word(22, 4);
 
         // Word 23-26: Firmware revision
         self.write_string(23, "1.0", 8);
@@ -427,19 +461,40 @@ impl AtaController {
         // Word 27-46: Model number
         self.write_string(27, "RUMIGA VIRTUAL ATA HARDDISK", 40);
 
-        // Word 49: Capabilities (LBA supported bit 9)
-        self.write_word(49, 1 << 9);
+        // FS-UAE-compatible capability/validity fields.
+        self.write_word(47, 0x8080); // max sectors per multiple command
+        self.write_word(48, 0x0001);
+        self.write_word(49, (1 << 9) | (1 << 8)); // LBA and DMA supported
+        self.write_word(51, 0x0200);
+        self.write_word(52, 0x0200);
+        self.write_word(53, 0x0007); // words 54-58, 64-70, and 88 are valid
 
         // Word 54-56: Current CHS parameters
         self.write_word(54, self.cylinders);
         self.write_word(55, self.heads as u16);
         self.write_word(56, self.sectors_per_track as u16);
+        self.write_u32_words(57, chs_sectors);
+        self.write_word(59, 0x0180); // multiple mode supported and active
 
         // Word 60-61: LBA total sectors capacity (32-bit LBA)
-        let total_sectors =
-            (self.cylinders as u32) * (self.heads as u32) * (self.sectors_per_track as u32);
-        self.write_word(60, (total_sectors & 0xFFFF) as u16);
-        self.write_word(61, ((total_sectors >> 16) & 0xFFFF) as u16);
+        self.write_u32_words(60, total_lba_sectors.min(0x0FFF_FFFF));
+        self.write_word(62, 0x000F);
+        self.write_word(63, 0x000F);
+        self.write_word(64, 0x0003); // PIO3/PIO4 supported
+        self.write_word(65, 120);
+        self.write_word(66, 120);
+        self.write_word(67, 120);
+        self.write_word(68, 120);
+        self.write_word(80, 0x007E); // ATA-1 through ATA-6
+        self.write_word(81, 0x001C);
+        self.write_word(82, 1 << 14);
+        self.write_word(83, (1 << 14) | (1 << 13) | (1 << 12));
+        self.write_word(84, 1 << 14);
+        self.write_word(85, 1 << 14);
+        self.write_word(86, (1 << 14) | (1 << 13) | (1 << 12));
+        self.write_word(87, 1 << 14);
+        self.write_word(88, 0x003F);
+        self.write_word(93, (1 << 14) | (1 << 13) | 1);
     }
 
     fn write_word(&mut self, word_index: usize, val: u16) {
@@ -450,6 +505,11 @@ impl AtaController {
         }
     }
 
+    fn write_u32_words(&mut self, word_index: usize, val: u32) {
+        self.write_word(word_index, (val & 0xFFFF) as u16);
+        self.write_word(word_index + 1, (val >> 16) as u16);
+    }
+
     fn write_string(&mut self, word_index: usize, s: &str, max_len: usize) {
         let mut bytes = vec![b' '; max_len];
         for (i, b) in s.bytes().take(max_len).enumerate() {
@@ -458,8 +518,8 @@ impl AtaController {
         for i in (0..max_len).step_by(2) {
             if i + 1 < max_len {
                 let offset = word_index * 2 + i;
-                self.data_buffer[offset] = bytes[i + 1];
-                self.data_buffer[offset + 1] = bytes[i];
+                self.data_buffer[offset] = bytes[i];
+                self.data_buffer[offset + 1] = bytes[i + 1];
             }
         }
     }
@@ -468,6 +528,12 @@ impl AtaController {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn identify_word(controller: &AtaController, word_index: usize) -> u16 {
+        let offset = word_index * 2;
+        (u16::from(controller.data_buffer[offset]) << 8)
+            | u16::from(controller.data_buffer[offset + 1])
+    }
 
     #[test]
     fn test_current_lba_chs() {
@@ -515,6 +581,33 @@ mod tests {
         // Word 1 should have cylinders
         let word_1 = controller.read_data_word();
         assert_eq!(word_1, controller.cylinders);
+    }
+
+    #[test]
+    fn test_identify_device_reports_fs_uae_style_capabilities() {
+        let mut controller = AtaController::new();
+        controller.insert_disk(vec![0; 10 * 1024 * 1024]);
+        controller.write_command(0xEC);
+
+        assert_eq!(identify_word(&controller, 47), 0x8080);
+        assert_eq!(identify_word(&controller, 49), 0x0300);
+        assert_eq!(identify_word(&controller, 53), 0x0007);
+        assert_eq!(identify_word(&controller, 59), 0x0180);
+        assert_eq!(identify_word(&controller, 60), 20480);
+        assert_eq!(identify_word(&controller, 61), 0);
+        assert_eq!(identify_word(&controller, 80), 0x007E);
+        assert_eq!(identify_word(&controller, 27), 0x5255); // "RU"
+    }
+
+    #[test]
+    fn test_missing_slave_status_reports_error() {
+        let mut controller = AtaController::new();
+        controller.insert_disk(vec![0; 10 * 1024 * 1024]);
+        controller.select = 0x10;
+
+        assert_eq!(controller.read_register(7, false), IDE_STATUS_ERR);
+        assert_eq!(controller.read_register(7, true), IDE_STATUS_ERR);
+        assert_eq!(controller.read_register(2, false), 0);
     }
 
     #[test]

@@ -1055,6 +1055,7 @@ fn write_capture_manifest(path: &Path, context: &CaptureManifestContext<'_>) -> 
         count_distinct_colors(&context.frame.pixels)
     );
     push_floppy_state_json(&mut json, &context.emulator.floppy);
+    push_gayle_ide_state_json(&mut json, context.emulator);
     json.push_str("  \"media\": {\n");
     push_file_evidence_json(&mut json, "rom", context.rom, "    ", true);
     for drive in 0..4 {
@@ -1074,6 +1075,90 @@ fn write_capture_manifest(path: &Path, context: &CaptureManifestContext<'_>) -> 
     json.push_str("}\n");
 
     fs::write(path, json).map_err(|e| format!("Failed to write manifest '{}': {e}", path.display()))
+}
+
+fn push_gayle_ide_state_json(json: &mut String, emulator: &Emulator) {
+    let ide = emulator.memory.ide.borrow();
+    let disk_bytes = ide.disk_data.as_ref().map_or(0, Vec::len);
+    let _ = writeln!(json, "  \"gayle_ide\": {{");
+    let _ = writeln!(
+        json,
+        "    \"gayle_irq\": {},",
+        json_string(&format!("0x{:02X}", emulator.memory.gayle_irq))
+    );
+    let _ = writeln!(
+        json,
+        "    \"gayle_intena\": {},",
+        json_string(&format!("0x{:02X}", emulator.memory.gayle_intena))
+    );
+    let _ = writeln!(
+        json,
+        "    \"gayle_status\": {},",
+        json_string(&format!("0x{:02X}", emulator.memory.gayle_status))
+    );
+    let _ = writeln!(
+        json,
+        "    \"gayle_config\": {},",
+        json_string(&format!("0x{:02X}", emulator.memory.gayle_config))
+    );
+    let _ = writeln!(json, "    \"disk_inserted\": {},", ide.disk_data.is_some());
+    let _ = writeln!(json, "    \"disk_bytes\": {disk_bytes},");
+    let _ = writeln!(json, "    \"hdf_dirty\": {},", ide.hdf_dirty);
+    let _ = writeln!(json, "    \"pending_irq\": {},", ide.pending_irq);
+    let _ = writeln!(
+        json,
+        "    \"status\": {},",
+        json_string(&format!("0x{:02X}", ide.status))
+    );
+    let _ = writeln!(
+        json,
+        "    \"error\": {},",
+        json_string(&format!("0x{:02X}", ide.error))
+    );
+    let _ = writeln!(
+        json,
+        "    \"command\": {},",
+        json_string(&format!("0x{:02X}", ide.command))
+    );
+    json.push_str("    \"command_log\": [");
+    for (idx, command) in ide.command_log.iter().enumerate() {
+        if idx > 0 {
+            json.push_str(", ");
+        }
+        json.push_str(&json_string(&format!("0x{command:02X}")));
+    }
+    json.push_str("],\n");
+    let _ = writeln!(
+        json,
+        "    \"select\": {},",
+        json_string(&format!("0x{:02X}", ide.select))
+    );
+    let _ = writeln!(
+        json,
+        "    \"devcon\": {},",
+        json_string(&format!("0x{:02X}", ide.devcon))
+    );
+    let _ = writeln!(json, "    \"nsector\": {},", ide.nsector);
+    let _ = writeln!(json, "    \"sector\": {},", ide.sector);
+    let _ = writeln!(json, "    \"lcyl\": {},", ide.lcyl);
+    let _ = writeln!(json, "    \"hcyl\": {},", ide.hcyl);
+    let _ = writeln!(json, "    \"current_lba\": {},", ide.current_lba());
+    let _ = writeln!(json, "    \"total_sectors\": {},", ide.total_sectors());
+    let _ = writeln!(json, "    \"cylinders\": {},", ide.cylinders);
+    let _ = writeln!(json, "    \"heads\": {},", ide.heads);
+    let _ = writeln!(
+        json,
+        "    \"sectors_per_track\": {},",
+        ide.sectors_per_track
+    );
+    let _ = writeln!(
+        json,
+        "    \"data_direction\": {},",
+        json_string(&format!("{:?}", ide.data_direction))
+    );
+    let _ = writeln!(json, "    \"data_index\": {},", ide.data_index);
+    let _ = writeln!(json, "    \"data_buffer_len\": {}", ide.data_buffer.len());
+    json.push_str("  },\n");
 }
 
 fn push_floppy_state_json(json: &mut String, floppy: &rumiga_core::floppy::FloppyController) {
