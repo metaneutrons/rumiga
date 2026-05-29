@@ -99,6 +99,10 @@ pub struct Emulator {
     mouse_left: bool,
     /// Mouse button state (right pressed).
     mouse_right: bool,
+    /// Mouse X hardware quadrature counter.
+    mouse_x_counter: u8,
+    /// Mouse Y hardware quadrature counter.
+    mouse_y_counter: u8,
 }
 
 impl Emulator {
@@ -168,6 +172,8 @@ impl Emulator {
             gfxbase_cache: 0,
             mouse_left: false,
             mouse_right: false,
+            mouse_x_counter: 0,
+            mouse_y_counter: 0,
         }
     }
 
@@ -273,12 +279,15 @@ impl Emulator {
     pub fn mouse_move(&mut self, dx: i16, dy: i16) {
         self.mouse_dx = self.mouse_dx.saturating_add(dx);
         self.mouse_dy = self.mouse_dy.saturating_add(dy);
+        self.mouse_x_counter = self.mouse_x_counter.wrapping_add(dx as u8);
+        self.mouse_y_counter = self.mouse_y_counter.wrapping_add(dy as u8);
     }
 
     /// Set mouse button state.
     pub fn mouse_button(&mut self, left: bool, right: bool) {
         self.mouse_left = left;
         self.mouse_right = right;
+        self.memory.mouse_left = left;
     }
 
     /// Run one full PAL frame (312 scanlines).
@@ -597,11 +606,21 @@ impl Emulator {
         }
 
         // Process pending key events into CIA-A serial data register
-        if let Some((keycode, pressed)) = self.key_events.first().copied() {
-            // Amiga keyboard protocol: bit 7 = 0 for press, 1 for release
-            let code = if pressed { keycode } else { keycode | 0x80 };
-            self.memory.cia.borrow_mut().cia_a.sdr = code;
-            self.key_events.remove(0);
+        if !self.memory.cia.borrow().cia_a.icr_ir {
+            if let Some((keycode, pressed)) = self.key_events.first().copied() {
+                // Amiga keyboard protocol: bit 7 = 0 for press, 1 for release
+                let code = if pressed { keycode } else { keycode | 0x80 };
+                {
+                    let mut cia_ref = self.memory.cia.borrow_mut();
+                    let cia_a = &mut cia_ref.cia_a;
+                    cia_a.sdr = code;
+                    cia_a.icr_data |= 0x08; // Set Serial Port interrupt bit (ICR_SP)
+                    if (cia_a.icr_mask & 0x08) != 0 {
+                        cia_a.icr_ir = true;
+                    }
+                }
+                self.key_events.remove(0);
+            }
         }
 
         // Floppy DMA: advance the selected drive according to the configured speed.
@@ -785,9 +804,14 @@ impl Emulator {
         // SERDATR ($018): TBE (bit 13) + TSRE (bit 12) = transmit buffer empty
         regs[(0x018 / 2) as usize] = 0x3000;
         // POTGOR ($016): active-high button state (bits 8-15 = all buttons released)
-        regs[(0x016 / 2) as usize] = 0xFF00;
-        // JOY0DAT ($00A): no joystick movement
-        regs[(0x00A / 2) as usize] = 0x0000;
+        let mut potgor: u16 = 0xFF00;
+        if self.mouse_right {
+            potgor &= !(1 << 10); // Clear bit 10 (Port 1 Pin 9 Right Mouse Button pressed, active-low)
+        }
+        regs[(0x016 / 2) as usize] = potgor;
+        // JOY0DAT ($00A): Port 1 mouse quadrature counters
+        regs[(0x00A / 2) as usize] =
+            (u16::from(self.mouse_y_counter) << 8) | u16::from(self.mouse_x_counter);
         // JOY1DAT ($00C): no joystick movement
         regs[(0x00C / 2) as usize] = 0x0000;
         // DENISEID ($07C): OCS Denise returns $FFFF (register doesn't exist)
@@ -1284,5 +1308,55 @@ mod tests {
         assert!(emu.memory.blit_thread.is_none());
         assert!(!emu.blitter.busy);
         assert!(emu.blitter.done);
+    }
+
+    #[test]
+    fn test_mouse_and_keyboard_handling() {
+        let mut emu = Emulator::new(MemoryConfig::a500());
+
+        // 1. Verify keyboard event triggers interrupt on serial port (bit 3)
+        // Enable Serial Port interrupt in CIA-A ICR mask (0x08)
+        emu.memory.cia.borrow_mut().cia_a.write(0xD, 0x88); // Set bit 7 (SET) and bit 3 (SP)
+        assert_eq!(emu.memory.cia.borrow().cia_a.icr_mask & 0x08, 0x08);
+
+        // Queue key press
+        emu.key_event(0x10, true); // 'Q' pressed
+
+        // Run scanline to process the queued key
+        emu.run_scanline();
+
+        // CIA-A ICR_SP interrupt should be pending
+        {
+            let cia_a = &emu.memory.cia.borrow().cia_a;
+            assert_eq!(cia_a.sdr, 0x10);
+            assert!(cia_a.icr_ir);
+            assert_ne!(cia_a.icr_data & 0x08, 0);
+        }
+
+        // Reading REG_ICR (0xD) should return the interrupt and clear it
+        let icr = emu.memory.cia.borrow_mut().cia_a.read(0xD);
+        assert_ne!(icr & 0x08, 0);
+        assert!(!emu.memory.cia.borrow().cia_a.icr_ir);
+
+        // 2. Verify mouse deltas and button mapping
+        emu.mouse_move(10, -5);
+        emu.mouse_button(true, true);
+
+        emu.sync_readable_regs();
+
+        // Left mouse button is active-low in CIA-A PRA bit 6, so reading REG_PRA when pressed should have bit 6 clear
+        let pra = emu.memory.read_byte(0x00BF_E001);
+        assert_eq!(pra & 0x40, 0); // Bit 6 is 0 (Left mouse button pressed)
+
+        // Right button is active-low in POTGOR bit 10
+        let potgor = emu.memory.custom_regs[0x016 / 2];
+        assert_eq!(potgor & (1 << 10), 0); // Bit 10 is 0 (Right mouse button pressed)
+
+        // Mouse quadrature counters in JOY0DAT
+        let joy0dat = emu.memory.custom_regs[0x00A / 2];
+        let x_counter = (joy0dat & 0xFF) as u8;
+        let y_counter = ((joy0dat >> 8) & 0xFF) as u8;
+        assert_eq!(x_counter, 10);
+        assert_eq!(y_counter, 251); // -5 as u8 = 251
     }
 }

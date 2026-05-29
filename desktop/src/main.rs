@@ -321,6 +321,8 @@ fn main() {
     let (w, h) = (WIDTH as u32, presented_height as u32);
     let mut presented_framebuffer = vec![0u16; WIDTH * presented_height];
 
+    let mut last_mouse: Option<(f32, f32)> = None;
+
     while video.is_open() {
         // Check ESC to quit
         if window_handle.borrow().is_key_down(Key::Escape) {
@@ -340,6 +342,29 @@ fn main() {
                     emulator.key_event(keycode, false);
                 }
             }
+        }
+
+        // Pass mouse events to emulator
+        {
+            let win = window_handle.borrow();
+            if let Some((mx, my)) = win.get_mouse_pos(minifb::MouseMode::Discard) {
+                if let Some((lmx, lmy)) = last_mouse {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let dx = (mx - lmx) as i16;
+                    #[allow(clippy::cast_possible_truncation)]
+                    let dy = (my - lmy) as i16;
+                    if dx != 0 || dy != 0 {
+                        emulator.mouse_move(dx, dy);
+                    }
+                }
+                last_mouse = Some((mx, my));
+            } else {
+                last_mouse = None;
+            }
+
+            let left = win.get_mouse_down(minifb::MouseButton::Left);
+            let right = win.get_mouse_down(minifb::MouseButton::Right);
+            emulator.mouse_button(left, right);
         }
 
         emulator.run_frame();

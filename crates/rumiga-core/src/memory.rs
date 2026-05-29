@@ -119,6 +119,7 @@ impl MemoryConfig {
 const CUSTOM_REG_COUNT: usize = 256;
 
 /// The Amiga memory subsystem implementing m68k's `AddressBus` trait.
+#[allow(clippy::struct_excessive_bools)]
 pub struct AmigaMemory {
     config: MemoryConfig,
     /// Amiga chip RAM buffer.
@@ -139,6 +140,8 @@ pub struct AmigaMemory {
     pub cia_b_prb_dirty: bool,
     /// Disk status bits for CIA-A PRA (bits 2-5), updated by emulator from floppy state.
     pub disk_status: u8,
+    /// Left mouse button state.
+    pub mouse_left: bool,
     /// CIA pair (A and B) — lives here so `AddressBus` can read/write registers.
     pub cia: RefCell<CiaPair>,
     /// DSKBYTR shadow register for read-clearing behavior.
@@ -186,6 +189,7 @@ impl AmigaMemory {
             cia_a_pra: 0,
             cia_b_prb_dirty: false,
             disk_status: 0x3C, // Default: all status bits high (no drive selected state)
+            mouse_left: false,
             cia: RefCell::new(CiaPair::new()),
             dskbytr: Cell::new(0),
             gayle_irq: 0,
@@ -403,7 +407,11 @@ impl AmigaMemory {
                     // Bits 6-7: joystick fire buttons (active low = 1 when not pressed)
                     let cia = self.cia.borrow();
                     let output_bits = self.cia_a_pra & cia.cia_a.ddra;
-                    let input_bits: u8 = (self.disk_status & 0x3C) | 0xC0;
+                    let mut input_bits: u8 = self.disk_status & 0x3C;
+                    if !self.mouse_left {
+                        input_bits |= 0x40; // Bit 6 high when not pressed
+                    }
+                    input_bits |= 0x80; // Bit 7 high (joystick fire released)
                     return output_bits | (input_bits & !cia.cia_a.ddra);
                 }
                 return self.cia.borrow_mut().cia_a.read(reg);
