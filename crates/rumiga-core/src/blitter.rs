@@ -437,7 +437,7 @@ pub const fn apply_minterm(a: u16, b: u16, c: u16, minterm: u8) -> u16 {
 
 /// Read a big-endian word from chip RAM at the given address.
 const fn read_word(chip_ram: &[u8], addr: u32) -> u16 {
-    let idx = addr as usize;
+    let idx = (addr as usize) % chip_ram.len();
     if idx + 1 < chip_ram.len() {
         u16::from_be_bytes([chip_ram[idx], chip_ram[idx + 1]])
     } else {
@@ -447,7 +447,7 @@ const fn read_word(chip_ram: &[u8], addr: u32) -> u16 {
 
 /// Write a big-endian word to chip RAM at the given address.
 fn write_word(chip_ram: &mut [u8], addr: u32, value: u16) {
-    let idx = addr as usize;
+    let idx = (addr as usize) % chip_ram.len();
     if idx + 1 < chip_ram.len() {
         let bytes = value.to_be_bytes();
         chip_ram[idx] = bytes[0];

@@ -15,6 +15,7 @@ pub mod custom;
 pub mod emulator;
 pub mod events;
 pub mod floppy;
+pub mod ide;
 pub mod memory;
 pub mod playfield;
 pub mod sprites;

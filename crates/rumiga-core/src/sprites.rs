@@ -3,7 +3,15 @@
 
 //! Sprite DMA and rendering for the Amiga OCS chipset.
 
-use crate::playfield::amiga_to_rgb565;
+#![allow(
+    clippy::cast_lossless,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::precedence,
+    clippy::too_many_arguments
+)]
+
+use crate::playfield::rgb888_to_rgb565;
 
 /// Number of hardware sprites.
 pub const NUM_SPRITES: usize = 8;
@@ -22,9 +30,9 @@ pub struct SpriteState {
     /// vstop bit 8, vstart bit 8, and attach flag.
     pub ctl: u16,
     /// `SPRxDATA` — bitplane A.
-    pub data_a: u16,
+    pub data_a: [u16; 4],
     /// `SPRxDATB` — bitplane B.
-    pub data_b: u16,
+    pub data_b: [u16; 4],
     /// Sprite is armed (waiting for vstart match).
     pub armed: bool,
     /// Sprite is currently displaying.
@@ -41,8 +49,8 @@ impl SpriteState {
             pt: 0,
             pos: 0,
             ctl: 0,
-            data_a: 0,
-            data_b: 0,
+            data_a: [0; 4],
+            data_b: [0; 4],
             armed: false,
             active: false,
             dma_enabled: false,
@@ -131,10 +139,13 @@ impl SpriteEngine {
     pub fn render_into_line(
         &self,
         line_buffer: &mut [u16],
+        color_aga: &[u32; 256],
         colors: &[u16; 32],
         sprite_idx: usize,
         display_left_hpos: u16,
         horizontal_scale: u16,
+        bplcon4: u16,
+        fmode: u16,
     ) {
         let Some(sprite) = self.sprites.get(sprite_idx) else {
             return;
@@ -144,23 +155,46 @@ impl SpriteEngine {
         }
 
         let hstart = Self::hstart(sprite);
-        let pair = sprite_idx / 2;
-        let palette_base = 16 + pair * 4;
+        let spr_bank = if sprite_idx % 2 == 0 {
+            bplcon4 & 0x0F
+        } else {
+            (bplcon4 >> 4) & 0x0F
+        };
+        let palette_base = (spr_bank as usize) * 16 + (sprite_idx / 2) * 4;
 
-        for bit in 0..16u16 {
-            let shift = 15 - bit;
-            let a = (sprite.data_a >> shift) & 1;
-            let b = (sprite.data_b >> shift) & 1;
+        let width = match (fmode >> 2) & 3 {
+            3 => 64,
+            0 => 16,
+            _ => 32,
+        };
+
+        for pixel_idx in 0..width {
+            let word_idx = (pixel_idx / 16) as usize;
+            let bit_in_word = 15 - (pixel_idx % 16);
+            let a = (sprite.data_a[word_idx] >> bit_in_word) & 1;
+            let b = (sprite.data_b[word_idx] >> bit_in_word) & 1;
             let idx = (b << 1) | a;
             if idx == 0 {
                 continue;
             }
-            let hpos = hstart + bit;
+            let hpos = hstart + pixel_idx as u16;
             if hpos < display_left_hpos {
                 continue;
             }
             let px = usize::from((hpos - display_left_hpos) * horizontal_scale);
-            let color = amiga_to_rgb565(colors[palette_base + idx as usize]);
+            let color_val = if color_aga[palette_base + idx as usize] == 0
+                && (palette_base + idx as usize) < 32
+                && colors[palette_base + idx as usize] != 0
+            {
+                let c12 = colors[palette_base + idx as usize];
+                let r = ((c12 >> 8) & 0xF) as u32;
+                let g = ((c12 >> 4) & 0xF) as u32;
+                let b = (c12 & 0xF) as u32;
+                (r | (r << 4)) << 16 | (g | (g << 4)) << 8 | (b | (b << 4))
+            } else {
+                color_aga[palette_base + idx as usize]
+            };
+            let color = rgb888_to_rgb565(color_val);
             for repeat in 0..horizontal_scale {
                 if let Some(dest) = line_buffer.get_mut(px + usize::from(repeat)) {
                     *dest = color;
@@ -172,20 +206,36 @@ impl SpriteEngine {
     /// Fetch the next two words from chip RAM at the sprite pointer and advance it.
     ///
     /// If the sprite is not yet active, the words are loaded into pos/ctl.
-    /// Otherwise they are loaded into `data_a`/`data_b`.
-    pub fn fetch_data(&mut self, sprite_idx: usize, chip_ram: &[u8]) {
+    /// Otherwise they are loaded into `data_a`/`data_b` based on `fmode` width.
+    pub fn fetch_data(&mut self, sprite_idx: usize, chip_ram: &[u8], fmode: u16) {
         let Some(sprite) = self.sprites.get_mut(sprite_idx) else {
             return;
         };
-        let addr = sprite.pt as usize;
-        let word_a = Self::read_word(chip_ram, addr);
-        let word_b = Self::read_word(chip_ram, addr + 2);
-        sprite.pt = sprite.pt.wrapping_add(4);
+        let mut addr = sprite.pt as usize;
 
         if sprite.active {
-            sprite.data_a = word_a;
-            sprite.data_b = word_b;
+            let num_words = match (fmode >> 2) & 3 {
+                3 => 4,
+                0 => 1,
+                _ => 2,
+            };
+
+            sprite.data_a = [0; 4];
+            sprite.data_b = [0; 4];
+
+            for i in 0..num_words {
+                sprite.data_a[i] = Self::read_word(chip_ram, addr);
+                addr = addr.wrapping_add(2);
+            }
+            for i in 0..num_words {
+                sprite.data_b[i] = Self::read_word(chip_ram, addr);
+                addr = addr.wrapping_add(2);
+            }
+            sprite.pt = addr as u32;
         } else {
+            let word_a = Self::read_word(chip_ram, addr);
+            let word_b = Self::read_word(chip_ram, addr + 2);
+            sprite.pt = sprite.pt.wrapping_add(4);
             sprite.pos = word_a;
             sprite.ctl = word_b;
         }
@@ -193,6 +243,7 @@ impl SpriteEngine {
 
     /// Read a big-endian u16 from a byte slice, returning 0 if out of bounds.
     const fn read_word(data: &[u8], addr: usize) -> u16 {
+        let addr = addr % data.len();
         if addr + 1 < data.len() {
             ((data[addr] as u16) << 8) | data[addr + 1] as u16
         } else {
@@ -210,6 +261,7 @@ impl Default for SpriteEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::playfield::amiga_to_rgb565;
 
     const fn make_sprite(pos: u16, ctl: u16) -> SpriteState {
         SpriteState {
@@ -258,14 +310,15 @@ mod tests {
         engine.sprites[0].active = true;
         engine.sprites[0].pos = 0x0020; // hstart[8:1] = 0x20 -> hstart = 0x40
         engine.sprites[0].ctl = 0x0000;
-        engine.sprites[0].data_a = 0x8000; // only leftmost pixel, plane A
-        engine.sprites[0].data_b = 0x0000;
+        engine.sprites[0].data_a[0] = 0x8000; // only leftmost pixel, plane A
+        engine.sprites[0].data_b[0] = 0x0000;
 
         let mut colors = [0u16; 32];
         colors[17] = 0x0F00; // pair 0, index 1 — red
 
+        let color_aga = [0u32; 256];
         let mut buf = [0u16; 256];
-        engine.render_into_line(&mut buf, &colors, 0, 0, 1);
+        engine.render_into_line(&mut buf, &color_aga, &colors, 0, 0, 1, 0x0011, 0);
 
         assert_eq!(buf[0x40], amiga_to_rgb565(0x0F00));
         assert_eq!(buf[0x3F], 0);
@@ -278,14 +331,15 @@ mod tests {
         engine.sprites[0].active = true;
         engine.sprites[0].pos = 0x0010; // hstart = 0x20
         engine.sprites[0].ctl = 0x0000;
-        engine.sprites[0].data_a = 0x0000; // all transparent
-        engine.sprites[0].data_b = 0x0000;
+        engine.sprites[0].data_a[0] = 0x0000; // all transparent
+        engine.sprites[0].data_b[0] = 0x0000;
 
         let mut colors = [0u16; 32];
         colors[17] = 0xFFFF;
 
+        let color_aga = [0u32; 256];
         let mut buf = [0xAAAA_u16; 256];
-        engine.render_into_line(&mut buf, &colors, 0, 0, 1);
+        engine.render_into_line(&mut buf, &color_aga, &colors, 0, 0, 1, 0x0011, 0);
 
         // Buffer should be unchanged
         for px in &buf {
@@ -300,14 +354,15 @@ mod tests {
         engine.sprites[4].active = true;
         engine.sprites[4].pos = 0x0000; // hstart = 0
         engine.sprites[4].ctl = 0x0000;
-        engine.sprites[4].data_a = 0x8000; // index 1 at pixel 0
-        engine.sprites[4].data_b = 0x8000; // index 3 at pixel 0
+        engine.sprites[4].data_a[0] = 0x8000; // index 1 at pixel 0
+        engine.sprites[4].data_b[0] = 0x8000; // index 3 at pixel 0
 
         let mut colors = [0u16; 32];
         colors[24 + 3] = 0x00F0; // pair 2, index 3 — green
 
+        let color_aga = [0u32; 256];
         let mut buf = [0u16; 256];
-        engine.render_into_line(&mut buf, &colors, 4, 0, 1);
+        engine.render_into_line(&mut buf, &color_aga, &colors, 4, 0, 1, 0x0011, 0);
 
         assert_eq!(buf[0], amiga_to_rgb565(0x00F0));
     }

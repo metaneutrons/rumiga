@@ -3,7 +3,7 @@
 
 //! Integration test: boot a real Kickstart ROM and verify emulation progresses.
 
-use rumiga_core::emulator::{Emulator, ProcessingState};
+use rumiga_core::emulator::Emulator;
 use rumiga_core::memory::MemoryConfig;
 use std::fs;
 use std::path::PathBuf;
@@ -147,7 +147,7 @@ fn test_kickstart_13_boots_past_memory_test_without_crashing() {
     // into the exec initialization ($FC30xx+) or hit STOP waiting for interrupts
     let pc = emu.cpu.pc;
     assert!(
-        pc > 0x00FC_0100 || emu.cpu.processing_state == ProcessingState::Stopped,
+        pc > 0x00FC_0100 || emu.cpu.is_stopped(),
         "CPU should have progressed past boot or be in STOP state, PC=${pc:08X}"
     );
 
@@ -155,7 +155,7 @@ fn test_kickstart_13_boots_past_memory_test_without_crashing() {
         "After 150 frames: PC=${:08X} cycles={} stopped={}",
         pc,
         emu.total_cycles,
-        emu.cpu.processing_state == ProcessingState::Stopped
+        emu.cpu.is_stopped()
     );
 }
 
@@ -195,4 +195,124 @@ fn boot_kickstart_13_graphics_library_initializes_display_planes() {
         "Kickstart 1.3 should set up >= 2 bitplanes for the insert-disk hand, \
          but only reached {max_planes} planes. CIA timers may not have started."
     );
+}
+
+#[test]
+fn boot_kickstart_31_a1200_executes_instructions_and_boots() {
+    let rom_file = dirs_next().join("kick.a1200.40.068.rom");
+    if !rom_file.exists() {
+        eprintln!(
+            "SKIP: Kickstart 3.1 ROM not found at {}",
+            rom_file.display()
+        );
+        return;
+    }
+
+    let rom = fs::read(&rom_file).unwrap();
+    assert_eq!(
+        rom.len(),
+        512 * 1024,
+        "A1200 Kickstart 3.1 ROM must be 512KB"
+    );
+
+    let mut emu = Emulator::new(MemoryConfig::a1200());
+    emu.load_rom(&rom);
+
+    // Run 5 PAL frames
+    for _ in 0..5 {
+        emu.run_frame();
+    }
+
+    // CPU should have executed millions of cycles
+    assert!(
+        emu.total_cycles > 500_000,
+        "Expected >500k cycles after 5 frames in A1200 mode, got {}",
+        emu.total_cycles
+    );
+
+    // SSP and PC reset vectors validation
+    let ssp = u32::from_be_bytes([rom[0], rom[1], rom[2], rom[3]]);
+    let pc = u32::from_be_bytes([rom[4], rom[5], rom[6], rom[7]]);
+    println!("A1200 ROM reset vectors: SSP=0x{ssp:08X}, PC=0x{pc:08X}");
+
+    // Run 150 PAL frames to ensure it boots past memory tests and does not crash
+    for _ in 0..150 {
+        emu.run_frame();
+    }
+
+    assert!(
+        emu.total_cycles > 10_000_000,
+        "Expected >10M cycles after 150 frames, got {}",
+        emu.total_cycles
+    );
+
+    // Ensure CPU progressed into main boot ROM execution ($FC0000+ or $F80000+)
+    let current_pc = emu.cpu.pc;
+    assert!(
+        current_pc >= 0x00F8_0000 || emu.cpu.is_stopped(),
+        "CPU should have progressed or be in STOP state, PC=0x{current_pc:08X}"
+    );
+
+    println!(
+        "A1200 boot successful: PC=0x{:08X} cycles={} stopped={}",
+        current_pc,
+        emu.total_cycles,
+        emu.cpu.is_stopped()
+    );
+}
+
+#[test]
+fn test_kickstart_31_cpu_tracing() {
+    let rom_file = dirs_next().join("kick.a1200.40.068.rom");
+    if !rom_file.exists() {
+        eprintln!("SKIP: ROM not found");
+        return;
+    }
+
+    let rom = fs::read(&rom_file).unwrap();
+    let mut emu = Emulator::new(MemoryConfig::a1200());
+    emu.load_rom(&rom);
+
+    // Set up a temporary trace log
+    let trace_path = "trace_ks31_test.log";
+    emu.enable_cpu_trace(trace_path, Some(50)).unwrap();
+
+    // Step 50 instructions
+    for _ in 0..50 {
+        emu.step_instruction();
+    }
+
+    // Drop emulator so the trace log is flushed/closed
+    drop(emu);
+
+    let trace_data = fs::read_to_string(trace_path).unwrap();
+    fs::remove_file(trace_path).unwrap();
+
+    let lines: Vec<&str> = trace_data.lines().collect();
+    assert_eq!(
+        lines.len(),
+        50,
+        "Expected exactly 50 trace lines, got {}",
+        lines.len()
+    );
+
+    // Check formatting of the first trace line
+    let first_line = lines[0];
+    assert!(
+        first_line.contains("PC:"),
+        "Trace line missing PC prefix: {first_line}"
+    );
+    assert!(
+        first_line.contains("OP:"),
+        "Trace line missing OP: {first_line}"
+    );
+    assert!(
+        first_line.contains("D0:"),
+        "Trace line missing registers: {first_line}"
+    );
+    assert!(
+        first_line.contains("SR:"),
+        "Trace line missing SR: {first_line}"
+    );
+    println!("Sample trace line: {first_line}");
 }

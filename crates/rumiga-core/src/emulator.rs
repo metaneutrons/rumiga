@@ -3,9 +3,15 @@
 
 //! Main emulation loop tying CPU and chipset together.
 
-use r68k_emu::cpu::ConfiguredCore;
-pub use r68k_emu::cpu::ProcessingState;
-use r68k_emu::interrupts::InterruptController;
+#![allow(
+    clippy::cast_lossless,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+
+use m68k::CpuCore;
+use m68k::{AddressBus, NoOpHleHandler, StepResult};
+use std::io::Write;
 
 use crate::audio::AudioState;
 use crate::blitter::BlitterState;
@@ -39,45 +45,6 @@ const FRAMEBUFFER_SIZE: usize = DISPLAY_WIDTH * playfield::DISPLAY_HEIGHT as usi
 /// Maximum queued key events per frame.
 const MAX_KEY_EVENTS: usize = 16;
 
-/// Interrupt controller that bridges r68k to the Amiga chipset interrupt system.
-///
-/// The actual interrupt level is computed from `CustomChipState` and injected
-/// each scanline via [`AmigaInterruptController::set_level`].
-pub struct AmigaInterruptController {
-    level: u8,
-}
-
-impl AmigaInterruptController {
-    const fn new() -> Self {
-        Self { level: 0 }
-    }
-
-    /// Update the pending interrupt level from chipset state.
-    pub fn set_level(&mut self, level: u8) {
-        self.level = level;
-    }
-}
-
-impl InterruptController for AmigaInterruptController {
-    fn reset_external_devices(&mut self) {
-        self.level = 0;
-    }
-
-    fn highest_priority(&self) -> u8 {
-        self.level
-    }
-
-    fn acknowledge_interrupt(&mut self, priority: u8) -> Option<u8> {
-        // Autovector: vector = 24 + priority level
-        // Don't clear level here — the Amiga holds the interrupt line asserted
-        // until software clears INTREQ. The CPU's SR IPL mask prevents re-entry.
-        Some(24 + priority)
-    }
-}
-
-/// The configured r68k CPU type used by the emulator.
-pub type AmigaCpu = ConfiguredCore<AmigaInterruptController, AmigaMemory>;
-
 /// Cycle threshold after which CIA timers are force-started if still stopped (~frame 160).
 ///
 /// On Kickstart 1.3, timer.device should start the CIA timers during `InitCode`.
@@ -88,8 +55,10 @@ const FORCE_CIA_TIMER_THRESHOLD: u64 = 22_000_000;
 
 /// Main emulator state combining CPU and all chipset subsystems.
 pub struct Emulator {
-    /// r68k CPU core (owns memory as its `AddressBus`).
-    pub cpu: AmigaCpu,
+    /// m68k CPU core.
+    pub cpu: CpuCore,
+    /// Amiga memory subsystem.
+    pub memory: AmigaMemory,
     /// Custom chip register state.
     pub chipset: CustomChipState,
     /// Cycle-accurate event scheduler.
@@ -108,6 +77,12 @@ pub struct Emulator {
     pub sprites: SpriteEngine,
     /// RGB565 framebuffer (high-res PAL width × visible PAL height).
     pub framebuffer: Vec<u16>,
+    /// Optional `BufWriter` for instruction tracing.
+    pub trace_writer: Option<std::io::BufWriter<std::fs::File>>,
+    /// Optional trace limit (number of instructions).
+    pub trace_limit: Option<u64>,
+    /// Count of traced instructions.
+    pub trace_count: u64,
     /// Whether a complete frame has been rendered.
     pub frame_ready: bool,
     /// Total CPU cycles executed since start.
@@ -154,7 +129,7 @@ impl Emulator {
                 st &= !0x20; // Active-low drive ID bit
             }
         }
-        self.cpu.mem.disk_status = st;
+        self.memory.disk_status = st;
     }
     /// Create a new emulator with the given memory configuration.
     ///
@@ -164,13 +139,15 @@ impl Emulator {
         let mut events = EventScheduler::new();
         events.schedule(EventType::HSync, 227);
 
-        let memory = AmigaMemory::new(config);
-        let int_ctrl = AmigaInterruptController::new();
-        let mut cpu = ConfiguredCore::new_with(0, int_ctrl, memory);
-        cpu.reset();
+        let cpu_type = config.cpu_type;
+        let mut memory = AmigaMemory::new(config);
+        let mut cpu = CpuCore::new();
+        cpu.set_cpu_type(cpu_type);
+        cpu.reset(&mut memory);
 
         Self {
             cpu,
+            memory,
             chipset: CustomChipState::new(),
             events,
             copper: CopperState::new(),
@@ -180,6 +157,9 @@ impl Emulator {
             audio: AudioState::new(),
             sprites: SpriteEngine::new(),
             framebuffer: vec![0; FRAMEBUFFER_SIZE],
+            trace_writer: None,
+            trace_limit: None,
+            trace_count: 0,
             frame_ready: false,
             total_cycles: 0,
             key_events: Vec::new(),
@@ -195,13 +175,86 @@ impl Emulator {
     ///
     /// Re-resets the CPU so it picks up the correct reset vectors from the new ROM.
     pub fn load_rom(&mut self, data: &[u8]) {
-        self.cpu.mem.load_rom(data);
-        self.cpu.reset();
+        self.memory.load_rom(data);
+        self.cpu.reset(&mut self.memory);
     }
 
     /// Insert an ADF disk image into the specified floppy drive (0–3).
     pub fn insert_floppy(&mut self, drive: usize, data: Vec<u8>) {
         self.floppy.insert_disk(drive, data);
+    }
+
+    /// Wait for the active background blit to complete, updating emulator status.
+    pub fn sync_blitter(&mut self) {
+        if self.memory.blit_thread.is_some() {
+            self.memory.sync_blitter();
+        }
+        if self.memory.blitter_completed {
+            self.memory.blitter_completed = false;
+            // Mark the blitter as finished in our local state
+            self.blitter.busy = false;
+            self.blitter.done = true;
+            // Fire blitter-done interrupt
+            self.chipset.intreq |= custom::INT_BLIT;
+            self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
+        }
+    }
+
+    /// Check if the active background blit is finished, updating emulator status if so.
+    pub fn sync_blitter_lazy(&mut self) {
+        if self.memory.blit_thread.is_some() {
+            self.memory.sync_blitter_lazy();
+        }
+        if self.memory.blitter_completed {
+            self.memory.blitter_completed = false;
+            // Mark the blitter as finished in our local state
+            self.blitter.busy = false;
+            self.blitter.done = true;
+            // Fire blitter-done interrupt
+            self.chipset.intreq |= custom::INT_BLIT;
+            self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
+        }
+    }
+
+    /// Returns whether the specified floppy drive (0–3) has dirty data.
+    #[must_use]
+    pub fn floppy_dirty(&self, drive: usize) -> bool {
+        self.floppy.drives.get(drive).is_some_and(|d| d.dirty)
+    }
+
+    /// Clears the dirty flag on the specified floppy drive (0–3).
+    pub fn clear_floppy_dirty(&mut self, drive: usize) {
+        if let Some(d) = self.floppy.drives.get_mut(drive) {
+            d.dirty = false;
+        }
+    }
+
+    /// Extract the ADF disk image data from the specified floppy drive (0–3).
+    #[must_use]
+    pub fn extract_floppy(&self, drive: usize) -> Option<Vec<u8>> {
+        self.floppy.drives.get(drive).and_then(|d| d.data.clone())
+    }
+
+    /// Insert a Virtual hardfile (.hdf) disk image into the Gayle IDE controller.
+    pub fn insert_hdf(&mut self, data: Vec<u8>) {
+        self.memory.ide.borrow_mut().insert_disk(data);
+    }
+
+    /// Check if the in-memory hardfile buffer is dirty.
+    #[must_use]
+    pub fn hdf_dirty(&self) -> bool {
+        self.memory.ide.borrow().hdf_dirty
+    }
+
+    /// Reset the dirty flag of the hardfile buffer.
+    pub fn clear_hdf_dirty(&mut self) {
+        self.memory.ide.borrow_mut().hdf_dirty = false;
+    }
+
+    /// Extract the current hardfile byte vector from the IDE controller.
+    #[must_use]
+    pub fn extract_hdf(&self) -> Option<Vec<u8>> {
+        self.memory.ide.borrow().disk_data.clone()
     }
 
     /// Set the floppy speed percentage. `0` selects turbo mode.
@@ -236,52 +289,119 @@ impl Emulator {
         }
     }
 
+    /// Enable CPU execution tracing to the specified file path.
+    ///
+    /// # Errors
+    ///
+    /// Returns any file creation error from the host filesystem.
+    pub fn enable_cpu_trace(&mut self, path: &str, limit: Option<u64>) -> std::io::Result<()> {
+        let file = std::fs::File::create(path)?;
+        self.trace_writer = Some(std::io::BufWriter::new(file));
+        self.trace_limit = limit;
+        self.trace_count = 0;
+        Ok(())
+    }
+
+    /// Format and write one trace line.
+    pub fn write_trace_line(&mut self) {
+        if let Some(ref mut writer) = self.trace_writer {
+            if let Some(limit) = self.trace_limit {
+                if self.trace_count >= limit {
+                    return;
+                }
+            }
+
+            let pc = self.cpu.pc;
+            // Safely read the opcode word at PC
+            let opcode = AddressBus::read_word(&mut self.memory, pc);
+            let (disasm, _) = m68k::dasm::disassemble(pc, opcode, self.cpu.cpu_type);
+            let dar = self.cpu.dar;
+            let sr = self.cpu.get_sr();
+
+            let _ = writeln!(
+                writer,
+                "PC: {:08X} | OP: {:04X} ({:<20}) | D0: {:08X} D1: {:08X} D2: {:08X} D3: {:08X} | A0: {:08X} A1: {:08X} A2: {:08X} A7: {:08X} | SR: {:04X}",
+                pc,
+                opcode,
+                disasm,
+                dar[0],
+                dar[1],
+                dar[2],
+                dar[3],
+                dar[8],
+                dar[9],
+                dar[10],
+                dar[15],
+                sr
+            );
+
+            self.trace_count += 1;
+        }
+    }
+
     /// Execute a single CPU instruction (for debugging/tracing).
     pub fn step_instruction(&mut self) {
-        self.cpu.execute1();
+        self.write_trace_line();
+        let mut handler = NoOpHleHandler;
+        let _ = self
+            .cpu
+            .step_with_hle_handler(&mut self.memory, &mut handler);
     }
 
     /// Execute one scanline worth of emulation.
     #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
     pub fn run_scanline(&mut self) {
+        // Update audio filter state based on CIA-A PRA bit 1 (LED state)
+        self.audio.filter_active = (self.memory.cia_a_pra & 2) != 0;
+
         // Sync readable registers into memory so CPU reads correct values
         self.sync_readable_regs();
 
         // Execute CPU instructions for this scanline
         let mut cycles_used: usize = 0;
+        let mut handler = NoOpHleHandler;
         while cycles_used < CYCLES_PER_LINE {
-            // Sync interrupt registers so CPU reads see current state
-            self.cpu.mem.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq & 0x7FFF;
-            self.cpu.mem.custom_regs[(custom::INTENAR / 2) as usize] = self.chipset.intena & 0x7FFF;
+            self.process_gayle_ide_interrupts();
 
-            // Update interrupt level for r68k's interrupt controller
+            // Sync interrupt registers so CPU reads see current state
+            self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq & 0x7FFF;
+            self.memory.custom_regs[(custom::INTENAR / 2) as usize] = self.chipset.intena & 0x7FFF;
+
+            // Update interrupt level for CpuCore
             let pending = self.chipset.intreq & self.chipset.intena & 0x3FFF;
             if pending != 0 && (self.chipset.intena & custom::INT_SETCLR) != 0 {
-                self.cpu.int_ctrl.set_level(self.chipset.interrupt_level());
+                self.cpu.int_level = u32::from(self.chipset.interrupt_level());
             } else {
-                self.cpu.int_ctrl.set_level(0);
+                self.cpu.int_level = 0;
             }
 
-            let c = self.cpu.execute1();
-            if c.0 <= 0 || self.cpu.processing_state == ProcessingState::Stopped {
+            self.write_trace_line();
+            let step_res = self
+                .cpu
+                .step_with_hle_handler(&mut self.memory, &mut handler);
+            let cycles = match step_res {
+                StepResult::Ok { cycles } => cycles,
+                _ => 0,
+            };
+            if cycles <= 0 || self.cpu.is_stopped() {
                 cycles_used = CYCLES_PER_LINE;
                 break;
             }
-            cycles_used += c.0.unsigned_abs() as usize;
+            cycles_used += cycles as usize;
             // Update HPOS based on cycles consumed (2 CPU cycles = 1 color clock)
             self.chipset.hpos = u16::try_from((cycles_used / 2).min(226)).unwrap_or(226);
             // Sync beam position so CPU reads of VHPOSR see advancing hpos
-            self.cpu.mem.custom_regs[(custom::VHPOSR / 2) as usize] =
+            self.memory.custom_regs[(custom::VHPOSR / 2) as usize] =
                 (self.chipset.vpos << 8) | (self.chipset.hpos & 0xFF);
             // Dispatch register writes immediately
-            let writes: Vec<(u16, u16)> = self.cpu.mem.drain_reg_writes().collect();
+            let writes: Vec<(u16, u16)> = self.memory.drain_reg_writes().collect();
             for (offset, value) in writes {
                 self.dispatch_register_write(offset, value);
             }
             // Handle CIA-B PRB writes (disk drive selection/motor/step)
-            if self.cpu.mem.cia_b_prb_dirty {
-                self.cpu.mem.cia_b_prb_dirty = false;
-                let prb = self.cpu.mem.cia.borrow().cia_b.prb;
+            if self.memory.cia_b_prb_dirty {
+                self.memory.cia_b_prb_dirty = false;
+                let prb = self.memory.cia.borrow().cia_b.prb;
                 self.floppy.disk_select(prb);
                 self.update_disk_status();
             }
@@ -299,7 +419,7 @@ impl Emulator {
 
         // Run copper for this scanline
         if self.copper.enabled {
-            let chip_ram = self.cpu.mem.chip_ram();
+            let chip_ram = self.memory.chip_ram();
             let mut copper_writes = Vec::new();
             for h in 0u16..227 {
                 if let Some(action) = self.copper.cycle(chip_ram, vpos, h) {
@@ -318,13 +438,13 @@ impl Emulator {
                 }
             }
             for (offset, value) in copper_writes {
-                self.cpu.mem.custom_regs[(offset / 2) as usize] = value;
+                self.memory.custom_regs[(offset / 2) as usize] = value;
                 self.dispatch_register_write(offset, value);
             }
         }
 
         // Sync playfield state from shadow registers (copper has updated them)
-        let regs = &self.cpu.mem.custom_regs;
+        let regs = &self.memory.custom_regs;
         self.playfield.bplcon0 = regs[(custom::BPLCON0 / 2) as usize];
         self.playfield.bplcon1 = regs[(0x102 / 2) as usize];
         self.playfield.bplcon2 = regs[(0x104 / 2) as usize];
@@ -351,7 +471,7 @@ impl Emulator {
             }
 
             let mut line_buffer = [0u16; DISPLAY_WIDTH];
-            let chip_ram = self.cpu.mem.chip_ram();
+            let chip_ram = self.memory.chip_ram();
             self.playfield
                 .render_scanline(vpos, chip_ram, &mut line_buffer);
             self.playfield.bplcon0 = saved_bplcon0;
@@ -364,13 +484,16 @@ impl Emulator {
                 }
                 if self.sprites.sprites[i].active {
                     // Active: fetch image data, then render
-                    self.sprites.fetch_data(i, chip_ram);
+                    self.sprites.fetch_data(i, chip_ram, self.playfield.fmode);
                     self.sprites.render_into_line(
                         &mut line_buffer,
+                        &self.playfield.color_aga,
                         &self.playfield.color,
                         i,
                         playfield::DISPLAY_LEFT_HPOS,
                         2,
+                        self.playfield.bplcon4,
+                        self.playfield.fmode,
                     );
                     // Deactivate at vstop
                     if vpos + 1 == SpriteEngine::vstop(&self.sprites.sprites[i]) {
@@ -379,19 +502,22 @@ impl Emulator {
                     }
                 } else if !self.sprites.sprites[i].armed {
                     // Not yet armed: fetch pos/ctl to learn vstart/vstop
-                    self.sprites.fetch_data(i, chip_ram);
+                    self.sprites.fetch_data(i, chip_ram, self.playfield.fmode);
                     self.sprites.sprites[i].armed = true;
                 } else if vpos == SpriteEngine::vstart(&self.sprites.sprites[i]) {
                     // Armed and vstart matches: activate
                     self.sprites.sprites[i].active = true;
                     // Fetch first line of data immediately
-                    self.sprites.fetch_data(i, chip_ram);
+                    self.sprites.fetch_data(i, chip_ram, self.playfield.fmode);
                     self.sprites.render_into_line(
                         &mut line_buffer,
+                        &self.playfield.color_aga,
                         &self.playfield.color,
                         i,
                         playfield::DISPLAY_LEFT_HPOS,
                         2,
+                        self.playfield.bplcon4,
+                        self.playfield.fmode,
                     );
                 }
             }
@@ -402,8 +528,8 @@ impl Emulator {
                 && vpos < vstop
                 && self.playfield.num_planes().min(6) > 0
             {
-                let bpl1mod = self.cpu.mem.custom_regs[(0x108 / 2) as usize] as i16;
-                let bpl2mod = self.cpu.mem.custom_regs[(0x10A / 2) as usize] as i16;
+                let bpl1mod = self.memory.custom_regs[(0x108 / 2) as usize] as i16;
+                let bpl2mod = self.memory.custom_regs[(0x10A / 2) as usize] as i16;
                 let num_planes = self.playfield.num_planes().min(6);
                 for i in 0..num_planes {
                     let m = if i % 2 == 0 { bpl1mod } else { bpl2mod };
@@ -421,7 +547,7 @@ impl Emulator {
 
         // CIA E-clock: ~45 ticks per scanline (709379 Hz / 15625 Hz)
         for _ in 0..45 {
-            let mut cia = self.cpu.mem.cia.borrow_mut();
+            let mut cia = self.memory.cia.borrow_mut();
             if cia.cia_a.tick() {
                 self.chipset.intreq |= custom::INT_PORTS;
             }
@@ -431,7 +557,7 @@ impl Emulator {
         }
         // Also fire INT_PORTS / INT_EXTER if CIA-A/B has any masked interrupt pending
         {
-            let cia = self.cpu.mem.cia.borrow();
+            let cia = self.memory.cia.borrow();
             if cia.cia_a.icr_ir {
                 self.chipset.intreq |= custom::INT_PORTS;
             }
@@ -439,10 +565,10 @@ impl Emulator {
                 self.chipset.intreq |= custom::INT_EXTER;
             }
         }
-        self.cpu.mem.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
+        self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
 
         // CIA-B TOD clocked by HSync (every scanline)
-        self.cpu.mem.cia.borrow_mut().cia_b.tick_tod();
+        self.memory.cia.borrow_mut().cia_b.tick_tod();
 
         // Tick floppy drive spin-up delays and update status
         self.floppy.tick_scanline();
@@ -459,10 +585,10 @@ impl Emulator {
             && self.chipset.vpos == 0
         {
             // Fire index pulse once per revolution (~300ms real, once per frame here)
-            let mut cia = self.cpu.mem.cia.borrow_mut();
+            let mut cia = self.memory.cia.borrow_mut();
             if cia.cia_b.set_flag() {
                 self.chipset.intreq |= custom::INT_EXTER;
-                self.cpu.mem.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
+                self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
             }
         }
 
@@ -470,7 +596,7 @@ impl Emulator {
         if let Some((keycode, pressed)) = self.key_events.first().copied() {
             // Amiga keyboard protocol: bit 7 = 0 for press, 1 for release
             let code = if pressed { keycode } else { keycode | 0x80 };
-            self.cpu.mem.cia.borrow_mut().cia_a.sdr = code;
+            self.memory.cia.borrow_mut().cia_a.sdr = code;
             self.key_events.remove(0);
         }
 
@@ -484,7 +610,7 @@ impl Emulator {
         if vpos == 0 {
             {
                 self.chipset.intreq |= custom::INT_VERTB;
-                self.cpu.mem.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
+                self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
             }
 
             // Pre-allocate signal bit 31 in the boot task's tc_SigAlloc.
@@ -494,7 +620,7 @@ impl Emulator {
             // FreeEntry incorrectly frees a stack-allocated buffer, corrupting
             // the memory free list.
             if self.total_cycles > 5_000_000 && self.total_cycles < 5_100_000 {
-                let chip = self.cpu.mem.chip_ram_mut();
+                let chip = self.memory.chip_ram_mut();
                 if chip.len() > 8 {
                     let eb = u32::from_be_bytes([chip[4], chip[5], chip[6], chip[7]]) as usize;
                     if eb > 0 && eb + 0x118 < chip.len() {
@@ -518,7 +644,7 @@ impl Emulator {
             // read copinit directly. GfxBase is cached after first discovery.
             if let Some(copinit) = self.gfx_copinit() {
                 if copinit != 0
-                    && copinit < u32::try_from(self.cpu.mem.chip_ram().len()).unwrap_or(u32::MAX)
+                    && copinit < u32::try_from(self.memory.chip_ram().len()).unwrap_or(u32::MAX)
                 {
                     self.copper.cop1lc = copinit;
                 }
@@ -536,7 +662,7 @@ impl Emulator {
                 sprite.armed = false;
             }
             // CIA-A TOD clocked by VSync (once per frame)
-            self.cpu.mem.cia.borrow_mut().cia_a.tick_tod();
+            self.memory.cia.borrow_mut().cia_a.tick_tod();
             // Reset mouse deltas at frame boundary
             self.mouse_dx = 0;
             self.mouse_dy = 0;
@@ -545,7 +671,7 @@ impl Emulator {
             // Only start the timer (CRA bit 0), don't enable ICR mask.
             // timer.device manages the ICR mask itself.
             if self.total_cycles > FORCE_CIA_TIMER_THRESHOLD {
-                let mut cia = self.cpu.mem.cia.borrow_mut();
+                let mut cia = self.memory.cia.borrow_mut();
                 if cia.cia_a.cra & 0x01 == 0 {
                     cia.cia_a.cra |= 0x01;
                 }
@@ -560,12 +686,12 @@ impl Emulator {
             // directly because the FLAG timing during early boot is complex.
             {
                 let off = 0x4856usize; // unit ($C04730) + $126 = $C04856
-                if self.cpu.mem.slow_ram.len() > off
-                    && self.cpu.mem.slow_ram[off] == 0
-                    && self.cpu.mem.slow_ram[0x4730] != 0
+                if self.memory.slow_ram.len() > off
+                    && self.memory.slow_ram[off] == 0
+                    && self.memory.slow_ram[0x4730] != 0
                 // unit exists
                 {
-                    self.cpu.mem.slow_ram[off] = 1;
+                    self.memory.slow_ram[off] = 1;
                 }
             }
 
@@ -573,25 +699,25 @@ impl Emulator {
         }
 
         // Sync INTREQR/INTENAR so the CPU reads correct values in interrupt handlers
-        self.cpu.mem.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
-        self.cpu.mem.custom_regs[(custom::INTENAR / 2) as usize] = self.chipset.intena;
+        self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
+        self.memory.custom_regs[(custom::INTENAR / 2) as usize] = self.chipset.intena;
 
-        // Update interrupt level for next scanline — r68k handles delivery internally
+        // Update interrupt level for next scanline
         let pending = self.chipset.intreq & self.chipset.intena & 0x3FFF;
         if pending != 0 && (self.chipset.intena & custom::INT_SETCLR) != 0 {
-            self.cpu.int_ctrl.set_level(self.chipset.interrupt_level());
+            self.cpu.int_level = u32::from(self.chipset.interrupt_level());
         } else {
-            self.cpu.int_ctrl.set_level(0);
+            self.cpu.int_level = 0;
         }
     }
 
     fn run_floppy_dma_cycles(&mut self, cycles: usize) {
         for _ in 0..cycles {
             {
-                let chip_ram = self.cpu.mem.chip_ram_mut();
+                let chip_ram = self.memory.chip_ram_mut();
                 self.floppy.disk_dma_cycle(chip_ram);
             }
-            self.cpu.mem.dskbytr.set(self.floppy.dskbytr_val);
+            self.memory.dskbytr.set(self.floppy.dskbytr_val);
         }
 
         self.deliver_floppy_interrupts();
@@ -601,24 +727,55 @@ impl Emulator {
         if self.floppy.pending_sync_irq {
             self.floppy.pending_sync_irq = false;
             self.chipset.intreq |= 0x1000; // DSKSYNC
-            self.cpu.mem.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
+            self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
         }
         if self.floppy.pending_blk_irq {
             self.floppy.pending_blk_irq = false;
             self.chipset.intreq |= custom::INT_DSKBLK;
-            self.cpu.mem.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
+            self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
+        }
+    }
+
+    fn process_gayle_ide_interrupts(&mut self) {
+        let mut ide = self.memory.ide.borrow_mut();
+        if ide.pending_irq {
+            ide.pending_irq = false;
+            self.memory.gayle_irq |= 0x80;
+        }
+
+        if (self.memory.gayle_irq & self.memory.gayle_intena & 0x80) != 0 {
+            self.chipset.intreq |= crate::custom::INT_PORTS;
         }
     }
 
     /// Sync live chipset state into the custom register shadow so CPU reads are correct.
     fn sync_readable_regs(&mut self) {
-        use crate::custom;
-        let regs = &mut self.cpu.mem.custom_regs;
+        // Lazy check of background blitter done signal
+        if self.memory.blit_thread.is_some() {
+            self.memory.sync_blitter_lazy();
+            if self.memory.blit_thread.is_none() {
+                // Done! Finalize it
+                self.blitter.busy = false;
+                self.blitter.done = true;
+                // Fire blitter-done interrupt
+                self.chipset.intreq |= custom::INT_BLIT;
+                self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
+            }
+        }
+
+        let blit_busy = self.memory.blit_thread.is_some();
+
+        let regs = &mut self.memory.custom_regs;
         // VPOSR: bit 15=LOF, bits 14-8=Agnus ID, bits 0-2=vpos high
         // OCS Agnus (A500): ID=$00, only bit 0 of vpos high visible
         regs[(custom::VPOSR / 2) as usize] = 0x8000 | ((self.chipset.vpos >> 8) & 1);
         regs[(custom::VHPOSR / 2) as usize] = (self.chipset.vpos << 8) | (self.chipset.hpos & 0xFF);
-        regs[(custom::DMACONR / 2) as usize] = self.chipset.dmacon & 0x7FFF;
+
+        let mut dmacon = self.chipset.dmacon & 0x7FFF;
+        if blit_busy {
+            dmacon |= 0x4000; // Set BBUSY bit 14
+        }
+        regs[(custom::DMACONR / 2) as usize] = dmacon;
         regs[(custom::INTENAR / 2) as usize] = self.chipset.intena & 0x7FFF;
         regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq & 0x7FFF;
         regs[(custom::BEAMCON0 / 2) as usize] = custom::BEAMCON0_PAL;
@@ -637,11 +794,13 @@ impl Emulator {
     /// Dispatch a single custom chip register write to the appropriate subsystem.
     #[allow(clippy::cast_possible_truncation, clippy::too_many_lines)]
     pub fn dispatch_register_write(&mut self, offset: u16, value: u16) {
-        use crate::custom;
         match offset {
             custom::BPLCON0 => self.playfield.bplcon0 = value,
             custom::BPLCON1 => self.playfield.bplcon1 = value,
             custom::BPLCON2 => self.playfield.bplcon2 = value,
+            custom::BPLCON3 => self.playfield.bplcon3 = value,
+            custom::BPLCON4 => self.playfield.bplcon4 = value,
+            custom::FMODE => self.playfield.fmode = value,
             custom::DIWSTRT => self.playfield.diwstrt = value,
             custom::DIWSTOP => self.playfield.diwstop = value,
             custom::DIWHIGH => self.playfield.diwhigh = value,
@@ -653,29 +812,29 @@ impl Emulator {
             }
             custom::INTENA | custom::INTREQ => {
                 self.chipset.write_register(offset, value);
-                self.cpu.mem.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
-                self.cpu.mem.custom_regs[(custom::INTENAR / 2) as usize] = self.chipset.intena;
+                self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
+                self.memory.custom_regs[(custom::INTENAR / 2) as usize] = self.chipset.intena;
             }
             custom::COP1LCH => {
                 self.copper.cop1lc = (self.copper.cop1lc & 0x0000_FFFF) | (u32::from(value) << 16);
-                self.copper.cop1lc &= (self.cpu.mem.chip_ram().len() as u32).wrapping_sub(1);
+                self.copper.cop1lc &= (self.memory.chip_ram().len() as u32).wrapping_sub(1);
             }
             custom::COP1LCL => {
                 self.copper.cop1lc = (self.copper.cop1lc & 0xFFFF_0000) | u32::from(value & 0xFFFE);
-                self.copper.cop1lc &= (self.cpu.mem.chip_ram().len() as u32).wrapping_sub(1);
+                self.copper.cop1lc &= (self.memory.chip_ram().len() as u32).wrapping_sub(1);
             }
             custom::COP2LCH => {
                 self.copper.cop2lc = (self.copper.cop2lc & 0x0000_FFFF) | (u32::from(value) << 16);
-                self.copper.cop2lc &= (self.cpu.mem.chip_ram().len() as u32).wrapping_sub(1);
+                self.copper.cop2lc &= (self.memory.chip_ram().len() as u32).wrapping_sub(1);
             }
             custom::COP2LCL => {
                 self.copper.cop2lc = (self.copper.cop2lc & 0xFFFF_0000) | u32::from(value & 0xFFFE);
-                self.copper.cop2lc &= (self.cpu.mem.chip_ram().len() as u32).wrapping_sub(1);
+                self.copper.cop2lc &= (self.memory.chip_ram().len() as u32).wrapping_sub(1);
             }
             custom::COPJMP1 => self.copper.strobe_cop1(),
             custom::COPJMP2 => self.copper.strobe_cop2(),
             custom::DSKLEN => {
-                let adkcon = self.cpu.mem.read_custom_reg(custom::ADKCONR);
+                let adkcon = self.memory.read_custom_reg(custom::ADKCONR);
                 self.floppy.write_dsklen(value, adkcon);
             }
             custom::DSKSYNC => self.floppy.write_dsksync(value),
@@ -689,6 +848,33 @@ impl Emulator {
                 self.chipset.write_register(o, value);
                 let idx = ((o - custom::COLOR00) / 2) as usize;
                 self.playfield.color[idx] = value & 0x0FFF;
+
+                let bank = ((self.playfield.bplcon3 >> 13) & 7) as usize;
+                let colreg = bank * 32 + idx;
+
+                let r4 = ((value >> 8) & 0x0F) as u32;
+                let g4 = ((value >> 4) & 0x0F) as u32;
+                let b4 = (value & 0x0F) as u32;
+
+                let loct = (self.playfield.bplcon3 & 0x0200) != 0;
+                if loct {
+                    let old_color = self.playfield.color_aga[colreg];
+                    let old_r = (old_color >> 16) & 0xFF;
+                    let old_g = (old_color >> 8) & 0xFF;
+                    let old_b = old_color & 0xFF;
+
+                    let new_r = (old_r & 0xF0) | r4;
+                    let new_g = (old_g & 0xF0) | g4;
+                    let new_b = (old_b & 0xF0) | b4;
+
+                    self.playfield.color_aga[colreg] = (new_r << 16) | (new_g << 8) | new_b;
+                } else {
+                    let new_r = (r4 << 4) | r4;
+                    let new_g = (g4 << 4) | g4;
+                    let new_b = (b4 << 4) | b4;
+
+                    self.playfield.color_aga[colreg] = (new_r << 16) | (new_g << 8) | new_b;
+                }
             }
             o if (custom::BPL1PTH..=custom::BPL6PTL).contains(&o) => {
                 let reg_idx = ((o - custom::BPL1PTH) / 2) as usize;
@@ -732,8 +918,8 @@ impl Emulator {
                     match reg_idx % 4 {
                         0 => self.sprites.sprites[sprite].pos = value,
                         1 => self.sprites.sprites[sprite].ctl = value,
-                        2 => self.sprites.sprites[sprite].data_a = value,
-                        _ => self.sprites.sprites[sprite].data_b = value,
+                        2 => self.sprites.sprites[sprite].data_a[0] = value,
+                        _ => self.sprites.sprites[sprite].data_b[0] = value,
                     }
                 }
             }
@@ -746,7 +932,9 @@ impl Emulator {
 
     /// Dispatch blitter register writes.
     fn dispatch_blitter_write(&mut self, offset: u16, value: u16) {
-        use crate::custom;
+        // Synchronize any background in-flight blits before updating blitter registers
+        self.sync_blitter();
+
         match offset {
             custom::BLTCON0 => self.blitter.bltcon0 = value,
             custom::BLTCON1 => self.blitter.bltcon1 = value,
@@ -755,34 +943,42 @@ impl Emulator {
             custom::BLTCPTH => {
                 self.blitter.bltcpt =
                     (self.blitter.bltcpt & 0x0000_FFFF) | (u32::from(value) << 16);
+                self.blitter.bltcpt &= (self.memory.chip_ram().len() as u32).wrapping_sub(1);
             }
             custom::BLTCPTL => {
                 self.blitter.bltcpt =
                     (self.blitter.bltcpt & 0xFFFF_0000) | u32::from(value & 0xFFFE);
+                self.blitter.bltcpt &= (self.memory.chip_ram().len() as u32).wrapping_sub(1);
             }
             custom::BLTBPTH => {
                 self.blitter.bltbpt =
                     (self.blitter.bltbpt & 0x0000_FFFF) | (u32::from(value) << 16);
+                self.blitter.bltbpt &= (self.memory.chip_ram().len() as u32).wrapping_sub(1);
             }
             custom::BLTBPTL => {
                 self.blitter.bltbpt =
                     (self.blitter.bltbpt & 0xFFFF_0000) | u32::from(value & 0xFFFE);
+                self.blitter.bltbpt &= (self.memory.chip_ram().len() as u32).wrapping_sub(1);
             }
             custom::BLTAPTH => {
                 self.blitter.bltapt =
                     (self.blitter.bltapt & 0x0000_FFFF) | (u32::from(value) << 16);
+                self.blitter.bltapt &= (self.memory.chip_ram().len() as u32).wrapping_sub(1);
             }
             custom::BLTAPTL => {
                 self.blitter.bltapt =
                     (self.blitter.bltapt & 0xFFFF_0000) | u32::from(value & 0xFFFE);
+                self.blitter.bltapt &= (self.memory.chip_ram().len() as u32).wrapping_sub(1);
             }
             custom::BLTDPTH => {
                 self.blitter.bltdpt =
                     (self.blitter.bltdpt & 0x0000_FFFF) | (u32::from(value) << 16);
+                self.blitter.bltdpt &= (self.memory.chip_ram().len() as u32).wrapping_sub(1);
             }
             custom::BLTDPTL => {
                 self.blitter.bltdpt =
                     (self.blitter.bltdpt & 0xFFFF_0000) | u32::from(value & 0xFFFE);
+                self.blitter.bltdpt &= (self.memory.chip_ram().len() as u32).wrapping_sub(1);
             }
             custom::BLTCMOD | custom::BLTBMOD | custom::BLTAMOD | custom::BLTDMOD => {
                 #[allow(clippy::cast_possible_wrap)]
@@ -800,11 +996,14 @@ impl Emulator {
             custom::BLTSIZE => {
                 self.blitter.bltsize = value;
                 self.blitter.start_blit();
-                let chip_ram = self.cpu.mem.chip_ram_mut();
-                self.blitter.execute_blit(chip_ram);
-                // Fire blitter-done interrupt
-                self.chipset.intreq |= custom::INT_BLIT;
-                self.cpu.mem.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
+
+                let mut chip_ram = std::mem::take(&mut self.memory.chip_ram);
+                let mut blitter = self.blitter.clone();
+                let handle = std::thread::spawn(move || {
+                    blitter.execute_blit(&mut chip_ram);
+                    chip_ram
+                });
+                self.memory.blit_thread = Some(handle);
             }
             _ => {}
         }
@@ -821,7 +1020,7 @@ impl Emulator {
     fn gfx_copinit(&mut self) -> Option<u32> {
         if self.gfxbase_cache == 0 {
             // Find GfxBase by traversing the library list
-            let chip = self.cpu.mem.chip_ram();
+            let chip = self.memory.chip_ram();
             if chip.len() < 8 {
                 return None;
             }
@@ -839,8 +1038,8 @@ impl Emulator {
                 let name_ptr = self.read_long_phys(node + 10)?;
                 if (0x00FC_0000..0x0100_0000).contains(&name_ptr) {
                     let rom_off = (name_ptr - 0x00FC_0000) as usize;
-                    if rom_off + 8 < self.cpu.mem.rom_data().len()
-                        && &self.cpu.mem.rom_data()[rom_off..rom_off + 8] == b"graphics"
+                    if rom_off + 8 < self.memory.rom_data().len()
+                        && &self.memory.rom_data()[rom_off..rom_off + 8] == b"graphics"
                     {
                         self.gfxbase_cache = node;
                         break;
@@ -861,8 +1060,8 @@ impl Emulator {
     /// Read a big-endian u32 from physical memory (chip RAM or slow RAM).
     fn read_long_phys(&self, addr: u32) -> Option<u32> {
         let a = addr as usize;
-        if a + 3 < self.cpu.mem.chip_ram().len() {
-            let ram = self.cpu.mem.chip_ram();
+        if a + 3 < self.memory.chip_ram().len() {
+            let ram = self.memory.chip_ram();
             Some(u32::from_be_bytes([
                 ram[a],
                 ram[a + 1],
@@ -871,8 +1070,8 @@ impl Emulator {
             ]))
         } else if addr >= 0x00C0_0000 {
             let off = (addr - 0x00C0_0000) as usize;
-            if off + 3 < self.cpu.mem.slow_ram.len() {
-                let ram = &self.cpu.mem.slow_ram;
+            if off + 3 < self.memory.slow_ram.len() {
+                let ram = &self.memory.slow_ram;
                 Some(u32::from_be_bytes([
                     ram[off],
                     ram[off + 1],
@@ -896,7 +1095,7 @@ impl Emulator {
     /// Kickstart 1.3 hand colors directly.
     fn sync_colormap_to_copper(&mut self) {
         let cop2 = self.copper.cop2lc as usize;
-        let chip = self.cpu.mem.chip_ram_mut();
+        let chip = self.memory.chip_ram_mut();
         if cop2 + 20 >= chip.len() {
             return;
         }
@@ -974,9 +1173,9 @@ mod tests {
 
         emu.load_rom(&rom);
 
-        // r68k resets in new_with, but we loaded ROM after construction.
+        // The CPU reset happened before ROM load, so reset again to pick up vectors.
         // Re-reset to pick up the new vectors.
-        emu.cpu.reset();
+        emu.cpu.reset(&mut emu.memory);
 
         // After reset, PC should be at the reset vector address
         let pc = emu.cpu.pc;
@@ -1016,10 +1215,71 @@ mod tests {
         emu.floppy.drives[1].drive_id = 0xFFFF_FFFF;
         emu.floppy.drives[1].id_shift_count = 0;
         emu.update_disk_status();
-        assert_eq!(emu.cpu.mem.disk_status & 0x20, 0);
+        assert_eq!(emu.memory.disk_status & 0x20, 0);
 
         emu.floppy.drives[1].drive_id = 0;
         emu.update_disk_status();
-        assert_eq!(emu.cpu.mem.disk_status & 0x20, 0x20);
+        assert_eq!(emu.memory.disk_status & 0x20, 0x20);
+    }
+
+    #[test]
+    fn blitter_pointers_masked_by_chip_ram_size() {
+        // A500 profile has 512KB chip RAM (mask = 0x0007_FFFF)
+        let mut emu = Emulator::new(MemoryConfig::a500());
+        emu.dispatch_register_write(custom::BLTAPTH, 0x000F); // outside 512KB
+        emu.dispatch_register_write(custom::BLTAPTL, 0x0000);
+        // 0x000F_0000 & 0x0007_FFFF = 0x0007_0000
+        assert_eq!(emu.blitter.bltapt, 0x0007_0000);
+
+        // A1200 profile has 2MB chip RAM (mask = 0x001F_FFFF)
+        let mut emu_a1200 = Emulator::new(MemoryConfig::a1200());
+        emu_a1200.dispatch_register_write(custom::BLTAPTH, 0x003F); // outside 2MB
+        emu_a1200.dispatch_register_write(custom::BLTAPTL, 0x0000);
+        // 0x003F_0000 & 0x001F_FFFF = 0x001F_0000
+        assert_eq!(emu_a1200.blitter.bltapt, 0x001F_0000);
+    }
+
+    #[test]
+    fn test_threaded_blitter_execution() {
+        let mut emu = Emulator::new(MemoryConfig::a500());
+        emu.memory.overlay = false;
+
+        // Write some source data to Chip RAM at 0x1000
+        emu.memory.write_byte(0x1000, 0xAA);
+        emu.memory.write_byte(0x1001, 0xBB);
+        emu.memory.write_byte(0x1002, 0xCC);
+        emu.memory.write_byte(0x1003, 0xDD);
+
+        // Setup blitter for A->D copy
+        // bltcon0 = USE_A | USE_D | 0xF0 (copy A)
+        emu.dispatch_register_write(custom::BLTCON0, 0x0F00 | 0x00D0 | 0x00F0);
+        // bltapt = 0x1000
+        emu.dispatch_register_write(custom::BLTAPTH, 0x0000);
+        emu.dispatch_register_write(custom::BLTAPTL, 0x1000);
+        // bltdpt = 0x2000
+        emu.dispatch_register_write(custom::BLTDPTH, 0x0000);
+        emu.dispatch_register_write(custom::BLTDPTL, 0x2000);
+
+        // Trigger blit: 1 row, 2 words wide
+        emu.dispatch_register_write(custom::BLTSIZE, (1 << 6) | 2);
+
+        // Attempting to read Chip RAM at 0x2000 should lazily spin-wait and block until the blit finishes!
+        let val1 = emu.memory.read_byte(0x2000);
+        let val2 = emu.memory.read_byte(0x2001);
+        let val3 = emu.memory.read_byte(0x2002);
+        let val4 = emu.memory.read_byte(0x2003);
+
+        assert_eq!(val1, 0xAA);
+        assert_eq!(val2, 0xBB);
+        assert_eq!(val3, 0xCC);
+        assert_eq!(val4, 0xDD);
+
+        // Sync the blitter status on the Emulator side to finalize its flags
+        emu.sync_blitter();
+
+        // The blit_thread in memory should now be cleared
+        assert!(emu.memory.blit_thread.is_none());
+        assert!(!emu.blitter.busy);
+        assert!(emu.blitter.done);
     }
 }

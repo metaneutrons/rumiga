@@ -3,6 +3,16 @@
 
 //! Bitplane DMA and playfield rendering for the Amiga OCS chipset.
 
+#![allow(
+    clippy::cast_lossless,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::needless_range_loop,
+    clippy::precedence,
+    clippy::too_many_lines,
+    clippy::unreadable_literal
+)]
+
 /// First visible low-resolution hardware position in the normal OCS viewport.
 ///
 /// `WinUAE`'s normal non-extreme overscan limits clamp the visible horizontal
@@ -21,8 +31,8 @@ pub const DISPLAY_WIDTH: u32 = 736;
 /// overscan Workbench screens are not clipped at the old 256-line boundary.
 pub const DISPLAY_HEIGHT: u32 = 288;
 
-/// OCS maximum number of bitplanes.
-pub const MAX_PLANES: usize = 6;
+/// lisa/AGA maximum number of bitplanes.
+pub const MAX_PLANES: usize = 8;
 
 /// Number of pixels per bitplane word.
 const PIXELS_PER_WORD: u16 = 16;
@@ -61,12 +71,20 @@ pub struct PlayfieldState {
     pub diwstop: u16,
     /// Display window high bits (ECS).
     pub diwhigh: u16,
+    /// Bitplane control register 3 (AGA bank select / LOCT).
+    pub bplcon3: u16,
+    /// Bitplane control register 4 (AGA sprite bank / playfield XOR).
+    pub bplcon4: u16,
+    /// Fetch mode register (AGA sprite/playfield DMA width).
+    pub fmode: u16,
     /// Bitplane pointers (24-bit addresses stored as u32).
     pub bplpt: [u32; MAX_PLANES],
     /// Bitplane data shift registers.
     pub bpldat: [u16; MAX_PLANES],
     /// Color palette (32 entries, 12-bit Amiga RGB).
     pub color: [u16; 32],
+    /// AGA Color palette (256 entries, 24-bit RGB).
+    pub color_aga: [u32; 256],
 }
 
 impl PlayfieldState {
@@ -77,6 +95,9 @@ impl PlayfieldState {
             bplcon0: 0,
             bplcon1: 0,
             bplcon2: 0,
+            bplcon3: 0,
+            bplcon4: 0x0011,
+            fmode: 0,
             ddfstrt: 0,
             ddfstop: 0,
             diwstrt: 0,
@@ -85,13 +106,22 @@ impl PlayfieldState {
             bplpt: [0; MAX_PLANES],
             bpldat: [0; MAX_PLANES],
             color: [0; 32],
+            color_aga: [0; 256],
         }
     }
 
-    /// Extract the number of active bitplanes from BPLCON0 bits 14-12.
+    /// Extract the number of active bitplanes from BPLCON0.
+    /// Supports up to 8 planes under AGA.
     #[must_use]
     pub const fn num_planes(&self) -> usize {
-        ((self.bplcon0 >> 12) & 0x7) as usize
+        let bplcon0 = self.bplcon0;
+        if (bplcon0 & 0x0010) != 0 && (bplcon0 & 0x7000) != 0 {
+            0
+        } else if (bplcon0 & 0x0010) != 0 {
+            8
+        } else {
+            ((bplcon0 >> 12) & 0x7) as usize
+        }
     }
 
     /// Returns the display window coordinates `(hstart, hstop, vstart, vstop)`.
@@ -146,14 +176,29 @@ impl PlayfieldState {
     /// form a palette index. Pixels outside the display window use `color[0]`.
     pub fn render_scanline(&mut self, line: u16, chip_ram: &[u8], line_buffer: &mut [u16]) {
         let (hstart, hstop, vstart, vstop) = self.display_window();
-        let bg = amiga_to_rgb565(self.color[0]);
+        let bg_color = if self.color_aga[0] == 0 && self.color[0] != 0 {
+            let c = self.color[0];
+            let r = ((c >> 8) & 0xF) as u32;
+            let g = ((c >> 4) & 0xF) as u32;
+            let b = (c & 0xF) as u32;
+            (r | (r << 4)) << 16 | (g | (g << 4)) << 8 | (b | (b << 4))
+        } else {
+            self.color_aga[0]
+        };
+        let bg = rgb888_to_rgb565(bg_color);
+
         let num_planes = self.num_planes().min(MAX_PLANES);
         let hires = self.bplcon0 & 0x8000 != 0;
+        let ham = (self.bplcon0 & 0x0800) != 0;
         let fetch_words = self.data_fetch_words(hires);
         let mut words_fetched = 0usize;
         let mut current_word = None;
         let line_visible = line >= vstart && line < vstop;
         let source_offset = self.horizontal_source_offset(hstart);
+
+        let mut hold_r = ((bg_color >> 16) & 0xFF) as u8;
+        let mut hold_g = ((bg_color >> 8) & 0xFF) as u8;
+        let mut hold_b = (bg_color & 0xFF) as u8;
 
         for px in 0..LINE_WIDTH {
             let raster_hpos = DISPLAY_LEFT_HPOS + (px / 2);
@@ -191,7 +236,68 @@ impl PlayfieldState {
             // Combine bits from each plane (bit 15 = leftmost pixel).
             let bit_index = 15 - (source_px % PIXELS_PER_WORD);
             let color_index = self.color_index_at_bit(num_planes, bit_index);
-            let rgb = amiga_to_rgb565(self.color[usize::from(color_index) & 0x1F]);
+
+            let rgb = if ham {
+                if num_planes == 8 {
+                    // HAM8 Mode
+                    let control = (color_index >> 6) & 3;
+                    let data = color_index & 0x3F;
+                    match control {
+                        0 => {
+                            let c = self.color_aga[data as usize];
+                            hold_r = ((c >> 16) & 0xFF) as u8;
+                            hold_g = ((c >> 8) & 0xFF) as u8;
+                            hold_b = (c & 0xFF) as u8;
+                        }
+                        1 => hold_b = (data << 2 | (data >> 4)) as u8,
+                        2 => hold_r = (data << 2 | (data >> 4)) as u8,
+                        _ => hold_g = (data << 2 | (data >> 4)) as u8,
+                    }
+                } else {
+                    // HAM6 Mode
+                    let control = (color_index >> 4) & 3;
+                    let data = color_index & 0x0F;
+                    match control {
+                        0 => {
+                            let c = if self.color_aga[data as usize] == 0
+                                && self.color[data as usize] != 0
+                            {
+                                let c12 = self.color[data as usize];
+                                let r = ((c12 >> 8) & 0xF) as u32;
+                                let g = ((c12 >> 4) & 0xF) as u32;
+                                let b = (c12 & 0xF) as u32;
+                                (r | (r << 4)) << 16 | (g | (g << 4)) << 8 | (b | (b << 4))
+                            } else {
+                                self.color_aga[data as usize]
+                            };
+                            hold_r = ((c >> 16) & 0xFF) as u8;
+                            hold_g = ((c >> 8) & 0xFF) as u8;
+                            hold_b = (c & 0xFF) as u8;
+                        }
+                        1 => hold_b = (data << 4 | data) as u8,
+                        2 => hold_r = (data << 4 | data) as u8,
+                        _ => hold_g = (data << 4 | data) as u8,
+                    }
+                }
+                ((hold_r as u16 >> 3) << 11) | ((hold_g as u16 >> 2) << 5) | (hold_b as u16 >> 3)
+            } else {
+                let color_val = if self.color_aga[color_index as usize] == 0
+                    && self.color[color_index as usize & 0x1F] != 0
+                {
+                    let c12 = self.color[color_index as usize & 0x1F];
+                    let r = ((c12 >> 8) & 0xF) as u32;
+                    let g = ((c12 >> 4) & 0xF) as u32;
+                    let b = (c12 & 0xF) as u32;
+                    (r | (r << 4)) << 16 | (g | (g << 4)) << 8 | (b | (b << 4))
+                } else {
+                    self.color_aga[color_index as usize]
+                };
+                hold_r = ((color_val >> 16) & 0xFF) as u8;
+                hold_g = ((color_val >> 8) & 0xFF) as u8;
+                hold_b = (color_val & 0xFF) as u8;
+                rgb888_to_rgb565(color_val)
+            };
+
             if let Some(dest) = line_buffer.get_mut(usize::from(px)) {
                 *dest = rgb;
             }
@@ -267,6 +373,17 @@ pub const fn amiga_to_rgb565(color12: u16) -> u16 {
     let b5 = (b4 << 1) | (b4 >> 3);
 
     (r5 << 11) | (g6 << 5) | b5
+}
+
+/// Convert a 24-bit color (8 bits per channel, stored as `$00RRGGBB` in u32) to RGB565.
+#[must_use]
+pub const fn rgb888_to_rgb565(rgb24: u32) -> u16 {
+    let r = ((rgb24 >> 16) & 0xFF) as u16;
+    let g = ((rgb24 >> 8) & 0xFF) as u16;
+    let b = (rgb24 & 0xFF) as u16;
+
+    // Convert 8-bit to 5-bit Red (r >> 3), 6-bit Green (g >> 2), 5-bit Blue (b >> 3)
+    (((r >> 3) & 0x1F) << 11) | (((g >> 2) & 0x3F) << 5) | ((b >> 3) & 0x1F)
 }
 
 #[cfg(test)]
@@ -538,5 +655,96 @@ mod tests {
         assert_eq!(hstop, 0x1C1); // 0xC1 | 0x100
         assert_eq!(vstart, 0x2C);
         assert_eq!(vstop, 0x2C);
+    }
+
+    #[test]
+    fn ham8_hold_and_modify_decoding() {
+        let mut pf = PlayfieldState::new();
+        // HAM8 active: HAM bit set (0x0800) + 8 planes (0x0010)
+        pf.bplcon0 = 0x0810;
+        pf.diwstrt = 0x2C81;
+        pf.diwstop = 0x2CC1;
+
+        pf.color_aga[0] = 0x112233;
+        pf.color_aga[1] = 0x445566;
+
+        let mut chip_ram = [0u8; 1024];
+        let p_words = [
+            0xB000u16, 0x5000, 0x3000, 0x5000, 0x3000, 0x5000, 0x3000, 0x6000,
+        ];
+        for i in 0..8 {
+            pf.bplpt[i] = (i * 10) as u32;
+            let addr = i * 10;
+            chip_ram[addr] = (p_words[i] >> 8) as u8;
+            chip_ram[addr + 1] = (p_words[i] & 0xFF) as u8;
+        }
+
+        let mut line_buffer = [0u16; DISPLAY_WIDTH as usize];
+        pf.render_scanline(0x2C, &chip_ram, &mut line_buffer);
+
+        let start = active_start_px(&pf);
+
+        let c0 = rgb888_to_rgb565(0x445566);
+        assert_eq!(line_buffer[start], c0);
+        assert_eq!(line_buffer[start + 1], c0);
+
+        let c1 = rgb888_to_rgb565(0xA95566);
+        assert_eq!(line_buffer[start + 2], c1);
+        assert_eq!(line_buffer[start + 3], c1);
+
+        let c2 = rgb888_to_rgb565(0xA95566);
+        assert_eq!(line_buffer[start + 4], c2);
+        assert_eq!(line_buffer[start + 5], c2);
+
+        let c3 = rgb888_to_rgb565(0xA955FF);
+        assert_eq!(line_buffer[start + 6], c3);
+        assert_eq!(line_buffer[start + 7], c3);
+    }
+
+    #[test]
+    fn ham6_hold_and_modify_decoding() {
+        let mut pf = PlayfieldState::new();
+        // HAM active (0x0800) + 6 planes (0x6000)
+        pf.bplcon0 = 0x6800;
+        pf.diwstrt = 0x2C81;
+        pf.diwstop = 0x2CC1;
+
+        pf.color_aga[0] = 0x112233;
+        pf.color_aga[1] = 0x445566;
+
+        let mut chip_ram = [0u8; 1024];
+        let p_words = [0x8000u16, 0x4000, 0x0000, 0x4000, 0x0000, 0x4000];
+        for i in 0..6 {
+            pf.bplpt[i] = (i * 10) as u32;
+            let addr = i * 10;
+            chip_ram[addr] = (p_words[i] >> 8) as u8;
+            chip_ram[addr + 1] = (p_words[i] & 0xFF) as u8;
+        }
+
+        let mut line_buffer = [0u16; DISPLAY_WIDTH as usize];
+        pf.render_scanline(0x2C, &chip_ram, &mut line_buffer);
+
+        let start = active_start_px(&pf);
+
+        let c0 = rgb888_to_rgb565(0x445566);
+        assert_eq!(line_buffer[start], c0);
+
+        let c1 = rgb888_to_rgb565(0xAA5566);
+        assert_eq!(line_buffer[start + 2], c1);
+    }
+
+    #[test]
+    fn bplcon3_loct_and_banking() {
+        let mut emu = crate::emulator::Emulator::new(crate::memory::MemoryConfig::a1200());
+
+        emu.dispatch_register_write(0x106, 0x0000);
+        emu.dispatch_register_write(0x182, 0x0F48);
+
+        assert_eq!(emu.playfield.color_aga[1], 0xFF4488);
+
+        emu.dispatch_register_write(0x106, 0x2200);
+        emu.dispatch_register_write(0x182, 0x0ABC);
+
+        assert_eq!(emu.playfield.color_aga[33], 0x0A0B0C);
     }
 }

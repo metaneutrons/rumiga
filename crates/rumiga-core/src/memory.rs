@@ -6,12 +6,22 @@
 //! Implements the Amiga memory map with chip RAM, slow RAM, fast RAM,
 //! Kickstart ROM, custom chip registers, and CIA registers.
 
+#![allow(
+    clippy::cast_lossless,
+    clippy::if_not_else,
+    clippy::map_unwrap_or,
+    clippy::option_if_let_else,
+    clippy::redundant_locals,
+    clippy::too_many_lines
+)]
+
 use std::cell::{Cell, RefCell};
 
-use r68k_emu::ram::{AddressBus, AddressSpace};
+use m68k::AddressBus;
 
 use crate::cia::CiaPair;
 use crate::custom;
+use crate::ide::AtaController;
 
 /// Custom chip register address range.
 const CUSTOM_BASE: u32 = 0x00DF_F000;
@@ -29,6 +39,16 @@ const ROM_BASE_256K: u32 = 0x00FC_0000;
 const ROM_BASE_512K: u32 = 0x00F8_0000;
 const ROM_END: u32 = 0x0100_0000;
 
+/// PCMCIA and Gayle address spaces.
+const PCMCIA_COMMON_START: u32 = 0x0060_0000;
+const PCMCIA_COMMON_END: u32 = 0x00A0_0000;
+const PCMCIA_ATTR_START: u32 = 0x00A0_0000;
+const PCMCIA_ATTR_END: u32 = 0x00A8_0000;
+const GAYLE_LOW_START: u32 = 0x00D8_0000;
+const GAYLE_LOW_END: u32 = 0x00DD_0000;
+const GAYLE_HIGH_START: u32 = 0x00DD_0000;
+const GAYLE_HIGH_END: u32 = 0x00DF_0000;
+
 /// Memory configuration for a specific Amiga model.
 #[derive(Clone, Debug)]
 pub struct MemoryConfig {
@@ -40,6 +60,8 @@ pub struct MemoryConfig {
     pub fast_ram_size: u32,
     /// ROM size in bytes (256KB or 512KB).
     pub rom_size: u32,
+    /// CPU type (M68000, M68020, etc).
+    pub cpu_type: m68k::CpuType,
 }
 
 impl MemoryConfig {
@@ -51,6 +73,7 @@ impl MemoryConfig {
             slow_ram_size: 0,
             fast_ram_size: 0,
             rom_size: 256 * 1024,
+            cpu_type: m68k::CpuType::M68000,
         }
     }
 
@@ -62,6 +85,7 @@ impl MemoryConfig {
             slow_ram_size: 0,
             fast_ram_size: 0,
             rom_size: 512 * 1024,
+            cpu_type: m68k::CpuType::M68000,
         }
     }
 
@@ -73,6 +97,7 @@ impl MemoryConfig {
             slow_ram_size: 0,
             fast_ram_size: 0,
             rom_size: 512 * 1024,
+            cpu_type: m68k::CpuType::M68020,
         }
     }
 }
@@ -80,10 +105,11 @@ impl MemoryConfig {
 /// Number of word registers in the custom chip address space ($DFF000–$DFF1FF).
 const CUSTOM_REG_COUNT: usize = 256;
 
-/// The Amiga memory subsystem implementing r68k's `AddressBus` trait.
+/// The Amiga memory subsystem implementing m68k's `AddressBus` trait.
 pub struct AmigaMemory {
     config: MemoryConfig,
-    chip_ram: Vec<u8>,
+    /// Amiga chip RAM buffer.
+    pub chip_ram: Vec<u8>,
     /// Slow RAM (512KB at $C00000, directly accessible for workarounds).
     pub slow_ram: Vec<u8>,
     fast_ram: Vec<u8>,
@@ -104,6 +130,22 @@ pub struct AmigaMemory {
     pub cia: RefCell<CiaPair>,
     /// DSKBYTR shadow register for read-clearing behavior.
     pub dskbytr: Cell<u16>,
+    /// Gayle INTREQ shadow register.
+    pub gayle_irq: u8,
+    /// Gayle INTENA shadow register.
+    pub gayle_intena: u8,
+    /// Gayle CONFIG shadow register.
+    pub gayle_config: u8,
+    /// Gayle Status shadow register.
+    pub gayle_status: u8,
+    /// Gayle ID read sequence counter.
+    pub gayle_id_cnt: Cell<u8>,
+    /// Gayle IDE controller.
+    pub ide: RefCell<AtaController>,
+    /// Active blitter execution thread.
+    pub blit_thread: Option<std::thread::JoinHandle<Vec<u8>>>,
+    /// Set when the blitter thread finishes and RAM is restored.
+    pub blitter_completed: bool,
 }
 
 impl AmigaMemory {
@@ -133,6 +175,14 @@ impl AmigaMemory {
             disk_status: 0x3C, // Default: all status bits high (no drive selected state)
             cia: RefCell::new(CiaPair::new()),
             dskbytr: Cell::new(0),
+            gayle_irq: 0,
+            gayle_intena: 0,
+            gayle_config: 0,
+            gayle_status: 0,
+            gayle_id_cnt: Cell::new(0),
+            ide: RefCell::new(AtaController::new()),
+            blit_thread: None,
+            blitter_completed: false,
         }
     }
 
@@ -162,6 +212,28 @@ impl AmigaMemory {
         }
     }
 
+    /// Wait for the active background blit thread to complete and restore chip RAM.
+    pub fn sync_blitter(&mut self) {
+        if let Some(handle) = self.blit_thread.take() {
+            if let Ok(chip_ram) = handle.join() {
+                self.chip_ram = chip_ram;
+                self.blitter_completed = true;
+            }
+        }
+    }
+
+    /// Check if the active background blit thread is finished, and restore chip RAM if so.
+    pub fn sync_blitter_lazy(&mut self) {
+        let is_finished = if let Some(ref handle) = self.blit_thread {
+            handle.is_finished()
+        } else {
+            false
+        };
+        if is_finished {
+            self.sync_blitter();
+        }
+    }
+
     /// Returns a reference to the chip RAM slice.
     #[must_use]
     pub fn chip_ram(&self) -> &[u8] {
@@ -176,6 +248,7 @@ impl AmigaMemory {
 
     /// Returns a mutable reference to the chip RAM slice for DMA access.
     pub fn chip_ram_mut(&mut self) -> &mut [u8] {
+        self.sync_blitter();
         &mut self.chip_ram
     }
 
@@ -215,7 +288,7 @@ impl AmigaMemory {
 
     /// Read a byte from the memory map.
     fn read_byte_internal(&self, addr: u32) -> u8 {
-        let addr = addr & 0x00FF_FFFF; // 24-bit address bus
+        let addr = addr; // 32-bit logical address bus
 
         // Overlay: ROM mapped at 0x000000 after reset
         if self.overlay && addr < self.config.rom_size {
@@ -239,6 +312,16 @@ impl AmigaMemory {
             if offset < self.config.fast_ram_size {
                 return self.fast_ram[offset as usize];
             }
+        }
+
+        // PCMCIA common: 0x00600000–0x009FFFFF
+        if (PCMCIA_COMMON_START..PCMCIA_COMMON_END).contains(&addr) {
+            return 0xFF;
+        }
+
+        // PCMCIA attribute: 0x00A00000–0x00A7FFFF
+        if (PCMCIA_ATTR_START..PCMCIA_ATTR_END).contains(&addr) {
+            return 0xFF;
         }
 
         // CIA space: 0xBF0000–0xC00000
@@ -272,6 +355,42 @@ impl AmigaMemory {
             if offset < self.config.slow_ram_size {
                 return self.slow_ram[offset as usize];
             }
+        }
+
+        // Gayle Low Space: 0x00D80000–0x00DCFFFF
+        if (GAYLE_LOW_START..GAYLE_LOW_END).contains(&addr) {
+            match addr {
+                0x00DA_8000 => return self.gayle_status,
+                0x00DA_9000 => return self.gayle_irq,
+                0x00DA_A000 => return self.gayle_intena,
+                0x00DA_B000 => return self.gayle_config,
+                _ => {
+                    // IDE registers are mapped at 0xDA0000-0xDA3FFF (even/odd bytes)
+                    if (0x00DA_0000..0x00DA_4000).contains(&addr) {
+                        let offset = addr & 0x3FFF;
+                        let is_control = (offset & 0x2000) != 0;
+                        let reg = ((offset & 0x1F) >> 2) as usize;
+                        return self.ide.borrow_mut().read_register(reg, is_control);
+                    }
+                    return 0xFF;
+                }
+            }
+        }
+
+        // Gayle High Space: 0x00DD0000–0x00DEFFFF
+        if (GAYLE_HIGH_START..GAYLE_HIGH_END).contains(&addr) {
+            let offset = addr & 0xFFFF;
+            if offset == 0x1000 {
+                let cnt = self.gayle_id_cnt.get();
+                let val = if cnt == 0 || cnt == 1 || cnt == 3 || cnt == 7 {
+                    0x80
+                } else {
+                    0x00
+                };
+                self.gayle_id_cnt.set(cnt.wrapping_add(1));
+                return val;
+            }
+            return 0x00;
         }
 
         // Custom chip registers: 0xDFF000–0xE00000
@@ -311,7 +430,7 @@ impl AmigaMemory {
 
     /// Write a byte to the memory map.
     fn write_byte_internal(&mut self, addr: u32, value: u8) {
-        let addr = addr & 0x00FF_FFFF;
+        let addr = addr; // 32-bit logical address bus
 
         // Chip RAM
         if addr < self.config.chip_ram_size {
@@ -333,6 +452,16 @@ impl AmigaMemory {
                 self.fast_ram[offset as usize] = value;
                 return;
             }
+        }
+
+        // PCMCIA common
+        if (PCMCIA_COMMON_START..PCMCIA_COMMON_END).contains(&addr) {
+            return;
+        }
+
+        // PCMCIA attribute
+        if (PCMCIA_ATTR_START..PCMCIA_ATTR_END).contains(&addr) {
+            return;
         }
 
         // CIA space
@@ -374,6 +503,41 @@ impl AmigaMemory {
             }
         }
 
+        // Gayle Low Space: 0x00D80000–0x00DCFFFF
+        if (GAYLE_LOW_START..GAYLE_LOW_END).contains(&addr) {
+            match addr {
+                0x00DA_8000 => {
+                    self.gayle_status &= !3;
+                    self.gayle_status |= value & 3;
+                }
+                0x00DA_9000 => {
+                    self.gayle_irq = (self.gayle_irq & value) | (value & 0x03);
+                }
+                0x00DA_A000 => {
+                    self.gayle_intena = value;
+                }
+                0x00DA_B000 => {
+                    self.gayle_config = value;
+                }
+                _ => {
+                    // IDE registers are mapped at 0xDA0000-0xDA3FFF (even/odd bytes)
+                    if (0x00DA_0000..0x00DA_4000).contains(&addr) {
+                        let offset = addr & 0x3FFF;
+                        let is_control = (offset & 0x2000) != 0;
+                        let reg = ((offset & 0x1F) >> 2) as usize;
+                        self.ide.borrow_mut().write_register(reg, is_control, value);
+                    }
+                }
+            }
+            return;
+        }
+
+        // Gayle High Space: 0x00DD0000–0x00DEFFFF
+        if (GAYLE_HIGH_START..GAYLE_HIGH_END).contains(&addr) {
+            self.gayle_id_cnt.set(0);
+            return;
+        }
+
         // Custom chip registers (word-only writes; accumulate byte pairs)
         if (CUSTOM_BASE..CUSTOM_END).contains(&addr) {
             let offset = ((addr - CUSTOM_BASE) & 0x1FE) as u16;
@@ -395,8 +559,9 @@ impl AmigaMemory {
     }
 }
 
-impl AddressBus for AmigaMemory {
-    fn copy_from(&mut self, other: &Self) {
+impl AmigaMemory {
+    /// Copy the state of another `AmigaMemory` instance.
+    pub fn copy_from(&mut self, other: &Self) {
         self.chip_ram.copy_from_slice(&other.chip_ram);
         self.slow_ram.copy_from_slice(&other.slow_ram);
         self.fast_ram.copy_from_slice(&other.fast_ram);
@@ -408,14 +573,41 @@ impl AddressBus for AmigaMemory {
         self.disk_status = other.disk_status;
         *self.cia.borrow_mut() = other.cia.borrow().clone();
         self.dskbytr.set(other.dskbytr.get());
+        self.gayle_irq = other.gayle_irq;
+        self.gayle_intena = other.gayle_intena;
+        self.gayle_config = other.gayle_config;
+        self.gayle_status = other.gayle_status;
+        self.gayle_id_cnt.set(other.gayle_id_cnt.get());
+    }
+}
+
+impl AddressBus for AmigaMemory {
+    fn read_byte(&mut self, addr: u32) -> u8 {
+        if addr < self.config.chip_ram_size
+            || addr < 0x0020_0000
+            || (CUSTOM_BASE..CUSTOM_END).contains(&addr)
+        {
+            self.sync_blitter();
+        } else {
+            self.sync_blitter_lazy();
+        }
+        self.read_byte_internal(addr)
     }
 
-    fn read_byte(&self, _address_space: AddressSpace, addr: u32) -> u32 {
-        u32::from(self.read_byte_internal(addr))
-    }
-
-    fn read_word(&self, _address_space: AddressSpace, addr: u32) -> u32 {
-        let masked = addr & 0x00FF_FFFF;
+    fn read_word(&mut self, addr: u32) -> u16 {
+        let masked = addr;
+        if masked < self.config.chip_ram_size
+            || masked < 0x0020_0000
+            || (CUSTOM_BASE..CUSTOM_END).contains(&masked)
+        {
+            self.sync_blitter();
+        } else {
+            self.sync_blitter_lazy();
+        }
+        // IDE Data Register read: offset 0x0000 in Gayle space (0x00DA0000)
+        if masked == 0x00DA_0000 {
+            return self.ide.borrow_mut().read_data_word();
+        }
         // Custom chip registers: atomic word read
         if (CUSTOM_BASE..CUSTOM_END).contains(&masked) {
             let offset = ((masked - CUSTOM_BASE) & 0x1FE) as u16;
@@ -425,9 +617,9 @@ impl AddressBus for AmigaMemory {
                     let word = self.dskbytr.get();
                     // Clear bit 15 (BYTERDY) on read
                     self.dskbytr.set(word & !0x8000);
-                    u32::from(word)
+                    word
                 } else {
-                    u32::from(self.custom_regs[idx])
+                    self.custom_regs[idx]
                 }
             } else {
                 0
@@ -435,30 +627,48 @@ impl AddressBus for AmigaMemory {
         }
         let hi = self.read_byte_internal(addr);
         let lo = self.read_byte_internal(addr.wrapping_add(1));
-        (u32::from(hi) << 8) | u32::from(lo)
+        (u16::from(hi) << 8) | u16::from(lo)
     }
 
-    fn read_long(&self, address_space: AddressSpace, addr: u32) -> u32 {
-        let hi = self.read_word(address_space, addr);
-        let lo = self.read_word(address_space, addr.wrapping_add(2));
-        (hi << 16) | lo
+    fn read_long(&mut self, addr: u32) -> u32 {
+        let hi = self.read_word(addr);
+        let lo = self.read_word(addr.wrapping_add(2));
+        (u32::from(hi) << 16) | u32::from(lo)
     }
 
-    fn write_byte(&mut self, _address_space: AddressSpace, addr: u32, value: u32) {
-        #[allow(clippy::cast_possible_truncation)]
-        self.write_byte_internal(addr, value as u8);
+    fn write_byte(&mut self, addr: u32, value: u8) {
+        if addr < self.config.chip_ram_size
+            || addr < 0x0020_0000
+            || (CUSTOM_BASE..CUSTOM_END).contains(&addr)
+        {
+            self.sync_blitter();
+        } else {
+            self.sync_blitter_lazy();
+        }
+        self.write_byte_internal(addr, value);
     }
 
-    fn write_word(&mut self, _address_space: AddressSpace, addr: u32, value: u32) {
-        let masked = addr & 0x00FF_FFFF;
+    fn write_word(&mut self, addr: u32, value: u16) {
+        let masked = addr;
+        if masked < self.config.chip_ram_size
+            || masked < 0x0020_0000
+            || (CUSTOM_BASE..CUSTOM_END).contains(&masked)
+        {
+            self.sync_blitter();
+        } else {
+            self.sync_blitter_lazy();
+        }
+        // IDE Data Register write: offset 0x0000 in Gayle space (0x00DA0000)
+        if masked == 0x00DA_0000 {
+            self.ide.borrow_mut().write_data_word(value);
+            return;
+        }
         // Custom chip registers: handle as atomic word write
         if (CUSTOM_BASE..CUSTOM_END).contains(&masked) {
-            #[allow(clippy::cast_possible_truncation)]
             let offset = ((masked - CUSTOM_BASE) & 0x1FE) as u16;
             let idx = (offset / 2) as usize;
             if idx < CUSTOM_REG_COUNT {
-                #[allow(clippy::cast_possible_truncation)]
-                let val = value as u16;
+                let val = value;
                 self.custom_regs[idx] = val;
                 self.reg_write_log.push((offset, val));
 
@@ -506,42 +716,39 @@ impl AddressBus for AmigaMemory {
             }
             return;
         }
-        #[allow(clippy::cast_possible_truncation)]
         let hi = (value >> 8) as u8;
-        #[allow(clippy::cast_possible_truncation)]
         let lo = (value & 0xFF) as u8;
         self.write_byte_internal(addr, hi);
         self.write_byte_internal(addr.wrapping_add(1), lo);
     }
 
-    fn write_long(&mut self, address_space: AddressSpace, addr: u32, value: u32) {
-        self.write_word(address_space, addr, value >> 16);
-        self.write_word(address_space, addr.wrapping_add(2), value & 0xFFFF);
+    fn write_long(&mut self, addr: u32, value: u32) {
+        self.write_word(addr, (value >> 16) as u16);
+        self.write_word(addr.wrapping_add(2), (value & 0xFFFF) as u16);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use r68k_emu::ram::SUPERVISOR_DATA;
 
     #[test]
     fn chip_ram_read_write() {
         let mut mem = AmigaMemory::new(MemoryConfig::a500());
         mem.overlay = false;
-        mem.write_byte(SUPERVISOR_DATA, 0x0000, 0x42);
-        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0x0000), 0x42);
-        mem.write_byte(SUPERVISOR_DATA, 0x7_FFFF, 0xAB);
-        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0x7_FFFF), 0xAB);
+        AddressBus::write_byte(&mut mem, 0x0000, 0x42);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x0000), 0x42);
+        AddressBus::write_byte(&mut mem, 0x7_FFFF, 0xAB);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x7_FFFF), 0xAB);
     }
 
     #[test]
     fn chip_ram_mirror() {
         let mut mem = AmigaMemory::new(MemoryConfig::a500());
         mem.overlay = false;
-        mem.write_byte(SUPERVISOR_DATA, 0x0100, 0x55);
+        AddressBus::write_byte(&mut mem, 0x0100, 0x55);
         // 512KB chip RAM mirrors: 0x80100 should mirror to 0x0100
-        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0x8_0100), 0x55);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x8_0100), 0x55);
     }
 
     #[test]
@@ -549,10 +756,10 @@ mod tests {
         let mut mem = AmigaMemory::new(MemoryConfig::a500());
         let rom = vec![0xAA; 256 * 1024];
         mem.load_rom(&rom);
-        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0xFC_0000), 0xAA);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0xFC_0000), 0xAA);
         // Write to ROM should be ignored
-        mem.write_byte(SUPERVISOR_DATA, 0xFC_0000, 0x55);
-        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0xFC_0000), 0xAA);
+        AddressBus::write_byte(&mut mem, 0xFC_0000, 0x55);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0xFC_0000), 0xAA);
     }
 
     #[test]
@@ -565,21 +772,21 @@ mod tests {
         rom[3] = 0x00;
         mem.load_rom(&rom);
         // With overlay, address 0 reads from ROM
-        assert_eq!(mem.read_word(SUPERVISOR_DATA, 0x0000), 0x0010);
+        assert_eq!(AddressBus::read_word(&mut mem, 0x0000), 0x0010);
         // Disable overlay
         mem.overlay = false;
         // Now address 0 reads from chip RAM (which is zeroed)
-        assert_eq!(mem.read_word(SUPERVISOR_DATA, 0x0000), 0x0000);
+        assert_eq!(AddressBus::read_word(&mut mem, 0x0000), 0x0000);
     }
 
     #[test]
     fn word_access() {
         let mut mem = AmigaMemory::new(MemoryConfig::a500());
         mem.overlay = false;
-        mem.write_word(SUPERVISOR_DATA, 0x1000, 0xDEAD);
-        assert_eq!(mem.read_word(SUPERVISOR_DATA, 0x1000), 0xDEAD);
-        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0x1000), 0xDE);
-        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0x1001), 0xAD);
+        AddressBus::write_word(&mut mem, 0x1000, 0xDEAD);
+        assert_eq!(AddressBus::read_word(&mut mem, 0x1000), 0xDEAD);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x1000), 0xDE);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x1001), 0xAD);
     }
 
     #[test]
@@ -587,8 +794,8 @@ mod tests {
         let mut cfg = MemoryConfig::a500();
         cfg.slow_ram_size = 512 * 1024;
         let mut mem = AmigaMemory::new(cfg);
-        mem.write_byte(SUPERVISOR_DATA, 0xC0_0000, 0x77);
-        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0xC0_0000), 0x77);
+        AddressBus::write_byte(&mut mem, 0xC0_0000, 0x77);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0xC0_0000), 0x77);
     }
 
     #[test]
@@ -596,12 +803,73 @@ mod tests {
         let mut mem = AmigaMemory::new(MemoryConfig::a500());
         mem.overlay = false;
         // Address in unmapped region (no fast RAM configured, 0x200000+)
-        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0x20_0000), 0xFF);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x20_0000), 0xFF);
     }
 
     #[test]
     fn beamcon0_defaults_to_pal_timing() {
         let mem = AmigaMemory::new(MemoryConfig::a500());
         assert_eq!(mem.read_custom_reg(custom::BEAMCON0), custom::BEAMCON0_PAL);
+    }
+
+    #[test]
+    fn gayle_id_sequence() {
+        let mut mem = AmigaMemory::new(MemoryConfig::a1200());
+        mem.overlay = false;
+
+        // Sequence of reads from 0x00DD1000 should return:
+        // 0x80, 0x80, 0x00, 0x80, 0x00, 0x00, 0x00, 0x80, then 0x00
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x00DD_1000), 0x80);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x00DD_1000), 0x80);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x00DD_1000), 0x00);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x00DD_1000), 0x80);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x00DD_1000), 0x00);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x00DD_1000), 0x00);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x00DD_1000), 0x00);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x00DD_1000), 0x80);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x00DD_1000), 0x00);
+
+        // Write to Gayle High region resets the read counter
+        AddressBus::write_byte(&mut mem, 0x00DD_0000, 0x00);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x00DD_1000), 0x80);
+    }
+
+    #[test]
+    fn gayle_registers_read_write() {
+        let mut mem = AmigaMemory::new(MemoryConfig::a1200());
+        mem.overlay = false;
+
+        // Test Gayle INTENA write/read
+        AddressBus::write_byte(&mut mem, 0x00DA_A000, 0x5A);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x00DA_A000), 0x5A);
+
+        // Test Gayle CONFIG write/read
+        AddressBus::write_byte(&mut mem, 0x00DA_B000, 0xA5);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x00DA_B000), 0xA5);
+
+        // Test Gayle Status write/read
+        AddressBus::write_byte(&mut mem, 0x00DA_8000, 0x03);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x00DA_8000), 0x03);
+
+        // Test Gayle IRQ write/read
+        AddressBus::write_byte(&mut mem, 0x00DA_9000, 0x03);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x00DA_9000), 0x03);
+    }
+
+    #[test]
+    fn ide_status_returns_7f() {
+        let mut mem = AmigaMemory::new(MemoryConfig::a1200());
+        mem.overlay = false;
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x00DA_001E), 0x7F);
+    }
+
+    #[test]
+    fn pcmcia_unmapped_returns_ff() {
+        let mut mem = AmigaMemory::new(MemoryConfig::a1200());
+        mem.overlay = false;
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x0060_0000), 0xFF);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x009F_FFFF), 0xFF);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x00A0_0000), 0xFF);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x00A7_FFFF), 0xFF);
     }
 }

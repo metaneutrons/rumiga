@@ -11,8 +11,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-r68k-emu = { workspace = true }
-r68k-common = { workspace = true }
+m68k = { workspace = true }
 
 [lints]
 workspace = true

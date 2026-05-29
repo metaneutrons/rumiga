@@ -940,7 +940,7 @@ mod winuae_audio_timing_golden_vectors {
 }
 
 mod winuae_memory_map_golden_vectors {
-    use r68k_emu::ram::{AddressBus, SUPERVISOR_DATA};
+    use m68k::AddressBus;
     use rumiga_core::memory::{AmigaMemory, MemoryConfig};
 
     /// WinUAE memory.cpp: Chip RAM at $000000.
@@ -948,8 +948,8 @@ mod winuae_memory_map_golden_vectors {
     fn test_chip_ram_at_000000() {
         let mut mem = AmigaMemory::new(MemoryConfig::a500());
         mem.overlay = false;
-        mem.write_byte(SUPERVISOR_DATA, 0x000000, 0x42);
-        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0x000000), 0x42);
+        AddressBus::write_byte(&mut mem, 0x000000, 0x42);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x000000), 0x42);
     }
 
     /// WinUAE memory.cpp: Chip RAM mirrored up to $200000.
@@ -957,11 +957,11 @@ mod winuae_memory_map_golden_vectors {
     fn test_chip_ram_mirrored_up_to_200000() {
         let mut mem = AmigaMemory::new(MemoryConfig::a500());
         mem.overlay = false;
-        mem.write_byte(SUPERVISOR_DATA, 0x001000, 0xAB);
+        AddressBus::write_byte(&mut mem, 0x001000, 0xAB);
         // 512KB chip RAM: 0x081000 mirrors to 0x001000
-        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0x081000), 0xAB);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x081000), 0xAB);
         // 0x101000 also mirrors
-        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0x101000), 0xAB);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x101000), 0xAB);
     }
 
     /// WinUAE memory.cpp: ROM at $FC0000 (256K).
@@ -973,8 +973,8 @@ mod winuae_memory_map_golden_vectors {
         rom[1] = 0x14;
         let mut mem = mem;
         mem.load_rom(&rom);
-        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0xFC0000), 0x11);
-        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0xFC0001), 0x14);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0xFC0000), 0x11);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0xFC0001), 0x14);
     }
 
     /// WinUAE memory.cpp: ROM at $F80000 (512K).
@@ -984,30 +984,30 @@ mod winuae_memory_map_golden_vectors {
         let mut rom = vec![0u8; 512 * 1024];
         rom[0] = 0x22;
         mem.load_rom(&rom);
-        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0xF80000), 0x22);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0xF80000), 0x22);
     }
 
     /// WinUAE memory.cpp: Custom registers at $DFF000-$DFF1FF.
     #[test]
     fn test_custom_registers_at_dff000() {
-        let mem = AmigaMemory::new(MemoryConfig::a500());
+        let mut mem = AmigaMemory::new(MemoryConfig::a500());
         // Custom register reads should return valid values (mapped region)
-        let _ = mem.read_byte(SUPERVISOR_DATA, 0xDFF000);
-        let _ = mem.read_byte(SUPERVISOR_DATA, 0xDFF1FF);
+        let _ = AddressBus::read_byte(&mut mem, 0xDFF000);
+        let _ = AddressBus::read_byte(&mut mem, 0xDFF1FF);
     }
 
     /// WinUAE memory.cpp: CIA-A at $BFE001 (odd bytes).
     #[test]
     fn test_cia_a_at_bfe001_odd_bytes() {
-        let mem = AmigaMemory::new(MemoryConfig::a500());
-        let _ = mem.read_byte(SUPERVISOR_DATA, 0xBFE001);
+        let mut mem = AmigaMemory::new(MemoryConfig::a500());
+        let _ = AddressBus::read_byte(&mut mem, 0xBFE001);
     }
 
     /// WinUAE memory.cpp: CIA-B at $BFD000 (even bytes).
     #[test]
     fn test_cia_b_at_bfd000_even_bytes() {
-        let mem = AmigaMemory::new(MemoryConfig::a500());
-        let _ = mem.read_byte(SUPERVISOR_DATA, 0xBFD000);
+        let mut mem = AmigaMemory::new(MemoryConfig::a500());
+        let _ = AddressBus::read_byte(&mut mem, 0xBFD000);
     }
 
     /// WinUAE memory.cpp: Overlay — ROM visible at $000000 after reset.
@@ -1023,13 +1023,13 @@ mod winuae_memory_map_golden_vectors {
 
         // Overlay is true by default (after reset)
         assert!(mem.overlay);
-        assert_eq!(mem.read_word(SUPERVISOR_DATA, 0x000000), 0x00FC);
-        assert_eq!(mem.read_word(SUPERVISOR_DATA, 0x000002), 0x0002);
+        assert_eq!(AddressBus::read_word(&mut mem, 0x000000), 0x00FC);
+        assert_eq!(AddressBus::read_word(&mut mem, 0x000002), 0x0002);
 
         // Disable overlay
         mem.overlay = false;
         // Now reads chip RAM (zeroed)
-        assert_eq!(mem.read_word(SUPERVISOR_DATA, 0x000000), 0x0000);
+        assert_eq!(AddressBus::read_word(&mut mem, 0x000000), 0x0000);
     }
 
     /// WinUAE memory.cpp: Slow RAM at $C00000-$C80000.
@@ -1038,10 +1038,10 @@ mod winuae_memory_map_golden_vectors {
         let mut cfg = MemoryConfig::a500();
         cfg.slow_ram_size = 512 * 1024;
         let mut mem = AmigaMemory::new(cfg);
-        mem.write_byte(SUPERVISOR_DATA, 0xC00000, 0x77);
-        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0xC00000), 0x77);
-        mem.write_byte(SUPERVISOR_DATA, 0xC7FFFF, 0x88);
-        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0xC7FFFF), 0x88);
+        AddressBus::write_byte(&mut mem, 0xC00000, 0x77);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0xC00000), 0x77);
+        AddressBus::write_byte(&mut mem, 0xC7FFFF, 0x88);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0xC7FFFF), 0x88);
     }
 
     /// WinUAE memory.cpp: Unmapped addresses return open bus (0xFF).
@@ -1049,7 +1049,7 @@ mod winuae_memory_map_golden_vectors {
     fn test_unmapped_address_returns_open_bus() {
         let mut mem = AmigaMemory::new(MemoryConfig::a500());
         mem.overlay = false;
-        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0x200000), 0xFF);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0x200000), 0xFF);
     }
 
     /// WinUAE memory.cpp: ROM is read-only — writes are ignored.
@@ -1058,8 +1058,8 @@ mod winuae_memory_map_golden_vectors {
         let mut mem = AmigaMemory::new(MemoryConfig::a500());
         let rom = vec![0xAA; 256 * 1024];
         mem.load_rom(&rom);
-        mem.write_byte(SUPERVISOR_DATA, 0xFC0000, 0x55);
-        assert_eq!(mem.read_byte(SUPERVISOR_DATA, 0xFC0000), 0xAA);
+        AddressBus::write_byte(&mut mem, 0xFC0000, 0x55);
+        assert_eq!(AddressBus::read_byte(&mut mem, 0xFC0000), 0xAA);
     }
 }
 

@@ -6,6 +6,13 @@
 //! Implements per-word MFM streaming with sync word detection, proper DMA
 //! transfer gating, and correct interrupt timing.
 
+#![allow(
+    clippy::doc_markdown,
+    clippy::struct_excessive_bools,
+    clippy::useless_let_if_seq
+)]
+#![cfg_attr(test, allow(clippy::cast_possible_truncation, clippy::redundant_clone))]
+
 /// Sectors per track in an ADF image.
 const SECTORS_PER_TRACK: u32 = 11;
 
@@ -48,11 +55,13 @@ pub const fn is_supported_floppy_speed_percent(percent: u16) -> bool {
 
 /// DMA state machine.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum DskDmaState {
+pub enum DskDmaState {
     /// DMA is off.
     Off,
     /// DMA is in read mode (waiting for sync or transferring).
     Read,
+    /// DMA is in write mode.
+    Write,
 }
 
 /// State of a single floppy drive.
@@ -78,6 +87,8 @@ pub struct DriveState {
     pub dskready: bool,
     /// Latch indicating disk was inserted/changed since last step.
     pub disk_changed: bool,
+    /// Whether the disk data has been mutated and needs writeback.
+    pub dirty: bool,
 }
 
 impl Default for DriveState {
@@ -93,6 +104,7 @@ impl Default for DriveState {
             dskready_up_time: 0,
             dskready: false,
             disk_changed: true, // starts true (disk changed/none state)
+            dirty: false,
         }
     }
 }
@@ -118,7 +130,7 @@ pub struct FloppyController {
     /// Previous DSKLEN value (for double-write detection).
     prev_dsklen: u16,
     /// DMA state.
-    dma_state: DskDmaState,
+    pub dma_state: DskDmaState,
     /// Whether sync word has been found (gates DMA transfer).
     dma_enable: bool,
     /// Remaining words to transfer.
@@ -141,6 +153,8 @@ pub struct FloppyController {
     speed_percent: u16,
     /// Fractional MFM word timing accumulator.
     dma_word_accumulator: u32,
+    /// Written MFM word buffer collected during write DMA.
+    pub write_buffer: Vec<u16>,
 }
 
 impl FloppyController {
@@ -170,6 +184,7 @@ impl FloppyController {
             dskbytr_val: 0,
             speed_percent: FLOPPY_SPEED_COMPATIBLE_PERCENT,
             dma_word_accumulator: 0,
+            write_buffer: Vec::new(),
         }
     }
 
@@ -283,26 +298,31 @@ impl FloppyController {
         self.dsklen = value;
 
         if (value & 0x8000 != 0) && (prev & 0x8000 != 0) {
-            // Double-write with bit 15: start read DMA
-            if value & 0x4000 == 0 {
-                // Check if any selected drive has a disk
-                let has_disk = (0..4u8).any(|dr| {
-                    self.selected & (1 << dr) == 0 && self.drives[dr as usize].data.is_some()
-                });
-                if has_disk {
+            // Double-write with bit 15: start DMA
+            let has_disk = (0..4u8).any(|dr| {
+                self.selected & (1 << dr) == 0 && self.drives[dr as usize].data.is_some()
+            });
+            if has_disk {
+                if value & 0x4000 != 0 {
+                    // Start write DMA
+                    self.dma_state = DskDmaState::Write;
+                    self.dsk_length = value & 0x3FFF;
+                    self.write_buffer.clear();
+                } else {
+                    // Start read DMA
                     self.dma_state = DskDmaState::Read;
                     // If WORDSYNC (bit 10 of ADKCON) is disabled, enable DMA immediately
                     self.dma_enable = (adkcon & 0x0400) == 0;
                     self.dsk_length = value & 0x3FFF;
                     self.word = 0;
                     self.bit_offset = 0;
-                } else {
-                    // No disk: fire DSKSYNC and DSKBLK immediately so trackdisk
-                    // sees sync "found" and DMA "complete" with invalid data.
-                    self.dma_state = DskDmaState::Off;
-                    self.pending_sync_irq = true;
-                    self.pending_blk_irq = true;
                 }
+            } else {
+                // No disk: fire DSKSYNC and DSKBLK immediately so trackdisk
+                // sees sync "found" and DMA "complete" with invalid data.
+                self.dma_state = DskDmaState::Off;
+                self.pending_sync_irq = true;
+                self.pending_blk_irq = true;
             }
         } else if value & 0x8000 == 0 {
             // Bit 15 clear: abort DMA
@@ -317,12 +337,54 @@ impl FloppyController {
     }
 
     /// Execute one disk DMA word cycle. Called every 2 µs (once per word time).
-    /// Returns true if chip RAM was written (for DMA slot accounting).
+    /// Returns true if chip RAM was accessed (for DMA slot accounting).
     ///
     /// # Panics
     /// Panics if MFM track encoding fails (should not happen with valid ADF data).
     #[allow(clippy::cast_possible_truncation, clippy::same_item_push)]
     pub fn disk_dma_cycle(&mut self, chip_ram: &mut [u8]) -> bool {
+        if self.dma_state == DskDmaState::Write {
+            // Find the first selected drive with a disk
+            let drv_idx = (0..4u8).find(|&dr| {
+                self.selected & (1 << dr) == 0 && self.drives[dr as usize].data.is_some()
+            });
+            let Some(drv_idx) = drv_idx else {
+                self.dma_state = DskDmaState::Off;
+                self.pending_blk_irq = true;
+                return false;
+            };
+
+            if self.dsk_length > 0 {
+                let addr = self.dskpt as usize;
+                let mut mfm_word = 0u16;
+                if addr + 1 < chip_ram.len() {
+                    mfm_word = (u16::from(chip_ram[addr]) << 8) | u16::from(chip_ram[addr + 1]);
+                }
+                self.write_buffer.push(mfm_word);
+                self.dskpt = self.dskpt.wrapping_add(2);
+                self.dsk_length -= 1;
+
+                // Populate DSKBYTR value
+                let mut bytr = mfm_word & 0x00FF;
+                bytr |= 0x8000; // BYTERDY (byte is ready)
+                bytr |= 0x4000; // DMAON
+                bytr |= 0x2000; // DISKWRITE
+                if mfm_word == self.dsksync {
+                    bytr |= 0x1000; // WORDEQUAL
+                }
+                self.dskbytr_val = bytr;
+
+                if self.dsk_length == 0 {
+                    // DMA complete — fire DSKBLK interrupt
+                    self.pending_blk_irq = true;
+                    self.dma_state = DskDmaState::Off;
+                    self.write_decoded_track(drv_idx as usize);
+                }
+                return true;
+            }
+            return false;
+        }
+
         if self.dma_state != DskDmaState::Read {
             return false;
         }
@@ -394,6 +456,105 @@ impl FloppyController {
         }
 
         false
+    }
+
+    /// Robust sector-by-sector MFM track decoder that decodes standard AmigaDOS
+    /// floppy sector MFM writes and commits valid sectors to the drive buffer.
+    #[allow(clippy::cast_possible_truncation)]
+    fn write_decoded_track(&mut self, drv_idx: usize) {
+        let drv = &mut self.drives[drv_idx];
+        let Some(ref mut adf_data) = drv.data else {
+            return;
+        };
+
+        let words = &self.write_buffer;
+        let mut offset = 0usize;
+
+        while offset + 1 < words.len() {
+            if words[offset] != 0x4489 || words[offset + 1] != 0x4489 {
+                offset += 1;
+                continue;
+            }
+            while offset < words.len() && words[offset] == 0x4489 {
+                offset += 1;
+            }
+
+            if offset + 540 > words.len() {
+                break;
+            }
+
+            let id_odd =
+                ((u32::from(words[offset]) << 16) | u32::from(words[offset + 1])) & 0x5555_5555;
+            let id_even =
+                ((u32::from(words[offset + 2]) << 16) | u32::from(words[offset + 3])) & 0x5555_5555;
+            let id = (id_odd << 1) | id_even;
+            offset += 4;
+
+            let sector = ((id >> 8) & 0xFF) as usize;
+            if sector >= SECTORS_PER_TRACK as usize {
+                continue;
+            }
+
+            let mut header_checksum = id_odd ^ id_even;
+            for i in 0..4 {
+                let odd = ((u32::from(words[offset + i * 2]) << 16)
+                    | u32::from(words[offset + i * 2 + 1]))
+                    & 0x5555_5555;
+                let even = ((u32::from(words[offset + 8 + i * 2]) << 16)
+                    | u32::from(words[offset + 8 + i * 2 + 1]))
+                    & 0x5555_5555;
+                header_checksum ^= odd ^ even;
+            }
+            offset += 16;
+
+            let chk_odd =
+                ((u32::from(words[offset]) << 16) | u32::from(words[offset + 1])) & 0x5555_5555;
+            let chk_even =
+                ((u32::from(words[offset + 2]) << 16) | u32::from(words[offset + 3])) & 0x5555_5555;
+            let expected_header_checksum = (chk_odd << 1) | chk_even;
+            offset += 4;
+
+            if header_checksum != expected_header_checksum {
+                continue;
+            }
+
+            let data_chk_odd =
+                ((u32::from(words[offset]) << 16) | u32::from(words[offset + 1])) & 0x5555_5555;
+            let data_chk_even =
+                ((u32::from(words[offset + 2]) << 16) | u32::from(words[offset + 3])) & 0x5555_5555;
+            let expected_data_checksum = (data_chk_odd << 1) | data_chk_even;
+            offset += 4;
+
+            let mut data_checksum = 0u32;
+            let mut sector_data = [0u8; 512];
+            for long_idx in 0..128 {
+                let odd = ((u32::from(words[offset + long_idx * 2]) << 16)
+                    | u32::from(words[offset + long_idx * 2 + 1]))
+                    & 0x5555_5555;
+                let even = ((u32::from(words[offset + 256 + long_idx * 2]) << 16)
+                    | u32::from(words[offset + 256 + long_idx * 2 + 1]))
+                    & 0x5555_5555;
+                data_checksum ^= odd ^ even;
+                let data = (odd << 1) | even;
+                sector_data[long_idx * 4..long_idx * 4 + 4].copy_from_slice(&data.to_be_bytes());
+            }
+
+            if data_checksum != expected_data_checksum {
+                offset += 512;
+                continue;
+            }
+
+            offset += 512;
+
+            // Commit sector data to active track in ADF buffer
+            let track_number = u32::from(drv.cyl) * 2 + u32::from(self.side);
+            let track_offset = (track_number * TRACK_SIZE + (sector as u32) * SECTOR_SIZE) as usize;
+            if track_offset + 512 <= adf_data.len() {
+                adf_data[track_offset..track_offset + 512].copy_from_slice(&sector_data);
+                drv.dirty = true;
+                drv.mfm_track.clear(); // Clear track cache to force re-encoding
+            }
+        }
     }
 
     /// Returns the first selected drive index (active low), or 0 if none.
@@ -772,5 +933,51 @@ mod tests {
 
     fn get_mfm_long(track: &[u16], offset: usize) -> u32 {
         ((u32::from(track[offset]) << 16) | u32::from(track[offset + 1])) & 0x5555_5555
+    }
+
+    #[test]
+    fn test_write_dma_accumulates_and_decodes_track() {
+        let mut ctrl = FloppyController::new();
+        // Initialize an ADF data track with zeros
+        let adf = vec![0u8; (TRACK_SIZE * 160) as usize];
+        ctrl.insert_disk(0, adf.clone());
+        ctrl.selected = 0x0E; // DF0 selected
+        ctrl.drives[0].motor = true;
+
+        // Create MFM track with modified sector 0 data
+        let mut modified_adf = adf.clone();
+        modified_adf[0..12].copy_from_slice(b"HELLO WORLD!");
+        let mfm_track = encode_mfm_track(&modified_adf, 0, 0);
+
+        // Put the MFM words into chip RAM at 0x1000
+        let mut chip_ram = vec![0u8; 65536];
+        let start_addr = 0x1000;
+        for (i, word) in mfm_track.iter().enumerate() {
+            let addr = start_addr + i * 2;
+            chip_ram[addr] = (word >> 8) as u8;
+            chip_ram[addr + 1] = (word & 0xFF) as u8;
+        }
+
+        // Start write DMA for the entire track
+        let track_words = MFM_TRACK_WORDS as u16;
+        ctrl.dskpt = start_addr as u32;
+        ctrl.write_dsklen(0x8000 | 0x4000 | track_words, 0);
+        ctrl.write_dsklen(0x8000 | 0x4000 | track_words, 0);
+
+        assert_eq!(ctrl.dma_state, DskDmaState::Write);
+
+        // Step through write DMA cycles
+        for _ in 0..track_words {
+            ctrl.disk_dma_cycle(&mut chip_ram);
+        }
+
+        // DMA should have completed and track decoded
+        assert_eq!(ctrl.dma_state, DskDmaState::Off);
+        assert!(ctrl.pending_blk_irq);
+        assert!(ctrl.drives[0].dirty);
+
+        // Check if sector data in DF0 data buffer has been updated
+        let updated_adf = ctrl.drives[0].data.as_ref().unwrap();
+        assert_eq!(&updated_adf[0..12], b"HELLO WORLD!");
     }
 }

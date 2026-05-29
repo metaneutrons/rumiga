@@ -230,6 +230,8 @@ pub const BPLCON1: u16 = 0x102;
 pub const BPLCON2: u16 = 0x104;
 /// Bitplane control register 3 (ECS).
 pub const BPLCON3: u16 = 0x106;
+/// Bitplane control register 4 (AGA).
+pub const BPLCON4: u16 = 0x10C;
 /// Bitplane modulo (odd planes).
 pub const BPL1MOD: u16 = 0x108;
 /// Bitplane modulo (even planes).

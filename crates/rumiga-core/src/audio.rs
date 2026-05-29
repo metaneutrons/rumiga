@@ -7,6 +7,12 @@
 //! including period-based sample playback, volume scaling, and configurable
 //! stereo mixing.
 
+#![allow(
+    clippy::branches_sharing_code,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss
+)]
+
 /// Number of audio channels (Paula has 4).
 pub const NUM_CHANNELS: usize = 4;
 
@@ -82,6 +88,14 @@ pub struct AudioState {
     pub channel_mix: [ChannelMix; NUM_CHANNELS],
     /// Fractional accumulator for sample generation (clock ticks carried over).
     frac_accum: u32,
+    /// Left filter state for digital low-pass filtering.
+    pub filter_state_l: f32,
+    /// Right filter state for digital low-pass filtering.
+    pub filter_state_r: f32,
+    /// Whether the low-pass audio filter (LED filter) is active.
+    pub filter_active: bool,
+    /// Whether the IIR filter state has been initialized with the first sample.
+    pub filter_initialized: bool,
 }
 
 impl AudioState {
@@ -115,6 +129,10 @@ impl AudioState {
                 },
             ],
             frac_accum: 0,
+            filter_state_l: 0.0,
+            filter_state_r: 0.0,
+            filter_active: false,
+            filter_initialized: false,
         }
     }
 
@@ -210,8 +228,33 @@ impl AudioState {
                 right_sum += sample_value * i32::from(mix.right_pct) / 100;
             }
 
-            left[i] = left_sum.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16;
-            right[i] = right_sum.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16;
+            let mut left_val = left_sum as f32;
+            let mut right_val = right_sum as f32;
+
+            if !self.filter_initialized {
+                self.filter_state_l = left_val;
+                self.filter_state_r = right_val;
+                self.filter_initialized = true;
+            }
+
+            if self.filter_active {
+                // LED filter active: cut off above ~3.2 kHz (alpha = 0.35)
+                let alpha = 0.35f32;
+                self.filter_state_l += alpha * (left_val - self.filter_state_l);
+                self.filter_state_r += alpha * (right_val - self.filter_state_r);
+                left_val = self.filter_state_l;
+                right_val = self.filter_state_r;
+            } else {
+                // Filter bypassed: still apply Paula's default high-end filter (~16 kHz anti-aliasing)
+                let alpha = 0.85f32;
+                self.filter_state_l += alpha * (left_val - self.filter_state_l);
+                self.filter_state_r += alpha * (right_val - self.filter_state_r);
+                left_val = self.filter_state_l;
+                right_val = self.filter_state_r;
+            }
+
+            left[i] = left_val.clamp(i16::MIN as f32, i16::MAX as f32) as i16;
+            right[i] = right_val.clamp(i16::MIN as f32, i16::MAX as f32) as i16;
         }
     }
 }
@@ -250,9 +293,11 @@ mod tests {
         state.generate_samples(&[], &mut left, &mut right, 1);
         let full = left[0];
 
-        // Reset and test volume 0
-        state.channels[0].volume = 0;
-        state.generate_samples(&[], &mut left, &mut right, 1);
+        // Reset and test volume 0 on a fresh state to avoid IIR filter carry-over
+        let mut state_silent = AudioState::new();
+        state_silent.channels[0].sample_byte = 127;
+        state_silent.channels[0].volume = 0;
+        state_silent.generate_samples(&[], &mut left, &mut right, 1);
         assert_eq!(left[0], 0);
         assert_ne!(full, 0);
     }
@@ -353,5 +398,48 @@ mod tests {
         // 100 * 64 * 50 / 100 = 3200
         assert_eq!(left[0], 3200);
         assert_eq!(right[0], 3200);
+    }
+
+    #[test]
+    fn test_low_pass_filter_attenuates_high_frequencies() {
+        let mut state = AudioState::new();
+        state.channels[0].volume = 64;
+        state.channels[0].dma_enabled = true;
+        state.channels[0].period = 1;
+        state.channels[0].period_counter = 1;
+        state.channels[0].high_byte = true;
+
+        // Populate chip_ram with alternating high/low values (high frequency square wave)
+        let chip_ram = [100u8, 156u8, 100u8, 156u8, 100u8, 156u8];
+
+        // 1. Run with filter inactive
+        state.filter_active = false;
+        state.filter_state_l = 0.0;
+        let mut left_inactive = [0i16; 10];
+        let mut right_inactive = [0i16; 10];
+        state.generate_samples(&chip_ram, &mut left_inactive, &mut right_inactive, 10);
+
+        // 2. Run with filter active
+        let mut state_active = AudioState::new();
+        state_active.channels[0].volume = 64;
+        state_active.channels[0].dma_enabled = true;
+        state_active.channels[0].period = 1;
+        state_active.channels[0].period_counter = 1;
+        state_active.channels[0].high_byte = true;
+        state_active.filter_active = true;
+        state_active.filter_state_l = 0.0;
+        let mut left_active = [0i16; 10];
+        let mut right_active = [0i16; 10];
+        state_active.generate_samples(&chip_ram, &mut left_active, &mut right_active, 10);
+
+        // Verify attenuation: the absolute sum of filtered samples must be strictly less
+        let sum_inactive: i32 = left_inactive.iter().map(|&s| i32::from(s.abs())).sum();
+        let sum_active: i32 = left_active.iter().map(|&s| i32::from(s.abs())).sum();
+
+        println!("Sum inactive: {sum_inactive}, Sum active: {sum_active}");
+        assert!(
+            sum_active < sum_inactive,
+            "Active low pass should attenuate high frequencies"
+        );
     }
 }

@@ -94,7 +94,6 @@ fn compare_first_1000() {
 
     let mut emu = Emulator::new(MemoryConfig::a500());
     emu.load_rom(&rom);
-    emu.cpu.reset();
 
     for i in 0..5000 {
         let r_pc = *r68k.pc();

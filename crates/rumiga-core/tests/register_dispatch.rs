@@ -228,6 +228,7 @@ mod register_dispatch_golden_vectors {
         let mut emu = make_emulator();
         // 1 row × 1 word = minimal blit
         emu.dispatch_register_write(custom::BLTSIZE, (1 << 6) | 1);
+        emu.sync_blitter();
         assert!(emu.blitter.done);
     }
 
