@@ -24,6 +24,8 @@ Cargo.lock
 # ROM files (user-provided, not committed)
 *.rom
 *.ROM
+*.ext
+*.EXT
 
 # Disk images (user-provided, not committed)
 *.adf
