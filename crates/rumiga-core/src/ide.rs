@@ -133,7 +133,7 @@ impl AtaController {
         let is_slave = (self.select & 0x10) != 0;
         if is_slave {
             match reg {
-                7 => return IDE_STATUS_ERR, // Missing slave while master exists
+                7 => return IDE_STATUS_ERR,
                 _ => return 0x00,
             }
         }
@@ -216,6 +216,7 @@ impl AtaController {
     }
 
     /// Execute an ATA command.
+    #[allow(clippy::too_many_lines)]
     pub fn write_command(&mut self, cmd: u8) {
         self.command = cmd;
         if self.command_log.len() == 32 {
@@ -299,6 +300,30 @@ impl AtaController {
             }
             0xEF => {
                 // Set Features (Success NOP)
+                self.status &= !IDE_STATUS_BSY;
+                self.status |= IDE_STATUS_DRDY;
+                self.data_direction = DataDirection::None;
+                self.pending_irq = true;
+            }
+            0x10..=0x1F => {
+                // Recalibrate / Seek
+                self.sector = 0x01;
+                self.lcyl = 0x00;
+                self.hcyl = 0x00;
+                self.status &= !IDE_STATUS_BSY;
+                self.status |= IDE_STATUS_DRDY;
+                self.data_direction = DataDirection::None;
+                self.pending_irq = true;
+            }
+            0x40 | 0x41 => {
+                // Verify Sectors (Success NOP)
+                self.status &= !IDE_STATUS_BSY;
+                self.status |= IDE_STATUS_DRDY;
+                self.data_direction = DataDirection::None;
+                self.pending_irq = true;
+            }
+            0xC6 => {
+                // Set Multiple Mode (Success NOP)
                 self.status &= !IDE_STATUS_BSY;
                 self.status |= IDE_STATUS_DRDY;
                 self.data_direction = DataDirection::None;

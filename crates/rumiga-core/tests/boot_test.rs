@@ -316,3 +316,66 @@ fn test_kickstart_31_cpu_tracing() {
     );
     println!("Sample trace line: {first_line}");
 }
+
+#[test]
+#[ignore] // Requires Amiga boot delays to settle
+fn test_hdf_boot_reaches_read_sectors() {
+    let rom_path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/kick.a1200.46.143.rom");
+    let hdf_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/workbench-314.hdf");
+
+    if !rom_path.exists() || !hdf_path.exists() {
+        eprintln!("SKIP: ROM or HDF not found");
+        return;
+    }
+
+    let rom = fs::read(&rom_path).unwrap();
+    let hdf_data = fs::read(&hdf_path).unwrap();
+
+    let mut emu = Emulator::new(MemoryConfig::a1200());
+    emu.load_rom(&rom);
+    emu.insert_hdf(hdf_data);
+
+    // Run for a number of frames to let scsi.device probe and perform the handshake
+    // and read the RDB. Probing happens very early during scsi.device init, usually within the first few seconds (100-500 frames).
+    for _ in 0..2000 {
+        emu.run_frame();
+        // Check if we have issued a READ SECTORS command (0x20 or 0x21)
+        let ide = emu.memory.ide.borrow();
+        if ide.command_log.contains(&0x20) || ide.command_log.contains(&0x21) {
+            println!(
+                "SUCCESS: Reached READ SECTORS command: {:?}",
+                ide.command_log
+            );
+            return;
+        }
+    }
+
+    let ide = emu.memory.ide.borrow();
+    panic!(
+        "Failed to reach READ SECTORS.\n\
+         IDE Status: 0x{:02X}\n\
+         IDE Error: 0x{:02X}\n\
+         IDE DevCon: 0x{:02X}\n\
+         IDE Select: 0x{:02X}\n\
+         IDE Pending IRQ: {}\n\
+         IDE Data Index: {}/{}\n\
+         IDE Data Direction: {:?}\n\
+         Gayle IRQ: 0x{:02X}\n\
+         Gayle IntEna: 0x{:02X}\n\
+         Chipset IntReq: 0x{:04X}\n\
+         Command log: {:?}",
+        ide.status,
+        ide.error,
+        ide.devcon,
+        ide.select,
+        ide.pending_irq,
+        ide.data_index,
+        ide.data_buffer.len(),
+        ide.data_direction,
+        emu.memory.gayle_irq,
+        emu.memory.gayle_intena,
+        emu.chipset.intreq,
+        ide.command_log
+    );
+}
