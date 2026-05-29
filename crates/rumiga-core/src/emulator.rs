@@ -417,6 +417,10 @@ impl Emulator {
         }
         let vpos = self.chipset.vpos;
 
+        // Copper/playfield/sprite DMA need a valid chip RAM slice. The threaded
+        // blitter temporarily owns chip RAM, so synchronize before video DMA.
+        self.sync_blitter();
+
         // Run copper for this scanline
         if self.copper.enabled {
             let chip_ram = self.memory.chip_ram();

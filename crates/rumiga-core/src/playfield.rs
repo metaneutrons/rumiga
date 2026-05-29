@@ -161,6 +161,11 @@ impl PlayfieldState {
     ///
     /// If the pointer is out of bounds, `bpldat[plane]` is set to 0.
     pub fn fetch_bitplane_word(&mut self, plane: usize, chip_ram: &[u8]) {
+        if chip_ram.is_empty() {
+            self.bpldat[plane] = 0;
+            return;
+        }
+
         let addr = (self.bplpt[plane] as usize) % chip_ram.len();
         self.bpldat[plane] = if addr + 1 < chip_ram.len() {
             u16::from_be_bytes([chip_ram[addr], chip_ram[addr + 1]])
@@ -433,6 +438,16 @@ mod tests {
         assert_eq!(pf.num_planes(), 4);
         pf.bplcon0 = 0x6000; // 6 planes
         assert_eq!(pf.num_planes(), 6);
+    }
+
+    #[test]
+    fn empty_chip_ram_fetches_zero_bitplane_word() {
+        let mut pf = PlayfieldState::new();
+        pf.bpldat[0] = 0xFFFF;
+
+        pf.fetch_bitplane_word(0, &[]);
+
+        assert_eq!(pf.bpldat[0], 0);
     }
 
     #[test]

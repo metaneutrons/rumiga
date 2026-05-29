@@ -149,6 +149,10 @@ impl CopperState {
     /// Read a big-endian word from chip RAM at the current PC.
     /// The copper can only access chip RAM; addresses wrap within chip RAM size.
     const fn read_word(&self, chip_ram: &[u8]) -> u16 {
+        if chip_ram.is_empty() {
+            return 0;
+        }
+
         let addr = (self.pc as usize) % chip_ram.len();
         if addr + 1 < chip_ram.len() {
             u16::from_be_bytes([chip_ram[addr], chip_ram[addr + 1]])
@@ -245,6 +249,16 @@ mod tests {
                 value: 0x0ABC,
             })
         );
+    }
+
+    #[test]
+    fn empty_chip_ram_reads_as_zero() {
+        let mut copper = CopperState::new();
+        copper.enabled = true;
+        copper.state = CopperExecState::FetchFirst;
+
+        assert_eq!(copper.cycle(&[], 0, 0), None);
+        assert_eq!(copper.ir1, 0);
     }
 
     #[test]
