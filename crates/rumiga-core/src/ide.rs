@@ -240,8 +240,8 @@ impl AtaController {
                 self.data_direction = DataDirection::Read;
                 self.pending_irq = true;
             }
-            0x20 | 0x21 => {
-                // Read Sectors
+            0x20 | 0x21 | 0xC4 => {
+                // Read Sectors / Read Multiple
                 let lba = self.current_lba();
                 let count = if self.nsector == 0 {
                     256
@@ -266,8 +266,8 @@ impl AtaController {
                 self.data_direction = DataDirection::Read;
                 self.pending_irq = true;
             }
-            0x30 | 0x31 => {
-                // Write Sectors
+            0x30 | 0x31 | 0xC5 => {
+                // Write Sectors / Write Multiple
                 let count = if self.nsector == 0 {
                     256
                 } else {
@@ -366,6 +366,10 @@ impl AtaController {
         if self.data_index >= self.data_buffer.len() {
             self.status &= !IDE_STATUS_DRQ;
             self.data_direction = DataDirection::None;
+        } else if self.data_index % 512 == 0 {
+            // Finished reading a sector, but more sectors remain!
+            // Fire another interrupt to signal next sector data is ready.
+            self.pending_irq = true;
         }
 
         val
@@ -405,6 +409,10 @@ impl AtaController {
             self.status &= !IDE_STATUS_BSY;
             self.data_direction = DataDirection::None;
             self.pending_irq = true;
+        } else if self.data_index % 512 == 0 {
+            // Finished receiving one sector of data, but more sectors remain!
+            // Fire another interrupt to signal ready for next sector.
+            self.pending_irq = true;
         }
     }
 
@@ -417,6 +425,8 @@ impl AtaController {
         if self.data_index >= self.data_buffer.len() {
             self.status &= !IDE_STATUS_DRQ;
             self.data_direction = DataDirection::None;
+        } else if self.data_index % 512 == 0 {
+            self.pending_irq = true;
         }
         val
     }
@@ -447,6 +457,8 @@ impl AtaController {
 
             self.status &= !IDE_STATUS_BSY;
             self.data_direction = DataDirection::None;
+            self.pending_irq = true;
+        } else if self.data_index % 512 == 0 {
             self.pending_irq = true;
         }
     }
@@ -503,7 +515,7 @@ impl AtaController {
         self.write_string(27, "RUMIGA VIRTUAL ATA HARDDISK", 40);
 
         // FS-UAE-compatible capability/validity fields.
-        self.write_word(47, 0x8080); // max sectors per multiple command
+        self.write_word(47, 0x0000); // multiple sector commands not supported
         self.write_word(48, 0x0001);
         self.write_word(49, (1 << 9) | (1 << 8)); // LBA and DMA supported
         self.write_word(51, 0x0200);
@@ -515,7 +527,7 @@ impl AtaController {
         self.write_word(55, self.heads as u16);
         self.write_word(56, self.sectors_per_track as u16);
         self.write_u32_words(57, chs_sectors);
-        self.write_word(59, 0x0180); // multiple mode supported and active
+        self.write_word(59, 0x0000); // multiple sector setting not valid
 
         // Word 60-61: LBA total sectors capacity (32-bit LBA)
         self.write_u32_words(60, total_lba_sectors.min(0x0FFF_FFFF));
@@ -630,10 +642,10 @@ mod tests {
         controller.insert_disk(vec![0; 10 * 1024 * 1024]);
         controller.write_command(0xEC);
 
-        assert_eq!(identify_word(&controller, 47), 0x8080);
+        assert_eq!(identify_word(&controller, 47), 0x0000);
         assert_eq!(identify_word(&controller, 49), 0x0300);
         assert_eq!(identify_word(&controller, 53), 0x0007);
-        assert_eq!(identify_word(&controller, 59), 0x0180);
+        assert_eq!(identify_word(&controller, 59), 0x0000);
         assert_eq!(identify_word(&controller, 60), 20480);
         assert_eq!(identify_word(&controller, 61), 0);
         assert_eq!(identify_word(&controller, 80), 0x007E);
