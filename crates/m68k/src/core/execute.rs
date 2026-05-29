@@ -123,6 +123,7 @@ impl CpuCore {
     pub fn step<B: AddressBus>(&mut self, bus: &mut B) -> StepResult {
         use crate::core::types::{InternalStepResult, StepResult};
 
+        self.check_and_service_interrupts(bus);
         if self.stopped != 0 {
             return StepResult::Stopped;
         }
@@ -209,6 +210,7 @@ impl CpuCore {
     ) -> StepResult {
         use crate::core::types::{InternalStepResult, StepResult};
 
+        self.check_and_service_interrupts(bus);
         if self.stopped != 0 {
             return StepResult::Stopped;
         }
@@ -445,5 +447,107 @@ impl CpuCore {
     pub fn stop(&mut self, new_sr: u16) {
         self.set_sr(new_sr);
         self.stopped |= STOP_LEVEL_STOP;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::types::{CpuType, NoOpHleHandler};
+
+    struct TestBus {
+        mem: [u8; 512],
+        acknowledged_level: Option<u8>,
+    }
+
+    impl TestBus {
+        fn new() -> Self {
+            Self {
+                mem: [0; 512],
+                acknowledged_level: None,
+            }
+        }
+
+        fn write_word_raw(&mut self, address: usize, value: u16) {
+            let [hi, lo] = value.to_be_bytes();
+            self.mem[address] = hi;
+            self.mem[address + 1] = lo;
+        }
+
+        fn write_long_raw(&mut self, address: usize, value: u32) {
+            let [b0, b1, b2, b3] = value.to_be_bytes();
+            self.mem[address] = b0;
+            self.mem[address + 1] = b1;
+            self.mem[address + 2] = b2;
+            self.mem[address + 3] = b3;
+        }
+    }
+
+    impl AddressBus for TestBus {
+        fn read_byte(&mut self, address: u32) -> u8 {
+            self.mem[address as usize]
+        }
+
+        fn read_word(&mut self, address: u32) -> u16 {
+            u16::from_be_bytes([self.mem[address as usize], self.mem[address as usize + 1]])
+        }
+
+        fn read_long(&mut self, address: u32) -> u32 {
+            u32::from_be_bytes([
+                self.mem[address as usize],
+                self.mem[address as usize + 1],
+                self.mem[address as usize + 2],
+                self.mem[address as usize + 3],
+            ])
+        }
+
+        fn write_byte(&mut self, address: u32, value: u8) {
+            self.mem[address as usize] = value;
+        }
+
+        fn write_word(&mut self, address: u32, value: u16) {
+            self.write_word_raw(address as usize, value);
+        }
+
+        fn write_long(&mut self, address: u32, value: u32) {
+            self.write_long_raw(address as usize, value);
+        }
+
+        fn interrupt_acknowledge(&mut self, level: u8) -> u32 {
+            self.acknowledged_level = Some(level);
+            0xFFFF_FFFF
+        }
+    }
+
+    #[test]
+    fn step_with_hle_handler_wakes_stopped_cpu_on_unmasked_interrupt() {
+        let mut bus = TestBus::new();
+        let handler_pc = 0x40;
+        let autovector_2 = (24 + 2) * 4;
+        bus.write_long_raw(autovector_2, handler_pc);
+        bus.write_word_raw(handler_pc as usize, 0x4E71); // NOP at interrupt handler
+
+        let mut cpu = CpuCore::new();
+        cpu.set_cpu_type(CpuType::M68020);
+        cpu.set_sp(0x100);
+        cpu.stop(0x2000);
+        cpu.int_level = 2;
+
+        let result = cpu.step_with_hle_handler(&mut bus, &mut NoOpHleHandler);
+
+        assert!(matches!(result, StepResult::Ok { .. }));
+        assert!(!cpu.is_stopped());
+        assert_eq!(bus.acknowledged_level, Some(2));
+        assert_eq!(cpu.pc, handler_pc + 2);
+    }
+
+    #[test]
+    fn step_reports_stopped_when_no_interrupt_is_pending() {
+        let mut bus = TestBus::new();
+        let mut cpu = CpuCore::new();
+        cpu.stop(0x2000);
+
+        assert!(matches!(cpu.step(&mut bus), StepResult::Stopped));
+        assert!(cpu.is_stopped());
     }
 }
