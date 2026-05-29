@@ -179,13 +179,16 @@ impl AtaController {
                 self.devcon = value;
                 if (old_devcon & 0x04) == 0 && (value & 0x04) != 0 {
                     // Software reset bit set
-                    self.status = IDE_STATUS_DRDY | IDE_STATUS_DSC;
+                    self.status = IDE_STATUS_BSY;
                     self.error = 0x01;
                     self.nsector = 0x01;
                     self.sector = 0x01;
                     self.lcyl = 0x00;
                     self.hcyl = 0x00;
                     self.data_direction = DataDirection::None;
+                } else if (old_devcon & 0x04) != 0 && (value & 0x04) == 0 {
+                    // Software reset bit cleared
+                    self.status = IDE_STATUS_DRDY | IDE_STATUS_DSC;
                 }
             }
             return;
@@ -347,13 +350,17 @@ impl AtaController {
         }
 
         let idx = self.data_index;
-        let val = if idx + 1 < self.data_buffer.len() {
+        let mut val = if idx + 1 < self.data_buffer.len() {
             let high = self.data_buffer[idx] as u16;
             let low = self.data_buffer[idx + 1] as u16;
             (high << 8) | low
         } else {
             0xFFFF
         };
+
+        if self.command == 0xEC {
+            val = val.swap_bytes();
+        }
 
         self.data_index += 2;
         if self.data_index >= self.data_buffer.len() {
@@ -608,13 +615,13 @@ mod tests {
         assert!((controller.status & IDE_STATUS_DRQ) != 0);
         assert_eq!(controller.data_buffer.len(), 512);
 
-        // Word 0 should be configuration (0x0040)
+        // Word 0 should be configuration (0x0040, byte-swapped)
         let word_0 = controller.read_data_word();
-        assert_eq!(word_0, 0x0040);
+        assert_eq!(word_0, 0x4000);
 
-        // Word 1 should have cylinders
+        // Word 1 should have cylinders (byte-swapped)
         let word_1 = controller.read_data_word();
-        assert_eq!(word_1, controller.cylinders);
+        assert_eq!(word_1, controller.cylinders.swap_bytes());
     }
 
     #[test]

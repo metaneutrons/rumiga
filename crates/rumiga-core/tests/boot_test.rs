@@ -318,7 +318,6 @@ fn test_kickstart_31_cpu_tracing() {
 }
 
 #[test]
-#[ignore] // Requires Amiga boot delays to settle
 fn test_hdf_boot_reaches_read_sectors() {
     let rom_path =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/kick.a1200.46.143.rom");
@@ -364,6 +363,12 @@ fn test_hdf_boot_reaches_read_sectors() {
          Gayle IRQ: 0x{:02X}\n\
          Gayle IntEna: 0x{:02X}\n\
          Chipset IntReq: 0x{:04X}\n\
+         Chipset IntEna: 0x{:04X}\n\
+         CPU PC: 0x{:08X}\n\
+         CPU SR: 0x{:04X}\n\
+         CPU Stopped: {} (0x{:08X})\n\
+         CIA-A CRA: 0x{:02X} ICR_Mask: 0x{:02X} ICR_Data: 0x{:02X} IR: {} TimerA: 0x{:04X} LatchA: 0x{:04X}\n\
+         CIA-B CRA: 0x{:02X} ICR_Mask: 0x{:02X} ICR_Data: 0x{:02X} IR: {} TimerA: 0x{:04X} LatchA: 0x{:04X}\n\
          Command log: {:?}",
         ide.status,
         ide.error,
@@ -376,6 +381,23 @@ fn test_hdf_boot_reaches_read_sectors() {
         emu.memory.gayle_irq,
         emu.memory.gayle_intena,
         emu.chipset.intreq,
+        emu.chipset.intena,
+        emu.cpu.pc,
+        emu.cpu.get_sr(),
+        emu.cpu.is_stopped(),
+        emu.cpu.stopped,
+        emu.memory.cia.borrow().cia_a.cra,
+        emu.memory.cia.borrow().cia_a.icr_mask,
+        emu.memory.cia.borrow().cia_a.icr_data,
+        emu.memory.cia.borrow().cia_a.icr_ir,
+        emu.memory.cia.borrow().cia_a.timer_a,
+        emu.memory.cia.borrow().cia_a.timer_a_latch,
+        emu.memory.cia.borrow().cia_b.cra,
+        emu.memory.cia.borrow().cia_b.icr_mask,
+        emu.memory.cia.borrow().cia_b.icr_data,
+        emu.memory.cia.borrow().cia_b.icr_ir,
+        emu.memory.cia.borrow().cia_b.timer_a,
+        emu.memory.cia.borrow().cia_b.timer_a_latch,
         ide.command_log
     );
 }
