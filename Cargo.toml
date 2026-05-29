@@ -6,6 +6,7 @@ members = [
     "crates/rumiga-platform-desktop",
     "crates/rumiga-api",
     "crates/m68000",
+    "crates/m68k",
     "desktop",
 ]
 
@@ -32,3 +33,4 @@ multiple_crate_versions = "allow"
 [workspace.dependencies]
 r68k-emu = { path = "../r68k/emu" }
 r68k-common = { path = "../r68k/common" }
+m68k = { path = "crates/m68k" }
