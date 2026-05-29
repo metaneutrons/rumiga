@@ -88,13 +88,32 @@ struct LaunchArgs {
     floppy_speed_percent: u16,
     rom_path: String,
     adf_paths: Vec<String>,
+    hdf_path: Option<String>,
+    cpu: Option<m68k::CpuType>,
+    chip_ram: Option<u32>,
+    slow_ram: Option<u32>,
+    fast_ram: Option<u32>,
+    pal: bool,
+    ntsc: bool,
+    df0: Option<String>,
+    df1: Option<String>,
+    df2: Option<String>,
+    df3: Option<String>,
+    trace_cpu: Option<String>,
+    trace_limit: Option<u64>,
 }
 
+#[allow(clippy::cognitive_complexity, clippy::too_many_lines)]
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let launch_args = parse_args(&args).unwrap_or_else(|e| {
-        eprintln!("{e}");
-        print_usage();
+        if e.is_empty() {
+            // Help requested cleanly (-h or --help)
+            print_usage(true);
+            process::exit(0);
+        }
+        eprintln!("Error: {e}");
+        print_usage(false);
         process::exit(1);
     });
 
@@ -116,18 +135,100 @@ fn main() {
     });
     let mut config = model.config();
     config.rom_size = rom_size;
+
+    // Apply CLI overrides to MemoryConfig
+    if let Some(cpu_override) = launch_args.cpu {
+        config.cpu_type = cpu_override;
+    }
+    if let Some(chip_ram_override) = launch_args.chip_ram {
+        config.chip_ram_size = chip_ram_override;
+    }
+    if let Some(slow_ram_override) = launch_args.slow_ram {
+        config.slow_ram_size = slow_ram_override;
+    }
+    if let Some(fast_ram_override) = launch_args.fast_ram {
+        config.fast_ram_size = fast_ram_override;
+    }
+
+    // Print hardware configuration summary
+    eprintln!("--- Hardware Configuration ---");
+    eprintln!("  Model:          {}", model.name());
+    eprintln!("  CPU Type:       {:?}", config.cpu_type);
+    eprintln!("  Chip RAM:       {} KB", config.chip_ram_size / 1024);
+    eprintln!("  Slow RAM:       {} KB", config.slow_ram_size / 1024);
+    eprintln!("  Fast RAM:       {} KB", config.fast_ram_size / 1024);
+    let video_std = if launch_args.ntsc {
+        "NTSC (60Hz)"
+    } else {
+        "PAL (50Hz)"
+    };
+    eprintln!("  Video Standard: {video_std}");
+    if launch_args.ntsc {
+        eprintln!(
+            "  [WARNING] The core graphics timing is currently optimized for PAL; NTSC overrides may not be fully supported."
+        );
+    }
+    if let Some(ref trace_path) = launch_args.trace_cpu {
+        eprintln!("  CPU Tracing:    Enabled -> {trace_path}");
+        if let Some(limit) = launch_args.trace_limit {
+            eprintln!("  Trace Limit:    {limit} instructions");
+        }
+    }
+    eprintln!("------------------------------");
+
     let mut emulator = Emulator::new(config);
+    if let Some(ref trace_path) = launch_args.trace_cpu {
+        if let Err(e) = emulator.enable_cpu_trace(trace_path, launch_args.trace_limit) {
+            eprintln!("Failed to enable CPU tracing to '{trace_path}': {e}");
+            process::exit(1);
+        }
+    }
     emulator.set_floppy_speed_percent(launch_args.floppy_speed_percent);
     emulator.load_rom(&rom_data);
 
-    // Load ADF disk images into DF0-DF3 in argument order.
-    for (drive, adf_path) in launch_args.adf_paths.iter().enumerate() {
-        let adf_data = fs::read(adf_path).unwrap_or_else(|e| {
-            eprintln!("Failed to read ADF file '{adf_path}': {e}");
+    let mut floppy_paths: [Option<String>; 4] = [None, None, None, None];
+
+    // Helper closure to load floppy disk image into specified drive
+    let mut load_floppy = |drive_idx: usize, path: &str| {
+        let adf_data = fs::read(path).unwrap_or_else(|e| {
+            eprintln!("Failed to read ADF file '{path}': {e}");
             process::exit(1);
         });
-        eprintln!("Inserted {adf_path} as DF{drive}");
-        emulator.insert_floppy(drive, adf_data);
+        eprintln!("Inserted {path} as DF{drive_idx}");
+        emulator.insert_floppy(drive_idx, adf_data);
+        floppy_paths[drive_idx] = Some(path.to_owned());
+    };
+
+    // Load positional floppies
+    for (drive_idx, adf_path) in launch_args.adf_paths.iter().enumerate() {
+        load_floppy(drive_idx, adf_path);
+    }
+
+    // Load explicit named floppies (overriding positional)
+    if let Some(ref df0_path) = launch_args.df0 {
+        load_floppy(0, df0_path);
+    }
+    if let Some(ref df1_path) = launch_args.df1 {
+        load_floppy(1, df1_path);
+    }
+    if let Some(ref df2_path) = launch_args.df2 {
+        load_floppy(2, df2_path);
+    }
+    if let Some(ref df3_path) = launch_args.df3 {
+        load_floppy(3, df3_path);
+    }
+
+    // Mount HDF if provided
+    if let Some(ref hdf_path) = launch_args.hdf_path {
+        let hdf_data = fs::read(hdf_path).unwrap_or_else(|e| {
+            eprintln!("Failed to read HDF file '{hdf_path}': {e}");
+            process::exit(1);
+        });
+        eprintln!(
+            "Mounted Gayle IDE HDF: {hdf_path} ({} bytes)",
+            hdf_data.len()
+        );
+        emulator.insert_hdf(hdf_data);
     }
 
     let presented_height = presented_height(launch_args.vertical_stretch);
@@ -190,14 +291,58 @@ fn main() {
         }
         emulator.clear_frame_ready();
     }
+
+    // Write back dirty HDF sectors before exiting
+    if let Some(ref hdf_path) = launch_args.hdf_path {
+        if emulator.hdf_dirty() {
+            if let Some(data) = emulator.extract_hdf() {
+                eprintln!("Writing dirty HDF sectors back to {hdf_path}...");
+                if let Err(e) = fs::write(hdf_path, data) {
+                    eprintln!("Failed to write HDF file '{hdf_path}': {e}");
+                } else {
+                    emulator.clear_hdf_dirty();
+                }
+            }
+        }
+    }
+
+    // Write back dirty floppy disk data before exiting
+    for (drive_idx, path_opt) in floppy_paths.iter().enumerate() {
+        if let Some(path) = path_opt {
+            if emulator.floppy_dirty(drive_idx) {
+                if let Some(data) = emulator.extract_floppy(drive_idx) {
+                    eprintln!("Writing dirty floppy sectors back to {path}...");
+                    if let Err(e) = fs::write(path, data) {
+                        eprintln!("Failed to write ADF file '{path}': {e}");
+                    } else {
+                        emulator.clear_floppy_dirty(drive_idx);
+                    }
+                }
+            }
+        }
+    }
 }
 
+#[allow(clippy::cognitive_complexity, clippy::too_many_lines)]
 fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
     let mut model = None;
     let mut scale = DEFAULT_SCALE;
     let mut viewport_mode = ViewportMode::Auto;
     let mut vertical_stretch = true;
     let mut floppy_speed_percent = FLOPPY_SPEED_COMPATIBLE_PERCENT;
+    let mut hdf_path = None;
+    let mut cpu = None;
+    let mut chip_ram = None;
+    let mut slow_ram = None;
+    let mut fast_ram = None;
+    let mut pal = false;
+    let mut ntsc = false;
+    let mut df0 = None;
+    let mut df1 = None;
+    let mut df2 = None;
+    let mut df3 = None;
+    let mut trace_cpu = None;
+    let mut trace_limit = None;
     let mut positional = Vec::new();
     let mut index = 0;
 
@@ -239,6 +384,94 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
                 floppy_speed_percent = parse_floppy_speed(value)?;
                 index += 2;
             }
+            "--hdf" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--hdf requires a value".to_owned());
+                };
+                hdf_path = Some(value.clone());
+                index += 2;
+            }
+            "--cpu" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--cpu requires a value".to_owned());
+                };
+                cpu = Some(parse_cpu_type(value)?);
+                index += 2;
+            }
+            "--chip-ram" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--chip-ram requires a value".to_owned());
+                };
+                chip_ram = Some(parse_ram_size(value)?);
+                index += 2;
+            }
+            "--slow-ram" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--slow-ram requires a value".to_owned());
+                };
+                slow_ram = Some(parse_ram_size(value)?);
+                index += 2;
+            }
+            "--fast-ram" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--fast-ram requires a value".to_owned());
+                };
+                fast_ram = Some(parse_ram_size(value)?);
+                index += 2;
+            }
+            "--pal" => {
+                pal = true;
+                index += 1;
+            }
+            "--ntsc" => {
+                ntsc = true;
+                index += 1;
+            }
+            "--df0" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--df0 requires a value".to_owned());
+                };
+                df0 = Some(value.clone());
+                index += 2;
+            }
+            "--df1" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--df1 requires a value".to_owned());
+                };
+                df1 = Some(value.clone());
+                index += 2;
+            }
+            "--df2" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--df2 requires a value".to_owned());
+                };
+                df2 = Some(value.clone());
+                index += 2;
+            }
+            "--df3" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--df3 requires a value".to_owned());
+                };
+                df3 = Some(value.clone());
+                index += 2;
+            }
+            "--trace-cpu" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--trace-cpu requires a value".to_owned());
+                };
+                trace_cpu = Some(value.clone());
+                index += 2;
+            }
+            "--trace-limit" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--trace-limit requires a value".to_owned());
+                };
+                let limit = value
+                    .parse::<u64>()
+                    .map_err(|_| format!("Unsupported trace-limit '{value}'"))?;
+                trace_limit = Some(limit);
+                index += 2;
+            }
             "--help" | "-h" => return Err(String::new()),
             value if value.starts_with('-') => return Err(format!("Unknown option '{value}'")),
             value => {
@@ -255,6 +488,83 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
         return Err("Too many disk images; Rumiga supports DF0 through DF3".to_owned());
     }
 
+    // 1. Validate mutually exclusive video timings
+    if pal && ntsc {
+        return Err("Options --pal and --ntsc are mutually exclusive".to_owned());
+    }
+
+    // 2. Validate custom Chip RAM constraints (critical for Alice/Lisa DMA masking)
+    if let Some(chip) = chip_ram {
+        match chip {
+            524_288 | 1_048_576 | 2_097_152 => {} // 512K, 1M, 2M are valid
+            _ => {
+                return Err(
+                    "Invalid Chip RAM size. Amiga custom chips only support 512K, 1M, or 2M."
+                        .to_owned(),
+                );
+            }
+        }
+    }
+
+    // 3. Validate Slow RAM constraints (trapdoor slow space at 0xC00000)
+    if let Some(slow) = slow_ram {
+        if slow > 1_835_008 {
+            // Max 1.75 MB
+            return Err("Slow RAM cannot exceed 1.75 MB.".to_owned());
+        }
+        if slow % 262_144 != 0 {
+            // Must be a multiple of 256K
+            return Err("Slow RAM size must be a multiple of 256 KB.".to_owned());
+        }
+    }
+
+    // 4. Validate Fast RAM constraints (Zorro II space at 0x200000)
+    if let Some(fast) = fast_ram {
+        if fast > 8_388_608 {
+            // Max 8 MB
+            return Err("Fast RAM cannot exceed 8 MB in Zorro II address space.".to_owned());
+        }
+        if fast % 1_048_576 != 0 {
+            // Must be a multiple of 1MB
+            return Err("Fast RAM size must be a multiple of 1 MB.".to_owned());
+        }
+    }
+
+    // 5. Validate Floppy Drive slot allocations and conflicts
+    let positional_floppies = positional.iter().skip(1).cloned().collect::<Vec<_>>();
+    let mut drive_allocations = [false; 4];
+
+    // Count explicit drive maps
+    if df0.is_some() {
+        drive_allocations[0] = true;
+    }
+    if df1.is_some() {
+        drive_allocations[1] = true;
+    }
+    if df2.is_some() {
+        drive_allocations[2] = true;
+    }
+    if df3.is_some() {
+        drive_allocations[3] = true;
+    }
+
+    // Count positional maps
+    for (i, _) in positional_floppies.iter().enumerate() {
+        if i >= 4 {
+            return Err(
+                "Too many disk images. Physical hardware is limited to 4 floppy drives.".to_owned(),
+            );
+        }
+        if drive_allocations[i] {
+            return Err(format!(
+                "Conflict: Positionally supplied floppy {} overlaps with explicit --df{} parameter.",
+                i + 1,
+                i
+            ));
+        }
+        drive_allocations[i] = true;
+    }
+
     Ok(LaunchArgs {
         model,
         scale,
@@ -263,6 +573,19 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
         floppy_speed_percent,
         rom_path: rom_path.clone(),
         adf_paths: positional.iter().skip(1).cloned().collect(),
+        hdf_path,
+        cpu,
+        chip_ram,
+        slow_ram,
+        fast_ram,
+        pal,
+        ntsc,
+        df0,
+        df1,
+        df2,
+        df3,
+        trace_cpu,
+        trace_limit,
     })
 }
 
@@ -290,6 +613,57 @@ fn parse_floppy_speed(value: &str) -> Result<u16, String> {
         Ok(numeric)
     } else {
         Err(format!("Unsupported floppy speed '{value}'"))
+    }
+}
+
+fn parse_ram_size(value: &str) -> Result<u32, String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err("Empty RAM size value".to_owned());
+    }
+
+    let trimmed_lower = trimmed.to_ascii_lowercase();
+    let (num_part, suffix) = if trimmed_lower.ends_with("kb") {
+        (&trimmed[..trimmed.len() - 2], Some("kb"))
+    } else if trimmed_lower.ends_with("mb") {
+        (&trimmed[..trimmed.len() - 2], Some("mb"))
+    } else if trimmed_lower.ends_with('k') {
+        (&trimmed[..trimmed.len() - 1], Some("k"))
+    } else if trimmed_lower.ends_with('m') {
+        (&trimmed[..trimmed.len() - 1], Some("m"))
+    } else {
+        (trimmed, None)
+    };
+
+    let multiplier = match suffix {
+        Some("k" | "kb") => 1024u32,
+        Some("m" | "mb") => 1024 * 1024u32,
+        _ => 1u32,
+    };
+
+    let base = num_part
+        .trim()
+        .parse::<u32>()
+        .map_err(|_| format!("Invalid RAM size number '{num_part}'"))?;
+
+    base.checked_mul(multiplier)
+        .ok_or_else(|| format!("RAM size value '{value}' overflows u32"))
+}
+
+fn parse_cpu_type(value: &str) -> Result<m68k::CpuType, String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "68000" | "m68000" => Ok(m68k::CpuType::M68000),
+        "68010" | "m68010" => Ok(m68k::CpuType::M68010),
+        "68ec020" | "m68ec020" => Ok(m68k::CpuType::M68EC020),
+        "68020" | "m68020" => Ok(m68k::CpuType::M68020),
+        "68ec030" | "m68ec030" => Ok(m68k::CpuType::M68EC030),
+        "68030" | "m68030" => Ok(m68k::CpuType::M68030),
+        "68ec040" | "m68ec040" => Ok(m68k::CpuType::M68EC040),
+        "68lc040" | "m68lc040" => Ok(m68k::CpuType::M68LC040),
+        "68040" | "m68040" => Ok(m68k::CpuType::M68040),
+        _ => Err(format!(
+            "Unsupported CPU type '{value}'. Supported: 68000, 68010, 68020, 68030, 68040"
+        )),
     }
 }
 
@@ -336,10 +710,32 @@ fn infer_model_from_rom(rom_path: &str, rom_size: usize) -> MachineModel {
     }
 }
 
-fn print_usage() {
-    eprintln!(
-        "Usage: rumiga-desktop [--model a500|a500-plus|a600|a1200] [--scale 1|2|4|8|16|32] [--viewport auto|raw] [--no-vertical-stretch] [--floppy-speed 100|200|400|800|turbo] <kickstart.rom> [df0.adf] [df1.adf] [df2.adf] [df3.adf]"
-    );
+fn print_usage(to_stdout: bool) {
+    let msg = "Usage: rumiga-desktop [options] <kickstart.rom> [floppy1.adf] [floppy2.adf] ...\n\n\
+               Options:\n  \
+                 -m, --model <model>     Machine profile: a500, a500-plus, a600, a1200\n  \
+                 -s, --scale <factor>    Window scale: 1, 2, 4, 8, 16, 32 [default: 1]\n  \
+                     --viewport <mode>   Viewport mode: auto, raw [default: auto]\n  \
+                     --no-vertical-stretch  Disable vertical line doubling\n  \
+                     --floppy-speed <%>  Floppy read speed: 100%, 200%, 400%, 800%, turbo\n  \
+                     --hdf <file.hdf>    Mount Gayle IDE virtual hardfile (.hdf)\n  \
+                     --cpu <type>        Override CPU: 68000, 68010, 68020, 68030, 68040\n  \
+                     --chip-ram <size>   Override Chip RAM size: e.g. 512K, 1M, 2M\n  \
+                     --slow-ram <size>   Override Slow RAM size: e.g. 512K, 1M\n  \
+                     --fast-ram <size>   Override Fast RAM size: e.g. 1M, 2M, 4M, 8M\n  \
+                     --pal               Force PAL video timing\n  \
+                     --ntsc              Force NTSC video timing\n  \
+                     --df0 <file.adf>    Explicitly mount floppy in DF0\n  \
+                     --df1 <file.adf>    Explicitly mount floppy in DF1\n  \
+                     --df2 <file.adf>    Explicitly mount floppy in DF2\n  \
+                     --df3 <file.adf>    Explicitly mount floppy in DF3\n  \
+                     --trace-cpu <file>  Save assembly instruction trace to a file\n  \
+                     --trace-limit <n>   Stop tracing after N instructions";
+    if to_stdout {
+        println!("{msg}");
+    } else {
+        eprintln!("{msg}");
+    }
 }
 
 const fn presented_height(vertical_stretch: bool) -> usize {
@@ -510,6 +906,31 @@ const fn map_key_to_amiga(key: Key) -> Option<u8> {
 mod tests {
     use super::*;
 
+    fn default_test_args() -> LaunchArgs {
+        LaunchArgs {
+            model: None,
+            scale: DEFAULT_SCALE,
+            viewport_mode: ViewportMode::Auto,
+            vertical_stretch: true,
+            floppy_speed_percent: FLOPPY_SPEED_COMPATIBLE_PERCENT,
+            rom_path: "kick.rom".to_owned(),
+            adf_paths: Vec::new(),
+            hdf_path: None,
+            cpu: None,
+            chip_ram: None,
+            slow_ram: None,
+            fast_ram: None,
+            pal: false,
+            ntsc: false,
+            df0: None,
+            df1: None,
+            df2: None,
+            df3: None,
+            trace_cpu: None,
+            trace_limit: None,
+        }
+    }
+
     #[test]
     fn parse_args_accepts_model_rom_and_disk() {
         let args = vec![
@@ -523,12 +944,8 @@ mod tests {
             parse_args(&args),
             Ok(LaunchArgs {
                 model: Some(MachineModel::A1200),
-                scale: DEFAULT_SCALE,
-                viewport_mode: ViewportMode::Auto,
-                vertical_stretch: true,
-                floppy_speed_percent: FLOPPY_SPEED_COMPATIBLE_PERCENT,
-                rom_path: "kick.rom".to_owned(),
                 adf_paths: vec!["workbench.adf".to_owned()],
+                ..default_test_args()
             })
         );
     }
@@ -546,18 +963,13 @@ mod tests {
         assert_eq!(
             parse_args(&args),
             Ok(LaunchArgs {
-                model: None,
-                scale: DEFAULT_SCALE,
-                viewport_mode: ViewportMode::Auto,
-                vertical_stretch: true,
-                floppy_speed_percent: FLOPPY_SPEED_COMPATIBLE_PERCENT,
-                rom_path: "kick.rom".to_owned(),
                 adf_paths: vec![
                     "df0.adf".to_owned(),
                     "df1.adf".to_owned(),
                     "df2.adf".to_owned(),
                     "df3.adf".to_owned(),
                 ],
+                ..default_test_args()
             })
         );
     }
@@ -569,13 +981,8 @@ mod tests {
         assert_eq!(
             parse_args(&args),
             Ok(LaunchArgs {
-                model: None,
                 scale: 1,
-                viewport_mode: ViewportMode::Auto,
-                vertical_stretch: true,
-                floppy_speed_percent: FLOPPY_SPEED_COMPATIBLE_PERCENT,
-                rom_path: "kick.rom".to_owned(),
-                adf_paths: Vec::new(),
+                ..default_test_args()
             })
         );
     }
@@ -590,13 +997,8 @@ mod tests {
     #[test]
     fn select_model_infers_a1200_from_rom_name() {
         let args = LaunchArgs {
-            model: None,
-            scale: DEFAULT_SCALE,
-            viewport_mode: ViewportMode::Auto,
-            vertical_stretch: true,
-            floppy_speed_percent: FLOPPY_SPEED_COMPATIBLE_PERCENT,
             rom_path: "kick.a1200.46.143.rom".to_owned(),
-            adf_paths: Vec::new(),
+            ..default_test_args()
         };
 
         assert_eq!(select_model(&args, ROM_SIZE_512K), Ok(MachineModel::A1200));
@@ -606,12 +1008,8 @@ mod tests {
     fn select_model_rejects_wrong_rom_size() {
         let args = LaunchArgs {
             model: Some(MachineModel::A1200),
-            scale: DEFAULT_SCALE,
-            viewport_mode: ViewportMode::Auto,
-            vertical_stretch: true,
-            floppy_speed_percent: FLOPPY_SPEED_COMPATIBLE_PERCENT,
             rom_path: "kick.a500.34.005.rom".to_owned(),
-            adf_paths: Vec::new(),
+            ..default_test_args()
         };
 
         assert!(select_model(&args, ROM_SIZE_256K).is_err());
@@ -629,13 +1027,9 @@ mod tests {
         assert_eq!(
             parse_args(&args),
             Ok(LaunchArgs {
-                model: None,
-                scale: DEFAULT_SCALE,
                 viewport_mode: ViewportMode::Raw,
                 vertical_stretch: false,
-                floppy_speed_percent: FLOPPY_SPEED_COMPATIBLE_PERCENT,
-                rom_path: "kick.rom".to_owned(),
-                adf_paths: Vec::new(),
+                ..default_test_args()
             })
         );
     }
@@ -651,13 +1045,8 @@ mod tests {
         assert_eq!(
             parse_args(&args),
             Ok(LaunchArgs {
-                model: None,
-                scale: DEFAULT_SCALE,
-                viewport_mode: ViewportMode::Auto,
-                vertical_stretch: true,
                 floppy_speed_percent: 800,
-                rom_path: "kick.rom".to_owned(),
-                adf_paths: Vec::new(),
+                ..default_test_args()
             })
         );
     }
@@ -673,13 +1062,25 @@ mod tests {
         assert_eq!(
             parse_args(&args),
             Ok(LaunchArgs {
-                model: None,
-                scale: DEFAULT_SCALE,
-                viewport_mode: ViewportMode::Auto,
-                vertical_stretch: true,
                 floppy_speed_percent: FLOPPY_SPEED_TURBO_PERCENT,
-                rom_path: "kick.rom".to_owned(),
-                adf_paths: Vec::new(),
+                ..default_test_args()
+            })
+        );
+    }
+
+    #[test]
+    fn parse_args_accepts_hdf() {
+        let args = vec![
+            "--hdf".to_owned(),
+            "system.hdf".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+
+        assert_eq!(
+            parse_args(&args),
+            Ok(LaunchArgs {
+                hdf_path: Some("system.hdf".to_owned()),
+                ..default_test_args()
             })
         );
     }
@@ -785,5 +1186,137 @@ mod tests {
         ));
 
         assert_eq!(output, [10, 11, 10, 11, 20, 21, 20, 21]);
+    }
+
+    #[test]
+    fn test_parse_ram_size() {
+        assert_eq!(parse_ram_size("512k"), Ok(512 * 1024));
+        assert_eq!(parse_ram_size("1M"), Ok(1024 * 1024));
+        assert_eq!(parse_ram_size("2MB"), Ok(2 * 1024 * 1024));
+        assert_eq!(parse_ram_size("8mb"), Ok(8 * 1024 * 1024));
+        assert_eq!(parse_ram_size("  256  KB  "), Ok(256 * 1024));
+        assert_eq!(parse_ram_size("0"), Ok(0));
+        assert!(parse_ram_size("").is_err());
+        assert!(parse_ram_size("abc").is_err());
+    }
+
+    #[test]
+    fn test_parse_cpu_type() {
+        assert_eq!(parse_cpu_type("68000"), Ok(m68k::CpuType::M68000));
+        assert_eq!(parse_cpu_type("m68020"), Ok(m68k::CpuType::M68020));
+        assert_eq!(parse_cpu_type("68030"), Ok(m68k::CpuType::M68030));
+        assert_eq!(parse_cpu_type("68040"), Ok(m68k::CpuType::M68040));
+        assert!(parse_cpu_type("68060").is_err());
+    }
+
+    #[test]
+    fn parse_args_accepts_overrides() {
+        let args = vec![
+            "--cpu".to_owned(),
+            "68030".to_owned(),
+            "--chip-ram".to_owned(),
+            "2M".to_owned(),
+            "--slow-ram".to_owned(),
+            "512K".to_owned(),
+            "--fast-ram".to_owned(),
+            "4M".to_owned(),
+            "--pal".to_owned(),
+            "--df0".to_owned(),
+            "disk0.adf".to_owned(),
+            "--df1".to_owned(),
+            "disk1.adf".to_owned(),
+            "--trace-cpu".to_owned(),
+            "trace.log".to_owned(),
+            "--trace-limit".to_owned(),
+            "5000".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+
+        assert_eq!(
+            parse_args(&args),
+            Ok(LaunchArgs {
+                cpu: Some(m68k::CpuType::M68030),
+                chip_ram: Some(2 * 1024 * 1024),
+                slow_ram: Some(512 * 1024),
+                fast_ram: Some(4 * 1024 * 1024),
+                pal: true,
+                df0: Some("disk0.adf".to_owned()),
+                df1: Some("disk1.adf".to_owned()),
+                trace_cpu: Some("trace.log".to_owned()),
+                trace_limit: Some(5000),
+                ..default_test_args()
+            })
+        );
+    }
+
+    #[test]
+    fn test_parse_args_rejects_conflicting_video() {
+        let args = vec![
+            "--pal".to_owned(),
+            "--ntsc".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+        assert!(parse_args(&args).is_err());
+    }
+
+    #[test]
+    fn test_parse_args_rejects_invalid_chip_ram() {
+        // Invalid size (3MB)
+        let args = vec![
+            "--chip-ram".to_owned(),
+            "3M".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+        assert!(parse_args(&args).is_err());
+    }
+
+    #[test]
+    fn test_parse_args_rejects_invalid_slow_ram() {
+        // Not a multiple of 256KB (100KB)
+        let args = vec![
+            "--slow-ram".to_owned(),
+            "100k".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+        assert!(parse_args(&args).is_err());
+
+        // Too large (2MB)
+        let args2 = vec![
+            "--slow-ram".to_owned(),
+            "2M".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+        assert!(parse_args(&args2).is_err());
+    }
+
+    #[test]
+    fn test_parse_args_rejects_invalid_fast_ram() {
+        // Not a multiple of 1MB (512KB)
+        let args = vec![
+            "--fast-ram".to_owned(),
+            "512k".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+        assert!(parse_args(&args).is_err());
+
+        // Too large (10MB)
+        let args2 = vec![
+            "--fast-ram".to_owned(),
+            "10M".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+        assert!(parse_args(&args2).is_err());
+    }
+
+    #[test]
+    fn test_parse_args_rejects_conflicting_floppies() {
+        // DF0 maps explicitly via --df0 AND positionally via workbench.adf
+        let args = vec![
+            "--df0".to_owned(),
+            "disk.adf".to_owned(),
+            "kick.rom".to_owned(),
+            "workbench.adf".to_owned(),
+        ];
+        assert!(parse_args(&args).is_err());
     }
 }
