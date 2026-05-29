@@ -32,3 +32,5 @@ Cargo.lock
 *.ADF
 *.hda
 *.HDA
+*.hdf
+*.HDF

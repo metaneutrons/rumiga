@@ -3,7 +3,9 @@
 
 //! Rumiga desktop binary — development and debugging target.
 
+use std::fmt::Write as _;
 use std::fs;
+use std::path::{Path, PathBuf};
 use std::process;
 
 use minifb::Key;
@@ -15,10 +17,12 @@ use rumiga_core::memory::MemoryConfig;
 use rumiga_core::playfield::{DISPLAY_HEIGHT, DISPLAY_WIDTH};
 use rumiga_platform::VideoOutput;
 use rumiga_platform_desktop::DesktopVideo;
+use sha2::{Digest, Sha256};
 
 const WIDTH: usize = DISPLAY_WIDTH as usize;
 const HEIGHT: usize = DISPLAY_HEIGHT as usize;
 const DEFAULT_SCALE: usize = 1;
+const DEFAULT_CAPTURE_FRAMES: u64 = 300;
 const VERTICAL_STRETCH_FACTOR: usize = 2;
 const ROM_SIZE_256K: usize = 256 * 1024;
 const ROM_SIZE_512K: usize = 512 * 1024;
@@ -77,6 +81,13 @@ impl ViewportMode {
             _ => None,
         }
     }
+
+    const fn name(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Raw => "raw",
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -101,6 +112,46 @@ struct LaunchArgs {
     df3: Option<String>,
     trace_cpu: Option<String>,
     trace_limit: Option<u64>,
+    capture_path: Option<String>,
+    capture_manifest_path: Option<String>,
+    capture_frames: u64,
+}
+
+#[derive(Clone, Debug)]
+struct FileEvidence {
+    path: String,
+    bytes: usize,
+    sha256: String,
+}
+
+struct CaptureFrame {
+    pixels: Vec<u16>,
+    width: usize,
+    height: usize,
+    source_y_start: usize,
+    source_y_end: usize,
+}
+
+struct CaptureEvidenceContext<'a> {
+    args: &'a LaunchArgs,
+    model: MachineModel,
+    config: &'a MemoryConfig,
+    rom: &'a FileEvidence,
+    floppies: &'a [Option<FileEvidence>; 4],
+    hdf: Option<&'a FileEvidence>,
+    capture_path: &'a str,
+}
+
+struct CaptureManifestContext<'a> {
+    image_path: &'a Path,
+    frame: &'a CaptureFrame,
+    args: &'a LaunchArgs,
+    model: MachineModel,
+    config: &'a MemoryConfig,
+    emulator: &'a Emulator,
+    rom: &'a FileEvidence,
+    floppies: &'a [Option<FileEvidence>; 4],
+    hdf: Option<&'a FileEvidence>,
 }
 
 #[allow(clippy::cognitive_complexity, clippy::too_many_lines)]
@@ -122,6 +173,7 @@ fn main() {
         eprintln!("Failed to read ROM file '{rom_path}': {e}");
         process::exit(1);
     });
+    let rom_evidence = file_evidence_from_bytes(rom_path, &rom_data);
 
     let model = select_model(&launch_args, rom_data.len()).unwrap_or_else(|e| {
         eprintln!("{e}");
@@ -149,6 +201,7 @@ fn main() {
     if let Some(fast_ram_override) = launch_args.fast_ram {
         config.fast_ram_size = fast_ram_override;
     }
+    let config_summary = config.clone();
 
     // Print hardware configuration summary
     eprintln!("--- Hardware Configuration ---");
@@ -187,6 +240,7 @@ fn main() {
     emulator.load_rom(&rom_data);
 
     let mut floppy_paths: [Option<String>; 4] = [None, None, None, None];
+    let mut floppy_evidence: [Option<FileEvidence>; 4] = std::array::from_fn(|_| None);
 
     // Helper closure to load floppy disk image into specified drive
     let mut load_floppy = |drive_idx: usize, path: &str| {
@@ -195,8 +249,10 @@ fn main() {
             process::exit(1);
         });
         eprintln!("Inserted {path} as DF{drive_idx}");
+        let evidence = file_evidence_from_bytes(path, &adf_data);
         emulator.insert_floppy(drive_idx, adf_data);
         floppy_paths[drive_idx] = Some(path.to_owned());
+        floppy_evidence[drive_idx] = Some(evidence);
     };
 
     // Load positional floppies
@@ -219,16 +275,37 @@ fn main() {
     }
 
     // Mount HDF if provided
+    let mut hdf_evidence = None;
     if let Some(ref hdf_path) = launch_args.hdf_path {
         let hdf_data = fs::read(hdf_path).unwrap_or_else(|e| {
             eprintln!("Failed to read HDF file '{hdf_path}': {e}");
             process::exit(1);
         });
+        hdf_evidence = Some(file_evidence_from_bytes(hdf_path, &hdf_data));
         eprintln!(
             "Mounted Gayle IDE HDF: {hdf_path} ({} bytes)",
             hdf_data.len()
         );
         emulator.insert_hdf(hdf_data);
+    }
+
+    if let Some(ref capture_path) = launch_args.capture_path {
+        if let Err(e) = capture_evidence(
+            &mut emulator,
+            &CaptureEvidenceContext {
+                args: &launch_args,
+                model,
+                config: &config_summary,
+                rom: &rom_evidence,
+                floppies: &floppy_evidence,
+                hdf: hdf_evidence.as_ref(),
+                capture_path,
+            },
+        ) {
+            eprintln!("Capture failed: {e}");
+            process::exit(1);
+        }
+        return;
     }
 
     let presented_height = presented_height(launch_args.vertical_stretch);
@@ -292,6 +369,14 @@ fn main() {
         emulator.clear_frame_ready();
     }
 
+    flush_dirty_media(&mut emulator, &launch_args, &floppy_paths);
+}
+
+fn flush_dirty_media(
+    emulator: &mut Emulator,
+    launch_args: &LaunchArgs,
+    floppy_paths: &[Option<String>; 4],
+) {
     // Write back dirty HDF sectors before exiting
     if let Some(ref hdf_path) = launch_args.hdf_path {
         if emulator.hdf_dirty() {
@@ -343,6 +428,9 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
     let mut df3 = None;
     let mut trace_cpu = None;
     let mut trace_limit = None;
+    let mut capture_path = None;
+    let mut capture_manifest_path = None;
+    let mut capture_frames = DEFAULT_CAPTURE_FRAMES;
     let mut positional = Vec::new();
     let mut index = 0;
 
@@ -472,6 +560,27 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
                 trace_limit = Some(limit);
                 index += 2;
             }
+            "--capture" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--capture requires a value".to_owned());
+                };
+                capture_path = Some(value.clone());
+                index += 2;
+            }
+            "--capture-manifest" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--capture-manifest requires a value".to_owned());
+                };
+                capture_manifest_path = Some(value.clone());
+                index += 2;
+            }
+            "--capture-frames" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--capture-frames requires a value".to_owned());
+                };
+                capture_frames = parse_capture_frames(value)?;
+                index += 2;
+            }
             "--help" | "-h" => return Err(String::new()),
             value if value.starts_with('-') => return Err(format!("Unknown option '{value}'")),
             value => {
@@ -491,6 +600,9 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
     // 1. Validate mutually exclusive video timings
     if pal && ntsc {
         return Err("Options --pal and --ntsc are mutually exclusive".to_owned());
+    }
+    if capture_path.is_none() && capture_manifest_path.is_some() {
+        return Err("--capture-manifest requires --capture".to_owned());
     }
 
     // 2. Validate custom Chip RAM constraints (critical for Alice/Lisa DMA masking)
@@ -586,6 +698,9 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
         df3,
         trace_cpu,
         trace_limit,
+        capture_path,
+        capture_manifest_path,
+        capture_frames,
     })
 }
 
@@ -613,6 +728,17 @@ fn parse_floppy_speed(value: &str) -> Result<u16, String> {
         Ok(numeric)
     } else {
         Err(format!("Unsupported floppy speed '{value}'"))
+    }
+}
+
+fn parse_capture_frames(value: &str) -> Result<u64, String> {
+    let frames = value
+        .parse::<u64>()
+        .map_err(|_| format!("Unsupported capture frame count '{value}'"))?;
+    if frames == 0 {
+        Err("Capture frame count must be greater than zero".to_owned())
+    } else {
+        Ok(frames)
     }
 }
 
@@ -730,12 +856,418 @@ fn print_usage(to_stdout: bool) {
                      --df2 <file.adf>    Explicitly mount floppy in DF2\n  \
                      --df3 <file.adf>    Explicitly mount floppy in DF3\n  \
                      --trace-cpu <file>  Save assembly instruction trace to a file\n  \
-                     --trace-limit <n>   Stop tracing after N instructions";
+                     --trace-limit <n>   Stop tracing after N instructions\n  \
+                     --capture <file.png>  Run headless and save a PNG screenshot\n  \
+                     --capture-frames <n>  Frames to run before capture [default: 300]\n  \
+                     --capture-manifest <file.json>  Save capture evidence manifest";
     if to_stdout {
         println!("{msg}");
     } else {
         eprintln!("{msg}");
     }
+}
+
+fn capture_evidence(
+    emulator: &mut Emulator,
+    context: &CaptureEvidenceContext<'_>,
+) -> Result<(), String> {
+    for _ in 0..context.args.capture_frames {
+        emulator.run_frame();
+    }
+
+    let frame = prepare_capture_frame(emulator.framebuffer(), context.args)?;
+    let image_path = Path::new(context.capture_path);
+    write_rgb565_png(image_path, &frame.pixels, frame.width, frame.height)?;
+
+    let manifest_path = context
+        .args
+        .capture_manifest_path
+        .as_deref()
+        .map_or_else(|| default_manifest_path(image_path), PathBuf::from);
+    let manifest_context = CaptureManifestContext {
+        image_path,
+        frame: &frame,
+        args: context.args,
+        model: context.model,
+        config: context.config,
+        emulator,
+        rom: context.rom,
+        floppies: context.floppies,
+        hdf: context.hdf,
+    };
+    write_capture_manifest(&manifest_path, &manifest_context)?;
+
+    eprintln!(
+        "Captured {}x{} after {} frames: {}",
+        frame.width,
+        frame.height,
+        context.args.capture_frames,
+        image_path.display()
+    );
+    eprintln!("Capture manifest: {}", manifest_path.display());
+    Ok(())
+}
+
+fn prepare_capture_frame(
+    framebuffer: &[u16],
+    launch_args: &LaunchArgs,
+) -> Result<CaptureFrame, String> {
+    if launch_args.vertical_stretch {
+        let output_height = presented_height(true);
+        let (source_y_start, source_y_end) = if launch_args.viewport_mode == ViewportMode::Auto {
+            auto_vertical_bounds(framebuffer, WIDTH, HEIGHT).unwrap_or((0, HEIGHT))
+        } else {
+            (0, HEIGHT)
+        };
+        let mut pixels = vec![0u16; WIDTH * output_height];
+        if !stretch_vertical_viewport(
+            framebuffer,
+            WIDTH,
+            HEIGHT,
+            source_y_start,
+            source_y_end,
+            output_height,
+            &mut pixels,
+        ) {
+            return Err("Failed to prepare capture frame".to_owned());
+        }
+
+        Ok(CaptureFrame {
+            pixels,
+            width: WIDTH,
+            height: output_height,
+            source_y_start,
+            source_y_end,
+        })
+    } else {
+        let pixel_count = WIDTH * HEIGHT;
+        if framebuffer.len() < pixel_count {
+            return Err("Framebuffer is smaller than the visible display".to_owned());
+        }
+
+        Ok(CaptureFrame {
+            pixels: framebuffer[..pixel_count].to_vec(),
+            width: WIDTH,
+            height: HEIGHT,
+            source_y_start: 0,
+            source_y_end: HEIGHT,
+        })
+    }
+}
+
+fn write_rgb565_png(
+    path: &Path,
+    pixels: &[u16],
+    width: usize,
+    height: usize,
+) -> Result<(), String> {
+    let expected_pixels = width
+        .checked_mul(height)
+        .ok_or_else(|| "Capture dimensions overflow".to_owned())?;
+    if pixels.len() != expected_pixels {
+        return Err(format!(
+            "Capture buffer length mismatch: expected {expected_pixels}, got {}",
+            pixels.len()
+        ));
+    }
+
+    create_parent_dirs(path)?;
+    let file = fs::File::create(path)
+        .map_err(|e| format!("Failed to create PNG '{}': {e}", path.display()))?;
+    let width = u32::try_from(width).map_err(|_| "Capture width exceeds u32".to_owned())?;
+    let height = u32::try_from(height).map_err(|_| "Capture height exceeds u32".to_owned())?;
+    let mut encoder = png::Encoder::new(file, width, height);
+    encoder.set_color(png::ColorType::Rgb);
+    encoder.set_depth(png::BitDepth::Eight);
+
+    let mut writer = encoder
+        .write_header()
+        .map_err(|e| format!("Failed to write PNG header '{}': {e}", path.display()))?;
+    let mut rgb = Vec::with_capacity(expected_pixels * 3);
+    for &pixel in pixels {
+        let [r, g, b] = rgb565_to_rgb8(pixel);
+        rgb.push(r);
+        rgb.push(g);
+        rgb.push(b);
+    }
+    writer
+        .write_image_data(&rgb)
+        .map_err(|e| format!("Failed to write PNG data '{}': {e}", path.display()))
+}
+
+fn write_capture_manifest(path: &Path, context: &CaptureManifestContext<'_>) -> Result<(), String> {
+    create_parent_dirs(path)?;
+
+    let mut json = String::new();
+    let _ = writeln!(json, "{{");
+    let _ = writeln!(
+        json,
+        "  \"image\": {},",
+        json_string(&context.image_path.display().to_string())
+    );
+    let _ = writeln!(json, "  \"model\": {},", json_string(context.model.name()));
+    let _ = writeln!(
+        json,
+        "  \"cpu\": {},",
+        json_string(&format!("{:?}", context.config.cpu_type))
+    );
+    let _ = writeln!(
+        json,
+        "  \"video_standard\": {},",
+        json_string(if context.args.ntsc { "ntsc" } else { "pal" })
+    );
+    let _ = writeln!(
+        json,
+        "  \"memory\": {{ \"chip_ram_bytes\": {}, \"slow_ram_bytes\": {}, \"fast_ram_bytes\": {}, \"rom_bytes\": {} }},",
+        context.config.chip_ram_size,
+        context.config.slow_ram_size,
+        context.config.fast_ram_size,
+        context.config.rom_size
+    );
+    let _ = writeln!(
+        json,
+        "  \"run\": {{ \"frames\": {}, \"total_cycles\": {}, \"pc\": {}, \"sr\": {}, \"stopped\": {}, \"trace_count\": {} }},",
+        context.args.capture_frames,
+        context.emulator.total_cycles,
+        json_string(&format!("0x{:08X}", context.emulator.cpu.pc)),
+        json_string(&format!("0x{:04X}", context.emulator.cpu.get_sr())),
+        context.emulator.cpu.is_stopped(),
+        context.emulator.trace_count
+    );
+    let _ = writeln!(
+        json,
+        "  \"viewport\": {{ \"mode\": {}, \"vertical_stretch\": {}, \"source_width\": {}, \"source_height\": {}, \"source_y_start\": {}, \"source_y_end\": {}, \"output_width\": {}, \"output_height\": {} }},",
+        json_string(context.args.viewport_mode.name()),
+        context.args.vertical_stretch,
+        WIDTH,
+        HEIGHT,
+        context.frame.source_y_start,
+        context.frame.source_y_end,
+        context.frame.width,
+        context.frame.height
+    );
+    let _ = writeln!(
+        json,
+        "  \"framebuffer\": {{ \"background_rgb565\": {}, \"pixels_different_from_background\": {}, \"non_zero_rgb565_pixels\": {}, \"distinct_colors\": {} }},",
+        json_string(&rgb565_hex(first_pixel(&context.frame.pixels))),
+        count_pixels_different_from_first(&context.frame.pixels),
+        count_non_zero_pixels(&context.frame.pixels),
+        count_distinct_colors(&context.frame.pixels)
+    );
+    push_floppy_state_json(&mut json, &context.emulator.floppy);
+    json.push_str("  \"media\": {\n");
+    push_file_evidence_json(&mut json, "rom", context.rom, "    ", true);
+    for drive in 0..4 {
+        let key = format!("df{drive}");
+        if let Some(ref evidence) = context.floppies[drive] {
+            push_file_evidence_json(&mut json, &key, evidence, "    ", true);
+        } else {
+            let _ = writeln!(json, "    {key:?}: null,");
+        }
+    }
+    if let Some(hdf) = context.hdf {
+        push_file_evidence_json(&mut json, "hdf", hdf, "    ", false);
+    } else {
+        json.push_str("    \"hdf\": null\n");
+    }
+    json.push_str("  }\n");
+    json.push_str("}\n");
+
+    fs::write(path, json).map_err(|e| format!("Failed to write manifest '{}': {e}", path.display()))
+}
+
+fn push_floppy_state_json(json: &mut String, floppy: &rumiga_core::floppy::FloppyController) {
+    let _ = writeln!(json, "  \"floppy\": {{");
+    let _ = writeln!(json, "    \"speed_percent\": {},", floppy.speed_percent());
+    let _ = writeln!(
+        json,
+        "    \"selected_mask\": {},",
+        json_string(&format!("0x{:02X}", floppy.selected))
+    );
+    let _ = writeln!(
+        json,
+        "    \"any_drive_selected\": {},",
+        floppy.any_drive_selected()
+    );
+    let _ = writeln!(
+        json,
+        "    \"first_selected_drive\": {},",
+        floppy.first_selected_drive()
+    );
+    let _ = writeln!(json, "    \"side\": {},", floppy.side);
+    let _ = writeln!(json, "    \"direction\": {},", floppy.direction);
+    let _ = writeln!(
+        json,
+        "    \"dma_state\": {},",
+        json_string(&format!("{:?}", floppy.dma_state))
+    );
+    let _ = writeln!(
+        json,
+        "    \"dsklen\": {},",
+        json_string(&format!("0x{:04X}", floppy.dsklen))
+    );
+    let _ = writeln!(json, "    \"dsk_length\": {},", floppy.dsk_length);
+    let _ = writeln!(
+        json,
+        "    \"dskpt\": {},",
+        json_string(&format!("0x{:08X}", floppy.dskpt))
+    );
+    let _ = writeln!(
+        json,
+        "    \"dsksync\": {},",
+        json_string(&format!("0x{:04X}", floppy.dsksync))
+    );
+    let _ = writeln!(
+        json,
+        "    \"dskbytr\": {},",
+        json_string(&format!("0x{:04X}", floppy.dskbytr_val))
+    );
+    let _ = writeln!(
+        json,
+        "    \"pending_sync_irq\": {},",
+        floppy.pending_sync_irq
+    );
+    let _ = writeln!(json, "    \"pending_blk_irq\": {},", floppy.pending_blk_irq);
+    json.push_str("    \"drives\": [\n");
+    for (index, drive) in floppy.drives.iter().enumerate() {
+        let comma = if index + 1 == floppy.drives.len() {
+            ""
+        } else {
+            ","
+        };
+        let bytes = drive.data.as_ref().map_or(0, Vec::len);
+        let _ = writeln!(
+            json,
+            "      {{ \"name\": {}, \"inserted\": {}, \"bytes\": {}, \"cylinder\": {}, \"motor\": {}, \"dskready\": {}, \"dskready_up_time\": {}, \"disk_changed\": {}, \"dirty\": {}, \"mfm_pos\": {}, \"mfm_track_words\": {} }}{comma}",
+            json_string(&format!("DF{index}")),
+            drive.data.is_some(),
+            bytes,
+            drive.cyl,
+            drive.motor,
+            drive.dskready,
+            drive.dskready_up_time,
+            drive.disk_changed,
+            drive.dirty,
+            drive.mfm_pos,
+            drive.mfm_track.len()
+        );
+    }
+    json.push_str("    ]\n");
+    json.push_str("  },\n");
+}
+
+fn push_file_evidence_json(
+    json: &mut String,
+    key: &str,
+    evidence: &FileEvidence,
+    indent: &str,
+    trailing_comma: bool,
+) {
+    let comma = if trailing_comma { "," } else { "" };
+    let _ = writeln!(
+        json,
+        "{indent}{}: {{ \"path\": {}, \"bytes\": {}, \"sha256\": {} }}{comma}",
+        json_string(key),
+        json_string(&evidence.path),
+        evidence.bytes,
+        json_string(&evidence.sha256)
+    );
+}
+
+fn create_parent_dirs(path: &Path) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create directory '{}': {e}", parent.display()))?;
+        }
+    }
+    Ok(())
+}
+
+fn default_manifest_path(image_path: &Path) -> PathBuf {
+    let mut path = image_path.to_path_buf();
+    path.set_extension("json");
+    path
+}
+
+fn file_evidence_from_bytes(path: &str, data: &[u8]) -> FileEvidence {
+    FileEvidence {
+        path: path.to_owned(),
+        bytes: data.len(),
+        sha256: sha256_hex(data),
+    }
+}
+
+fn sha256_hex(data: &[u8]) -> String {
+    let digest = Sha256::digest(data);
+    let mut hex = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        let _ = write!(hex, "{byte:02x}");
+    }
+    hex
+}
+
+fn rgb565_to_rgb8(pixel: u16) -> [u8; 3] {
+    [
+        expand_5_to_8((pixel >> 11) & 0x1F),
+        expand_6_to_8((pixel >> 5) & 0x3F),
+        expand_5_to_8(pixel & 0x1F),
+    ]
+}
+
+fn expand_5_to_8(value: u16) -> u8 {
+    u8::try_from((value * 255 + 15) / 31).unwrap_or(u8::MAX)
+}
+
+fn expand_6_to_8(value: u16) -> u8 {
+    u8::try_from((value * 255 + 31) / 63).unwrap_or(u8::MAX)
+}
+
+fn first_pixel(pixels: &[u16]) -> u16 {
+    pixels.first().copied().unwrap_or_default()
+}
+
+fn rgb565_hex(pixel: u16) -> String {
+    format!("0x{pixel:04X}")
+}
+
+fn count_pixels_different_from_first(pixels: &[u16]) -> usize {
+    let background = first_pixel(pixels);
+    pixels.iter().filter(|&&pixel| pixel != background).count()
+}
+
+fn count_non_zero_pixels(pixels: &[u16]) -> usize {
+    pixels.iter().filter(|&&pixel| pixel != 0).count()
+}
+
+fn count_distinct_colors(pixels: &[u16]) -> usize {
+    let mut colors = Vec::new();
+    for &pixel in pixels {
+        if !colors.contains(&pixel) {
+            colors.push(pixel);
+        }
+    }
+    colors.len()
+}
+
+fn json_string(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len() + 2);
+    escaped.push('"');
+    for ch in value.chars() {
+        match ch {
+            '"' => escaped.push_str("\\\""),
+            '\\' => escaped.push_str("\\\\"),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            ch if ch.is_control() => {
+                let _ = write!(escaped, "\\u{:04x}", ch as u32);
+            }
+            ch => escaped.push(ch),
+        }
+    }
+    escaped.push('"');
+    escaped
 }
 
 const fn presented_height(vertical_stretch: bool) -> usize {
@@ -928,6 +1460,9 @@ mod tests {
             df3: None,
             trace_cpu: None,
             trace_limit: None,
+            capture_path: None,
+            capture_manifest_path: None,
+            capture_frames: DEFAULT_CAPTURE_FRAMES,
         }
     }
 
@@ -1086,6 +1621,40 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_accepts_capture_options() {
+        let args = vec![
+            "--capture".to_owned(),
+            "evidence/a1200.png".to_owned(),
+            "--capture-frames".to_owned(),
+            "1200".to_owned(),
+            "--capture-manifest".to_owned(),
+            "evidence/a1200.json".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+
+        assert_eq!(
+            parse_args(&args),
+            Ok(LaunchArgs {
+                capture_path: Some("evidence/a1200.png".to_owned()),
+                capture_manifest_path: Some("evidence/a1200.json".to_owned()),
+                capture_frames: 1200,
+                ..default_test_args()
+            })
+        );
+    }
+
+    #[test]
+    fn parse_args_rejects_manifest_without_capture() {
+        let args = vec![
+            "--capture-manifest".to_owned(),
+            "evidence/a1200.json".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+
+        assert!(parse_args(&args).is_err());
+    }
+
+    #[test]
     fn parse_args_rejects_unsupported_floppy_speed() {
         let args = vec![
             "--floppy-speed".to_owned(),
@@ -1186,6 +1755,22 @@ mod tests {
         ));
 
         assert_eq!(output, [10, 11, 10, 11, 20, 21, 20, 21]);
+    }
+
+    #[test]
+    fn prepare_capture_frame_uses_presented_height() {
+        let framebuffer = vec![0xFFFFu16; WIDTH * HEIGHT];
+        let frame =
+            prepare_capture_frame(&framebuffer, &default_test_args()).expect("valid frame buffer");
+
+        assert_eq!(frame.width, WIDTH);
+        assert_eq!(frame.height, HEIGHT * 2);
+        assert_eq!(frame.pixels.len(), WIDTH * HEIGHT * 2);
+    }
+
+    #[test]
+    fn json_string_escapes_control_characters() {
+        assert_eq!(json_string("a\"b\\c\n"), "\"a\\\"b\\\\c\\n\"");
     }
 
     #[test]

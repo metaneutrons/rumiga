@@ -38,6 +38,12 @@ as a regression oracle, but `rumiga-core` itself now runs through `m68k`.
 - CPU instruction tracing from the desktop runner.
 - Expanded desktop CLI validation for model, CPU, RAM, video standard, HDF,
   explicit DF0-DF3 mapping, floppy speed, and trace limits.
+- Headless desktop evidence capture with `--capture`, `--capture-frames`, and
+  `--capture-manifest`. It writes a PNG plus a JSON manifest containing runtime
+  configuration, PC/SR, viewport crop/stretch data, framebuffer statistics,
+  floppy controller state, and SHA-256 hashes for the ROM and mounted disk
+  images. Capture mode leaves dirty floppy/HDF buffers in memory and does not
+  mutate the source media.
 
 ## Verification Status
 
@@ -45,10 +51,28 @@ The current working tree has passed:
 
 - `cargo check --workspace --all-targets`
 - `cargo test --workspace`
+- `cargo clippy --workspace --all-targets -- -D warnings`
 
 The local machine also has Kickstart ROMs available, so the integration suite
 exercises A500 Kickstart 1.3 and A1200 Kickstart 3.1 boot progress. These tests
 skip cleanly on machines without user-provided ROM files.
+
+Rumiga can now freeze A1200 visual evidence without the interactive minifb
+window, for example:
+
+```bash
+cargo run -p rumiga-desktop -- \
+  --model a1200 \
+  --capture target/evidence/a1200/workbench.png \
+  --capture-frames 1200 \
+  --hdf workbench.hdf \
+  <kickstart.rom>
+```
+
+FS-UAE remains useful as the macOS reference oracle. Its source tree already has
+screenshot plumbing and user options for screenshot output directory, prefix,
+and capture mask, so FS-UAE should only need a deterministic trigger hook if the
+existing screenshot controls cannot be automated cleanly.
 
 ## Remaining Stabilization
 
@@ -56,8 +80,9 @@ skip cleanly on machines without user-provided ROM files.
 - Remove stale references to `r68k` from docs and core-only dependencies.
 - Keep ROM and disk images out of git; they belong in ignored local `assets/`
   or the user's configured ROM/ADF paths.
-- Add screenshot/trace-based boot baselines for A500, A1200, Workbench ADF,
-  and HDF boot once the runtime behavior is ready to freeze.
+- Promote headless screenshot manifests into stable boot baselines for A500,
+  A1200, Workbench ADF, and HDF boot once exact runtime behavior is ready to
+  freeze.
 
 ## Next Engineering Steps
 

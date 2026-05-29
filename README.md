@@ -76,7 +76,27 @@ cargo run -p rumiga-desktop -- --help
 
 # Run desktop emulator
 cargo run -p rumiga-desktop -- --model a1200 --cpu 68020 --hdf workbench.hdf <kickstart.rom> [df0.adf]
+
+# Freeze a headless screenshot and evidence manifest
+cargo run -p rumiga-desktop -- \
+  --model a1200 \
+  --capture target/evidence/a1200/workbench.png \
+  --capture-frames 1200 \
+  --hdf workbench.hdf \
+  <kickstart.rom>
 ```
+
+`--capture` runs without opening a window, saves the same RGB565 framebuffer
+presentation used by the desktop viewport path, and writes a sibling JSON
+manifest by default. The manifest records model, CPU, RAM, frame count, PC/SR,
+viewport crop/stretch settings, framebuffer statistics, floppy controller state,
+and SHA-256 hashes for the ROM and mounted media. Capture mode does not write
+dirty floppy or HDF buffers back to the source files.
+
+For external reference captures on macOS, FS-UAE already has screenshot support
+via `screenshots_output_dir`, `screenshots_output_prefix`, and
+`screenshots_output_mask`. Rumiga evidence should come from Rumiga first; FS-UAE
+is the comparison oracle when validating A1200 viewport or boot behavior.
 
 ### ESP-IDF Target
 
