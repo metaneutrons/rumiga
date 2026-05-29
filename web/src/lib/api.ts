@@ -43,6 +43,7 @@ export interface AudioConfig {
 
 export type ScalingMode = 'Integer' | 'AspectFit' | 'Stretch';
 export type ViewportMode = 'Raw' | 'Auto' | 'Manual';
+export type FloppySpeedPercent = 0 | 100 | 200 | 400 | 800;
 
 export interface ViewportConfig {
   mode: ViewportMode;
@@ -66,6 +67,7 @@ export interface MachineConfig {
   fast_ram_kb: number;
   rom_file: string;
   floppy: [string | null, string | null, string | null, string | null];
+  floppy_speed_percent: FloppySpeedPercent;
   audio: AudioConfig;
   display: DisplayConfig;
 }

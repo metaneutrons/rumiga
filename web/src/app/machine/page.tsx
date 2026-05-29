@@ -12,6 +12,7 @@ import {
   type AmigaModel,
   type ScalingMode,
   type ViewportMode,
+  type FloppySpeedPercent,
 } from '@/lib/api';
 
 const DEFAULT_VIEWPORT: MachineConfig['display']['viewport'] = {
@@ -22,10 +23,22 @@ const DEFAULT_VIEWPORT: MachineConfig['display']['viewport'] = {
   height: 288,
   vertical_stretch: true,
 };
+const DEFAULT_FLOPPY_SPEED_PERCENT: FloppySpeedPercent = 100;
+const FLOPPY_SPEED_OPTIONS: FloppySpeedPercent[] = [100, 200, 400, 800, 0];
+
+function isFloppySpeedPercent(value: unknown): value is FloppySpeedPercent {
+  return (
+    typeof value === 'number' &&
+    (value === 0 || value === 100 || value === 200 || value === 400 || value === 800)
+  );
+}
 
 function normalizeConfig(config: MachineConfig): MachineConfig {
   return {
     ...config,
+    floppy_speed_percent: isFloppySpeedPercent(config.floppy_speed_percent)
+      ? config.floppy_speed_percent
+      : DEFAULT_FLOPPY_SPEED_PERCENT,
     display: {
       ...config.display,
       viewport: {
@@ -188,6 +201,25 @@ export default function MachinePage() {
 
         <fieldset className="space-y-3">
           <legend className="text-lg font-semibold">Floppy Drives</legend>
+          <label className="block">
+            <span className="text-sm text-zinc-400">Drive speed</span>
+            <select
+              value={config.floppy_speed_percent}
+              onChange={(e) =>
+                setConfig({
+                  ...config,
+                  floppy_speed_percent: Number(e.target.value) as FloppySpeedPercent,
+                })
+              }
+              className="mt-1 block w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm"
+            >
+              {FLOPPY_SPEED_OPTIONS.map((speed) => (
+                <option key={speed} value={speed}>
+                  {speed === 0 ? 'Turbo' : `${speed}%${speed === 100 ? ' compatible' : ''}`}
+                </option>
+              ))}
+            </select>
+          </label>
           {config.floppy.map((disk, i) => (
             <label key={i} className="block">
               <span className="text-sm text-zinc-400">DF{i}:</span>

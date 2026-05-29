@@ -70,7 +70,7 @@ cargo build --workspace
 cargo test --workspace
 
 # Run desktop emulator
-cargo run -p rumiga-desktop -- [--model a500|a500-plus|a600|a1200] [--scale 1|2|4|8|16|32] [--viewport auto|raw] [--no-vertical-stretch] <kickstart.rom> [df0.adf] [df1.adf] [df2.adf] [df3.adf]
+cargo run -p rumiga-desktop -- [--model a500|a500-plus|a600|a1200] [--scale 1|2|4|8|16|32] [--viewport auto|raw] [--no-vertical-stretch] [--floppy-speed 100|200|400|800|turbo] <kickstart.rom> [df0.adf] [df1.adf] [df2.adf] [df3.adf]
 ```
 
 ### ESP-IDF Target

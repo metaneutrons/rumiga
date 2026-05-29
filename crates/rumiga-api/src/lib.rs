@@ -207,6 +207,8 @@ pub struct MachineConfig {
     pub fast_ram_kb: u32,
     pub rom_file: String,
     pub floppy: [Option<String>; 4],
+    #[serde(default = "default_floppy_speed_percent")]
+    pub floppy_speed_percent: u16,
     pub audio: AudioConfig,
     pub display: DisplayConfig,
 }
@@ -220,10 +222,20 @@ impl Default for MachineConfig {
             fast_ram_kb: 0,
             rom_file: String::new(),
             floppy: [None, None, None, None],
+            floppy_speed_percent: default_floppy_speed_percent(),
             audio: AudioConfig::default(),
             display: DisplayConfig::default(),
         }
     }
+}
+
+const fn default_floppy_speed_percent() -> u16 {
+    100
+}
+
+#[must_use]
+pub const fn is_supported_floppy_speed_percent(percent: u16) -> bool {
+    matches!(percent, 0 | 100 | 200 | 400 | 800)
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

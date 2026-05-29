@@ -21,9 +21,30 @@ const MFM_WORDS_PER_SECTOR: usize = 544;
 /// MFM words per track (standard DD track = 12668 bytes = 6334 words).
 const MFM_TRACK_WORDS: u32 = 6334;
 
+/// WinUAE-compatible turbo sentinel for fastest software-driven floppy loading.
+pub const FLOPPY_SPEED_TURBO_PERCENT: u16 = 0;
+
+/// Compatible floppy speed.
+pub const FLOPPY_SPEED_COMPATIBLE_PERCENT: u16 = 100;
+
+/// PAL scanlines per 300 RPM floppy revolution (10 PAL frames).
+const PAL_SCANLINES_PER_FLOPPY_REVOLUTION: u32 = 312 * 10;
+
+/// Percent denominator used for the public floppy speed setting.
+const FLOPPY_SPEED_PERCENT_DENOMINATOR: u32 = 100;
+
+/// Turbo mode word budget per scanline.
+const TURBO_DSK_WORD_CYCLES_PER_SCANLINE: usize = 64;
+
 /// Leading gap before the first `AmigaDOS` sector.
 const FLOPPY_GAP_WORDS: usize =
     MFM_TRACK_WORDS as usize - SECTORS_PER_TRACK as usize * MFM_WORDS_PER_SECTOR;
+
+/// Returns whether a floppy speed value is supported.
+#[must_use]
+pub const fn is_supported_floppy_speed_percent(percent: u16) -> bool {
+    matches!(percent, 0 | 100 | 200 | 400 | 800)
+}
 
 /// DMA state machine.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -116,6 +137,10 @@ pub struct FloppyController {
     pub dskpt: u32,
     /// DSKBYTR register value.
     pub dskbytr_val: u16,
+    /// Floppy transfer speed percentage. `0` means turbo.
+    speed_percent: u16,
+    /// Fractional MFM word timing accumulator.
+    dma_word_accumulator: u32,
 }
 
 impl FloppyController {
@@ -143,7 +168,40 @@ impl FloppyController {
             pending_blk_irq: false,
             dskpt: 0,
             dskbytr_val: 0,
+            speed_percent: FLOPPY_SPEED_COMPATIBLE_PERCENT,
+            dma_word_accumulator: 0,
         }
+    }
+
+    /// Returns the configured floppy speed percentage. `0` means turbo.
+    #[must_use]
+    pub const fn speed_percent(&self) -> u16 {
+        self.speed_percent
+    }
+
+    /// Set the floppy speed percentage.
+    ///
+    /// Supported values are `0` (turbo), `100`, `200`, `400`, and `800`.
+    pub fn set_speed_percent(&mut self, percent: u16) -> bool {
+        if !is_supported_floppy_speed_percent(percent) {
+            return false;
+        }
+        self.speed_percent = percent;
+        self.dma_word_accumulator = 0;
+        true
+    }
+
+    /// Return how many MFM word cycles should run during this scanline.
+    pub fn dma_word_cycles_for_scanline(&mut self) -> usize {
+        if self.speed_percent == FLOPPY_SPEED_TURBO_PERCENT {
+            return TURBO_DSK_WORD_CYCLES_PER_SCANLINE;
+        }
+
+        let denominator = PAL_SCANLINES_PER_FLOPPY_REVOLUTION * FLOPPY_SPEED_PERCENT_DENOMINATOR;
+        self.dma_word_accumulator += MFM_TRACK_WORDS * u32::from(self.speed_percent);
+        let cycles = self.dma_word_accumulator / denominator;
+        self.dma_word_accumulator %= denominator;
+        usize::try_from(cycles).unwrap_or(TURBO_DSK_WORD_CYCLES_PER_SCANLINE)
     }
 
     /// Insert an ADF image into the specified drive.
@@ -516,6 +574,55 @@ mod tests {
         assert_eq!(ctrl.dma_state, DskDmaState::Off);
         ctrl.write_dsklen(0x8000 | 100, 0x0400);
         assert_eq!(ctrl.dma_state, DskDmaState::Read);
+    }
+
+    #[test]
+    fn default_floppy_speed_is_compatible() {
+        let ctrl = FloppyController::new();
+        assert_eq!(ctrl.speed_percent(), FLOPPY_SPEED_COMPATIBLE_PERCENT);
+    }
+
+    #[test]
+    fn rejects_unsupported_floppy_speed() {
+        let mut ctrl = FloppyController::new();
+        assert!(!ctrl.set_speed_percent(300));
+        assert_eq!(ctrl.speed_percent(), FLOPPY_SPEED_COMPATIBLE_PERCENT);
+    }
+
+    #[test]
+    fn compatible_speed_advances_one_track_per_revolution() {
+        let mut ctrl = FloppyController::new();
+        let mut words = 0usize;
+
+        for _ in 0..PAL_SCANLINES_PER_FLOPPY_REVOLUTION {
+            words += ctrl.dma_word_cycles_for_scanline();
+        }
+
+        assert_eq!(words, MFM_TRACK_WORDS as usize);
+    }
+
+    #[test]
+    fn fast_800_speed_advances_eight_tracks_per_revolution() {
+        let mut ctrl = FloppyController::new();
+        assert!(ctrl.set_speed_percent(800));
+        let mut words = 0usize;
+
+        for _ in 0..PAL_SCANLINES_PER_FLOPPY_REVOLUTION {
+            words += ctrl.dma_word_cycles_for_scanline();
+        }
+
+        assert_eq!(words, (MFM_TRACK_WORDS * 8) as usize);
+    }
+
+    #[test]
+    fn turbo_speed_uses_fixed_scanline_budget() {
+        let mut ctrl = FloppyController::new();
+        assert!(ctrl.set_speed_percent(FLOPPY_SPEED_TURBO_PERCENT));
+
+        assert_eq!(
+            ctrl.dma_word_cycles_for_scanline(),
+            TURBO_DSK_WORD_CYCLES_PER_SCANLINE
+        );
     }
 
     #[test]

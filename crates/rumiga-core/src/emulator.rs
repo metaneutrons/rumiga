@@ -204,6 +204,11 @@ impl Emulator {
         self.floppy.insert_disk(drive, data);
     }
 
+    /// Set the floppy speed percentage. `0` selects turbo mode.
+    pub fn set_floppy_speed_percent(&mut self, percent: u16) -> bool {
+        self.floppy.set_speed_percent(percent)
+    }
+
     /// Queue a keyboard event for CIA handling.
     pub fn key_event(&mut self, keycode: u8, pressed: bool) {
         if self.key_events.len() < MAX_KEY_EVENTS {
@@ -279,22 +284,6 @@ impl Emulator {
                 let prb = self.cpu.mem.cia.borrow().cia_b.prb;
                 self.floppy.disk_select(prb);
                 self.update_disk_status();
-            }
-            // Run a disk DMA cycle per instruction
-            if self.chipset.dmaen(crate::custom::DMA_DISK) {
-                {
-                    let chip_ram = self.cpu.mem.chip_ram_mut();
-                    self.floppy.disk_dma_cycle(chip_ram);
-                }
-                self.cpu.mem.dskbytr.set(self.floppy.dskbytr_val);
-                if self.floppy.pending_sync_irq {
-                    self.floppy.pending_sync_irq = false;
-                    self.chipset.intreq |= 0x1000;
-                }
-                if self.floppy.pending_blk_irq {
-                    self.floppy.pending_blk_irq = false;
-                    self.chipset.intreq |= custom::INT_DSKBLK;
-                }
             }
         }
         self.total_cycles += cycles_used as u64;
@@ -485,26 +474,10 @@ impl Emulator {
             self.key_events.remove(0);
         }
 
-        // Floppy DMA: run ~32 word cycles per scanline
+        // Floppy DMA: advance the selected drive according to the configured speed.
         if self.chipset.dmaen(crate::custom::DMA_DISK) {
-            for _ in 0..32 {
-                {
-                    let chip_ram = self.cpu.mem.chip_ram_mut();
-                    self.floppy.disk_dma_cycle(chip_ram);
-                }
-                self.cpu.mem.dskbytr.set(self.floppy.dskbytr_val);
-            }
-            // Deliver pending disk interrupts
-            if self.floppy.pending_sync_irq {
-                self.floppy.pending_sync_irq = false;
-                self.chipset.intreq |= 0x1000; // DSKSYNC
-                self.cpu.mem.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
-            }
-            if self.floppy.pending_blk_irq {
-                self.floppy.pending_blk_irq = false;
-                self.chipset.intreq |= custom::INT_DSKBLK;
-                self.cpu.mem.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
-            }
+            let cycles = self.floppy.dma_word_cycles_for_scanline();
+            self.run_floppy_dma_cycles(cycles);
         }
 
         // VBlank handling
@@ -609,6 +582,31 @@ impl Emulator {
             self.cpu.int_ctrl.set_level(self.chipset.interrupt_level());
         } else {
             self.cpu.int_ctrl.set_level(0);
+        }
+    }
+
+    fn run_floppy_dma_cycles(&mut self, cycles: usize) {
+        for _ in 0..cycles {
+            {
+                let chip_ram = self.cpu.mem.chip_ram_mut();
+                self.floppy.disk_dma_cycle(chip_ram);
+            }
+            self.cpu.mem.dskbytr.set(self.floppy.dskbytr_val);
+        }
+
+        self.deliver_floppy_interrupts();
+    }
+
+    fn deliver_floppy_interrupts(&mut self) {
+        if self.floppy.pending_sync_irq {
+            self.floppy.pending_sync_irq = false;
+            self.chipset.intreq |= 0x1000; // DSKSYNC
+            self.cpu.mem.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
+        }
+        if self.floppy.pending_blk_irq {
+            self.floppy.pending_blk_irq = false;
+            self.chipset.intreq |= custom::INT_DSKBLK;
+            self.cpu.mem.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
         }
     }
 

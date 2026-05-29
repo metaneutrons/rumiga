@@ -8,6 +8,9 @@ use std::process;
 
 use minifb::Key;
 use rumiga_core::emulator::Emulator;
+use rumiga_core::floppy::{
+    FLOPPY_SPEED_COMPATIBLE_PERCENT, FLOPPY_SPEED_TURBO_PERCENT, is_supported_floppy_speed_percent,
+};
 use rumiga_core::memory::MemoryConfig;
 use rumiga_core::playfield::{DISPLAY_HEIGHT, DISPLAY_WIDTH};
 use rumiga_platform::VideoOutput;
@@ -82,6 +85,7 @@ struct LaunchArgs {
     scale: usize,
     viewport_mode: ViewportMode,
     vertical_stretch: bool,
+    floppy_speed_percent: u16,
     rom_path: String,
     adf_paths: Vec<String>,
 }
@@ -113,6 +117,7 @@ fn main() {
     let mut config = model.config();
     config.rom_size = rom_size;
     let mut emulator = Emulator::new(config);
+    emulator.set_floppy_speed_percent(launch_args.floppy_speed_percent);
     emulator.load_rom(&rom_data);
 
     // Load ADF disk images into DF0-DF3 in argument order.
@@ -192,6 +197,7 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
     let mut scale = DEFAULT_SCALE;
     let mut viewport_mode = ViewportMode::Auto;
     let mut vertical_stretch = true;
+    let mut floppy_speed_percent = FLOPPY_SPEED_COMPATIBLE_PERCENT;
     let mut positional = Vec::new();
     let mut index = 0;
 
@@ -226,6 +232,13 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
                 vertical_stretch = false;
                 index += 1;
             }
+            "--floppy-speed" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--floppy-speed requires a value".to_owned());
+                };
+                floppy_speed_percent = parse_floppy_speed(value)?;
+                index += 2;
+            }
             "--help" | "-h" => return Err(String::new()),
             value if value.starts_with('-') => return Err(format!("Unknown option '{value}'")),
             value => {
@@ -247,6 +260,7 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
         scale,
         viewport_mode,
         vertical_stretch,
+        floppy_speed_percent,
         rom_path: rom_path.clone(),
         adf_paths: positional.iter().skip(1).cloned().collect(),
     })
@@ -259,6 +273,23 @@ fn parse_scale(value: &str) -> Result<usize, String> {
     match scale {
         1 | 2 | 4 | 8 | 16 | 32 => Ok(scale),
         _ => Err(format!("Unsupported scale '{value}'")),
+    }
+}
+
+fn parse_floppy_speed(value: &str) -> Result<u16, String> {
+    if value.eq_ignore_ascii_case("turbo") {
+        return Ok(FLOPPY_SPEED_TURBO_PERCENT);
+    }
+
+    let numeric = value
+        .strip_suffix('%')
+        .unwrap_or(value)
+        .parse::<u16>()
+        .map_err(|_| format!("Unsupported floppy speed '{value}'"))?;
+    if is_supported_floppy_speed_percent(numeric) {
+        Ok(numeric)
+    } else {
+        Err(format!("Unsupported floppy speed '{value}'"))
     }
 }
 
@@ -307,7 +338,7 @@ fn infer_model_from_rom(rom_path: &str, rom_size: usize) -> MachineModel {
 
 fn print_usage() {
     eprintln!(
-        "Usage: rumiga-desktop [--model a500|a500-plus|a600|a1200] [--scale 1|2|4|8|16|32] [--viewport auto|raw] [--no-vertical-stretch] <kickstart.rom> [df0.adf] [df1.adf] [df2.adf] [df3.adf]"
+        "Usage: rumiga-desktop [--model a500|a500-plus|a600|a1200] [--scale 1|2|4|8|16|32] [--viewport auto|raw] [--no-vertical-stretch] [--floppy-speed 100|200|400|800|turbo] <kickstart.rom> [df0.adf] [df1.adf] [df2.adf] [df3.adf]"
     );
 }
 
@@ -495,6 +526,7 @@ mod tests {
                 scale: DEFAULT_SCALE,
                 viewport_mode: ViewportMode::Auto,
                 vertical_stretch: true,
+                floppy_speed_percent: FLOPPY_SPEED_COMPATIBLE_PERCENT,
                 rom_path: "kick.rom".to_owned(),
                 adf_paths: vec!["workbench.adf".to_owned()],
             })
@@ -518,6 +550,7 @@ mod tests {
                 scale: DEFAULT_SCALE,
                 viewport_mode: ViewportMode::Auto,
                 vertical_stretch: true,
+                floppy_speed_percent: FLOPPY_SPEED_COMPATIBLE_PERCENT,
                 rom_path: "kick.rom".to_owned(),
                 adf_paths: vec![
                     "df0.adf".to_owned(),
@@ -540,6 +573,7 @@ mod tests {
                 scale: 1,
                 viewport_mode: ViewportMode::Auto,
                 vertical_stretch: true,
+                floppy_speed_percent: FLOPPY_SPEED_COMPATIBLE_PERCENT,
                 rom_path: "kick.rom".to_owned(),
                 adf_paths: Vec::new(),
             })
@@ -560,6 +594,7 @@ mod tests {
             scale: DEFAULT_SCALE,
             viewport_mode: ViewportMode::Auto,
             vertical_stretch: true,
+            floppy_speed_percent: FLOPPY_SPEED_COMPATIBLE_PERCENT,
             rom_path: "kick.a1200.46.143.rom".to_owned(),
             adf_paths: Vec::new(),
         };
@@ -574,6 +609,7 @@ mod tests {
             scale: DEFAULT_SCALE,
             viewport_mode: ViewportMode::Auto,
             vertical_stretch: true,
+            floppy_speed_percent: FLOPPY_SPEED_COMPATIBLE_PERCENT,
             rom_path: "kick.a500.34.005.rom".to_owned(),
             adf_paths: Vec::new(),
         };
@@ -597,10 +633,66 @@ mod tests {
                 scale: DEFAULT_SCALE,
                 viewport_mode: ViewportMode::Raw,
                 vertical_stretch: false,
+                floppy_speed_percent: FLOPPY_SPEED_COMPATIBLE_PERCENT,
                 rom_path: "kick.rom".to_owned(),
                 adf_paths: Vec::new(),
             })
         );
+    }
+
+    #[test]
+    fn parse_args_accepts_floppy_speed() {
+        let args = vec![
+            "--floppy-speed".to_owned(),
+            "800%".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+
+        assert_eq!(
+            parse_args(&args),
+            Ok(LaunchArgs {
+                model: None,
+                scale: DEFAULT_SCALE,
+                viewport_mode: ViewportMode::Auto,
+                vertical_stretch: true,
+                floppy_speed_percent: 800,
+                rom_path: "kick.rom".to_owned(),
+                adf_paths: Vec::new(),
+            })
+        );
+    }
+
+    #[test]
+    fn parse_args_accepts_turbo_floppy_speed() {
+        let args = vec![
+            "--floppy-speed".to_owned(),
+            "turbo".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+
+        assert_eq!(
+            parse_args(&args),
+            Ok(LaunchArgs {
+                model: None,
+                scale: DEFAULT_SCALE,
+                viewport_mode: ViewportMode::Auto,
+                vertical_stretch: true,
+                floppy_speed_percent: FLOPPY_SPEED_TURBO_PERCENT,
+                rom_path: "kick.rom".to_owned(),
+                adf_paths: Vec::new(),
+            })
+        );
+    }
+
+    #[test]
+    fn parse_args_rejects_unsupported_floppy_speed() {
+        let args = vec![
+            "--floppy-speed".to_owned(),
+            "300".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+
+        assert!(parse_args(&args).is_err());
     }
 
     #[test]
