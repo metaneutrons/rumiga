@@ -15,7 +15,8 @@ use rumiga_platform_desktop::DesktopVideo;
 
 const WIDTH: usize = DISPLAY_WIDTH as usize;
 const HEIGHT: usize = DISPLAY_HEIGHT as usize;
-const DEFAULT_SCALE: usize = 2;
+const DEFAULT_SCALE: usize = 1;
+const VERTICAL_STRETCH_FACTOR: usize = 2;
 const ROM_SIZE_256K: usize = 256 * 1024;
 const ROM_SIZE_512K: usize = 512 * 1024;
 
@@ -105,7 +106,13 @@ fn main() {
     });
     eprintln!("Starting Rumiga with {} profile", model.name());
 
-    let mut emulator = Emulator::new(model.config());
+    let rom_size = u32::try_from(rom_data.len()).unwrap_or_else(|_| {
+        eprintln!("ROM file is too large: {} bytes", rom_data.len());
+        process::exit(1);
+    });
+    let mut config = model.config();
+    config.rom_size = rom_size;
+    let mut emulator = Emulator::new(config);
     emulator.load_rom(&rom_data);
 
     // Load ADF disk images into DF0-DF3 in argument order.
@@ -118,8 +125,9 @@ fn main() {
         emulator.insert_floppy(drive, adf_data);
     }
 
-    let mut video =
-        DesktopVideo::new("Rumiga", WIDTH, HEIGHT, launch_args.scale).unwrap_or_else(|| {
+    let presented_height = presented_height(launch_args.vertical_stretch);
+    let mut video = DesktopVideo::new("Rumiga", WIDTH, presented_height, launch_args.scale)
+        .unwrap_or_else(|| {
             eprintln!("Failed to create video window");
             process::exit(1);
         });
@@ -127,8 +135,8 @@ fn main() {
     let window_handle = video.window_handle();
 
     #[allow(clippy::cast_possible_truncation)]
-    let (w, h) = (WIDTH as u32, HEIGHT as u32);
-    let mut presented_framebuffer = vec![0u16; WIDTH * HEIGHT];
+    let (w, h) = (WIDTH as u32, presented_height as u32);
+    let mut presented_framebuffer = vec![0u16; WIDTH * presented_height];
 
     while video.is_open() {
         // Check ESC to quit
@@ -153,19 +161,24 @@ fn main() {
 
         emulator.run_frame();
         let framebuffer = emulator.framebuffer();
-        if launch_args.viewport_mode == ViewportMode::Auto
-            && launch_args.vertical_stretch
-            && auto_vertical_bounds(framebuffer, WIDTH, HEIGHT).is_some_and(|(y_start, y_end)| {
-                stretch_vertical_viewport(
-                    framebuffer,
-                    WIDTH,
-                    HEIGHT,
-                    y_start,
-                    y_end,
-                    &mut presented_framebuffer,
-                )
-            })
-        {
+        if launch_args.vertical_stretch {
+            let (y_start, y_end) = if launch_args.viewport_mode == ViewportMode::Auto {
+                auto_vertical_bounds(framebuffer, WIDTH, HEIGHT).unwrap_or((0, HEIGHT))
+            } else {
+                (0, HEIGHT)
+            };
+            if !stretch_vertical_viewport(
+                framebuffer,
+                WIDTH,
+                HEIGHT,
+                y_start,
+                y_end,
+                presented_height,
+                &mut presented_framebuffer,
+            ) {
+                eprintln!("Failed to prepare video frame");
+                break;
+            }
             video.present_frame(&presented_framebuffer, w, h);
         } else {
             video.present_frame(framebuffer, w, h);
@@ -254,11 +267,22 @@ fn select_model(args: &LaunchArgs, rom_size: usize) -> Result<MachineModel, Stri
         .model
         .unwrap_or_else(|| infer_model_from_rom(&args.rom_path, rom_size));
 
-    if rom_size != expected_rom_size(model) {
+    let is_valid_size = match model {
+        MachineModel::A500 => rom_size == ROM_SIZE_256K || rom_size == ROM_SIZE_512K,
+        MachineModel::A500Plus | MachineModel::A600 | MachineModel::A1200 => {
+            rom_size == ROM_SIZE_512K
+        }
+    };
+
+    if !is_valid_size {
+        let expected = match model {
+            MachineModel::A500 => "256 or 512 KB",
+            _ => "512 KB",
+        };
         return Err(format!(
-            "{} profile expects a {} KB ROM, got {} bytes",
+            "{} profile expects a {} ROM, got {} bytes",
             model.name(),
-            expected_rom_size(model) / 1024,
+            expected,
             rom_size
         ));
     }
@@ -281,17 +305,18 @@ fn infer_model_from_rom(rom_path: &str, rom_size: usize) -> MachineModel {
     }
 }
 
-const fn expected_rom_size(model: MachineModel) -> usize {
-    match model {
-        MachineModel::A500 => ROM_SIZE_256K,
-        MachineModel::A500Plus | MachineModel::A600 | MachineModel::A1200 => ROM_SIZE_512K,
-    }
-}
-
 fn print_usage() {
     eprintln!(
         "Usage: rumiga-desktop [--model a500|a500-plus|a600|a1200] [--scale 1|2|4|8|16|32] [--viewport auto|raw] [--no-vertical-stretch] <kickstart.rom> [df0.adf] [df1.adf] [df2.adf] [df3.adf]"
     );
+}
+
+const fn presented_height(vertical_stretch: bool) -> usize {
+    if vertical_stretch {
+        HEIGHT * VERTICAL_STRETCH_FACTOR
+    } else {
+        HEIGHT
+    }
 }
 
 fn auto_vertical_bounds(
@@ -354,7 +379,7 @@ fn row_has_video_content(row: &[u16], background: u16) -> bool {
         return false;
     };
 
-    let minimum_screen_span = row.len() * 3 / 4;
+    let minimum_screen_span = row.len() * 4 / 5;
     differs_from_first
         && differs_from_background
         && last_non_background.saturating_sub(first_non_background) >= minimum_screen_span
@@ -366,24 +391,29 @@ fn stretch_vertical_viewport(
     height: usize,
     y_start: usize,
     y_end: usize,
+    output_height: usize,
     output: &mut [u16],
 ) -> bool {
-    let Some(pixel_count) = width.checked_mul(height) else {
+    let Some(input_pixel_count) = width.checked_mul(height) else {
+        return false;
+    };
+    let Some(output_pixel_count) = width.checked_mul(output_height) else {
         return false;
     };
     if width == 0
         || height == 0
+        || output_height == 0
         || y_start >= y_end
         || y_end > height
-        || framebuffer.len() < pixel_count
-        || output.len() < pixel_count
+        || framebuffer.len() < input_pixel_count
+        || output.len() < output_pixel_count
     {
         return false;
     }
 
     let viewport_height = y_end - y_start;
-    for dest_y in 0..height {
-        let source_y = y_start + (dest_y * viewport_height / height);
+    for dest_y in 0..output_height {
+        let source_y = y_start + (dest_y * viewport_height / output_height);
         let source_start = source_y * width;
         let dest_start = dest_y * width;
         output[dest_start..dest_start + width]
@@ -574,6 +604,12 @@ mod tests {
     }
 
     #[test]
+    fn presented_height_line_doubles_when_vertical_stretch_is_enabled() {
+        assert_eq!(presented_height(true), HEIGHT * 2);
+        assert_eq!(presented_height(false), HEIGHT);
+    }
+
+    #[test]
     fn auto_vertical_bounds_ignore_uniform_bottom_blank() {
         let width = 4usize;
         let height = 6usize;
@@ -629,9 +665,33 @@ mod tests {
             height,
             1,
             3,
+            height,
             &mut output
         ));
 
         assert_eq!(output, [20, 20, 20, 20, 30, 30, 30, 30]);
+    }
+
+    #[test]
+    fn stretch_vertical_viewport_line_doubles_full_frame() {
+        let width = 2usize;
+        let height = 2usize;
+        let framebuffer = [
+            10u16, 11, //
+            20, 21,
+        ];
+        let mut output = [0u16; 8];
+
+        assert!(stretch_vertical_viewport(
+            &framebuffer,
+            width,
+            height,
+            0,
+            height,
+            height * 2,
+            &mut output
+        ));
+
+        assert_eq!(output, [10, 11, 10, 11, 20, 21, 20, 21]);
     }
 }

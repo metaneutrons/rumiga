@@ -341,6 +341,7 @@ impl Emulator {
         self.playfield.bplcon2 = regs[(0x104 / 2) as usize];
         self.playfield.diwstrt = regs[(0x08E / 2) as usize];
         self.playfield.diwstop = regs[(0x090 / 2) as usize];
+        self.playfield.diwhigh = regs[(custom::DIWHIGH / 2) as usize];
         self.playfield.ddfstrt = regs[(0x092 / 2) as usize];
         self.playfield.ddfstop = regs[(0x094 / 2) as usize];
         for i in 0usize..32 {
@@ -645,6 +646,7 @@ impl Emulator {
             custom::BPLCON2 => self.playfield.bplcon2 = value,
             custom::DIWSTRT => self.playfield.diwstrt = value,
             custom::DIWSTOP => self.playfield.diwstop = value,
+            custom::DIWHIGH => self.playfield.diwhigh = value,
             custom::DDFSTRT => self.playfield.ddfstrt = value,
             custom::DDFSTOP => self.playfield.ddfstop = value,
             custom::DMACON => {

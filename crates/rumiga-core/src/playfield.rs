@@ -27,6 +27,12 @@ pub const MAX_PLANES: usize = 6;
 /// Number of pixels per bitplane word.
 const PIXELS_PER_WORD: u16 = 16;
 
+/// Standard OCS low-resolution display window start.
+const STANDARD_DIW_START_HPOS: u16 = 0x81;
+
+/// Standard OCS bitplane data fetch start.
+const STANDARD_DDF_START_HPOS: u16 = 0x38;
+
 /// Display width as u16 for scanline iteration.
 ///
 /// Derived from [`DISPLAY_WIDTH`]; compile-time assertion guarantees no truncation.
@@ -53,6 +59,8 @@ pub struct PlayfieldState {
     pub diwstrt: u16,
     /// Display window stop (lower-right).
     pub diwstop: u16,
+    /// Display window high bits (ECS).
+    pub diwhigh: u16,
     /// Bitplane pointers (24-bit addresses stored as u32).
     pub bplpt: [u32; MAX_PLANES],
     /// Bitplane data shift registers.
@@ -73,6 +81,7 @@ impl PlayfieldState {
             ddfstop: 0,
             diwstrt: 0,
             diwstop: 0,
+            diwhigh: 0,
             bplpt: [0; MAX_PLANES],
             bpldat: [0; MAX_PLANES],
             color: [0; 32],
@@ -88,14 +97,32 @@ impl PlayfieldState {
     /// Returns the display window coordinates `(hstart, hstop, vstart, vstop)`.
     ///
     /// Extracted from DIWSTRT (vstart high byte, hstart low byte) and
-    /// DIWSTOP (vstop high byte, hstop low byte). The hardware adds 256 to
-    /// hstop and vstop implicitly for standard OCS displays.
+    /// DIWSTOP (vstop high byte, hstop low byte). If DIWHIGH is written, it decodes
+    /// the extended high bits for horizontal/vertical start and stop positions.
     #[must_use]
     pub const fn display_window(&self) -> (u16, u16, u16, u16) {
-        let hstart = self.diwstrt & 0xFF;
-        let vstart = self.diwstrt >> 8;
-        let hstop = (self.diwstop & 0xFF) | 0x100;
-        let vstop = (self.diwstop >> 8) | 0x100;
+        let mut hstart = self.diwstrt & 0xFF;
+        let mut vstart = self.diwstrt >> 8;
+        let mut hstop = self.diwstop & 0xFF;
+        let mut vstop = self.diwstop >> 8;
+
+        if self.diwhigh != 0 {
+            // Vertical start high bits: bits 0-2 (ECS/AGA)
+            vstart |= (self.diwhigh & 0x7) << 8;
+            // Horizontal start high bit: bit 5
+            hstart |= ((self.diwhigh >> 5) & 1) << 8;
+            // Vertical stop high bits: bits 8-10 (ECS/AGA)
+            vstop |= ((self.diwhigh >> 8) & 0x7) << 8;
+            // Horizontal stop high bit: bit 13
+            hstop |= ((self.diwhigh >> 13) & 1) << 8;
+        } else {
+            // OCS fallback behavior
+            if (vstop & 0x80) == 0 {
+                vstop |= 0x100;
+            }
+            hstop |= 0x100;
+        }
+
         (hstart, hstop, vstart, vstop)
     }
 
@@ -124,7 +151,9 @@ impl PlayfieldState {
         let hires = self.bplcon0 & 0x8000 != 0;
         let fetch_words = self.data_fetch_words(hires);
         let mut words_fetched = 0usize;
+        let mut current_word = None;
         let line_visible = line >= vstart && line < vstop;
+        let source_offset = self.horizontal_source_offset(hstart);
 
         for px in 0..LINE_WIDTH {
             let raster_hpos = DISPLAY_LEFT_HPOS + (px / 2);
@@ -139,15 +168,23 @@ impl PlayfieldState {
             // doubled in the high-resolution output buffer.
             let window_px = raster_hpos - hstart;
             let source_px = if hires {
-                window_px * 2 + (px & 1)
+                (window_px + source_offset) * 2 + (px & 1)
             } else {
-                window_px
+                window_px + source_offset
             };
-            let starts_word = source_px % PIXELS_PER_WORD == 0 && (hires || px % 2 == 0);
-            if starts_word && words_fetched < fetch_words {
+
+            let source_word = usize::from(source_px / PIXELS_PER_WORD);
+            if source_word >= fetch_words {
+                if let Some(dest) = line_buffer.get_mut(usize::from(px)) {
+                    *dest = bg;
+                }
+                continue;
+            }
+            while current_word != Some(source_word) && words_fetched <= source_word {
                 for plane in 0..num_planes {
                     self.fetch_bitplane_word(plane, chip_ram);
                 }
+                current_word = Some(words_fetched);
                 words_fetched += 1;
             }
 
@@ -166,6 +203,17 @@ impl PlayfieldState {
             }
             words_fetched += 1;
         }
+    }
+
+    const fn horizontal_source_offset(&self, hstart: u16) -> u16 {
+        if self.ddfstrt == 0 && self.ddfstop == 0 {
+            return 0;
+        }
+
+        let fetch_start = self.ddfstrt & 0x00FC;
+        let standard_phase = STANDARD_DIW_START_HPOS - STANDARD_DDF_START_HPOS;
+        let phase = hstart.saturating_sub(fetch_start);
+        phase.saturating_sub(standard_phase) / 2
     }
 
     fn color_index_at_bit(&self, num_planes: usize, bit_index: u16) -> u16 {
@@ -405,6 +453,33 @@ mod tests {
     }
 
     #[test]
+    fn nonstandard_ddf_to_diw_phase_skips_hidden_left_source_pixels() {
+        let mut pf = PlayfieldState::new();
+        pf.bplcon0 = 0x1000;
+        pf.diwstrt = 0x1D95;
+        pf.diwstop = 0x38AD;
+        pf.ddfstrt = 0x0040;
+        pf.ddfstop = 0x00D0;
+        pf.color[0] = 0x0000;
+        pf.color[1] = 0x0FFF;
+
+        let mut chip_ram = [0u8; 64];
+        chip_ram[0] = 0x03;
+        chip_ram[1] = 0xFF;
+        pf.bplpt[0] = 0;
+
+        let mut line_buffer = [0u16; DISPLAY_WIDTH as usize];
+        pf.render_scanline(0x7D, &chip_ram, &mut line_buffer);
+
+        let black = amiga_to_rgb565(0x0000);
+        let white = amiga_to_rgb565(0x0FFF);
+        let start = active_start_px(&pf);
+        assert_eq!(line_buffer[start - 1], black);
+        assert_eq!(line_buffer[start], white);
+        assert_eq!(line_buffer[start + 1], white);
+    }
+
+    #[test]
     fn pixels_outside_display_window_are_background() {
         let mut pf = PlayfieldState::new();
         pf.bplcon0 = 0x1000; // 1 plane
@@ -450,5 +525,18 @@ mod tests {
         assert_eq!(line_buffer[start], fg);
         assert_eq!(line_buffer[end - 1], fg);
         assert_eq!(line_buffer[end], bg);
+    }
+
+    #[test]
+    fn diwhigh_decoding() {
+        let mut pf = PlayfieldState::new();
+        pf.diwstrt = 0x2C81;
+        pf.diwstop = 0x2CC1;
+        pf.diwhigh = 0x2020; // hstart bit 8 = 1, hstop bit 8 = 1
+        let (hstart, hstop, vstart, vstop) = pf.display_window();
+        assert_eq!(hstart, 0x181); // 0x81 | 0x100
+        assert_eq!(hstop, 0x1C1); // 0xC1 | 0x100
+        assert_eq!(vstart, 0x2C);
+        assert_eq!(vstop, 0x2C);
     }
 }
