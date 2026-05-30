@@ -90,7 +90,7 @@ impl ViewportMode {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 struct LaunchArgs {
     model: Option<MachineModel>,
     scale: usize,
@@ -115,6 +115,8 @@ struct LaunchArgs {
     capture_path: Option<String>,
     capture_manifest_path: Option<String>,
     capture_frames: u64,
+    mouse_scale_x: f32,
+    mouse_scale_y: f32,
 }
 
 #[derive(Clone, Debug)]
@@ -154,7 +156,11 @@ struct CaptureManifestContext<'a> {
     hdf: Option<&'a FileEvidence>,
 }
 
-#[allow(clippy::cognitive_complexity, clippy::too_many_lines)]
+#[allow(
+    clippy::cognitive_complexity,
+    clippy::too_many_lines,
+    clippy::similar_names
+)]
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let launch_args = parse_args(&args).unwrap_or_else(|e| {
@@ -210,6 +216,8 @@ fn main() {
     eprintln!("  Chip RAM:       {} KB", config.chip_ram_size / 1024);
     eprintln!("  Slow RAM:       {} KB", config.slow_ram_size / 1024);
     eprintln!("  Fast RAM:       {} KB", config.fast_ram_size / 1024);
+    eprintln!("  Mouse Scale X:  {}", launch_args.mouse_scale_x);
+    eprintln!("  Mouse Scale Y:  {}", launch_args.mouse_scale_y);
     let video_std = if launch_args.ntsc {
         "NTSC (60Hz)"
     } else {
@@ -322,6 +330,8 @@ fn main() {
     let mut presented_framebuffer = vec![0u16; WIDTH * presented_height];
 
     let mut last_mouse: Option<(f32, f32)> = None;
+    let mut mouse_accum_x = 0.0f32;
+    let mut mouse_accum_y = 0.0f32;
     let mut last_y_start = 0;
     let mut last_y_end = HEIGHT;
 
@@ -351,8 +361,7 @@ fn main() {
             let win = window_handle.borrow();
             if let Some((mx, my)) = win.get_mouse_pos(minifb::MouseMode::Discard) {
                 if let Some((lmx, lmy)) = last_mouse {
-                    #[allow(clippy::cast_possible_truncation)]
-                    let dx = (mx - lmx) as i16;
+                    let dx_f = (mx - lmx) * launch_args.mouse_scale_x;
 
                     let mut dy_f = my - lmy;
                     if launch_args.vertical_stretch {
@@ -362,11 +371,24 @@ fn main() {
                         let p_height = presented_height as f32;
                         dy_f *= active_height / p_height;
                     }
-                    #[allow(clippy::cast_possible_truncation)]
-                    let dy = dy_f.round() as i16;
+                    dy_f *= launch_args.mouse_scale_y;
 
-                    if dx != 0 || dy != 0 {
-                        emulator.mouse_move(dx, dy);
+                    mouse_accum_x += dx_f;
+                    mouse_accum_y += dy_f;
+
+                    let dx = mouse_accum_x.trunc();
+                    let dy = mouse_accum_y.trunc();
+
+                    #[allow(clippy::cast_possible_truncation)]
+                    let dx_i = dx as i16;
+                    #[allow(clippy::cast_possible_truncation)]
+                    let dy_i = dy as i16;
+
+                    mouse_accum_x -= dx;
+                    mouse_accum_y -= dy;
+
+                    if dx_i != 0 || dy_i != 0 {
+                        emulator.mouse_move(dx_i, dy_i);
                     }
                 }
                 last_mouse = Some((mx, my));
@@ -470,6 +492,8 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
     let mut capture_path = None;
     let mut capture_manifest_path = None;
     let mut capture_frames = DEFAULT_CAPTURE_FRAMES;
+    let mut mouse_scale_x = 0.5f32;
+    let mut mouse_scale_y = 1.0f32;
     let mut positional = Vec::new();
     let mut index = 0;
 
@@ -620,6 +644,30 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
                 capture_frames = parse_capture_frames(value)?;
                 index += 2;
             }
+            "--mouse-scale-x" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--mouse-scale-x requires a value".to_owned());
+                };
+                mouse_scale_x = value
+                    .parse::<f32>()
+                    .map_err(|_| format!("Unsupported mouse scale X '{value}'"))?;
+                if mouse_scale_x <= 0.0 {
+                    return Err("mouse-scale-x must be positive".to_owned());
+                }
+                index += 2;
+            }
+            "--mouse-scale-y" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--mouse-scale-y requires a value".to_owned());
+                };
+                mouse_scale_y = value
+                    .parse::<f32>()
+                    .map_err(|_| format!("Unsupported mouse scale Y '{value}'"))?;
+                if mouse_scale_y <= 0.0 {
+                    return Err("mouse-scale-y must be positive".to_owned());
+                }
+                index += 2;
+            }
             "--help" | "-h" => return Err(String::new()),
             value if value.starts_with('-') => return Err(format!("Unknown option '{value}'")),
             value => {
@@ -740,6 +788,8 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
         capture_path,
         capture_manifest_path,
         capture_frames,
+        mouse_scale_x,
+        mouse_scale_y,
     })
 }
 
@@ -876,29 +926,32 @@ fn infer_model_from_rom(rom_path: &str, rom_size: usize) -> MachineModel {
 }
 
 fn print_usage(to_stdout: bool) {
-    let msg = "Usage: rumiga-desktop [options] <kickstart.rom> [floppy1.adf] [floppy2.adf] ...\n\n\
-               Options:\n  \
-                 -m, --model <model>     Machine profile: a500, a500-plus, a600, a1200\n  \
-                 -s, --scale <factor>    Window scale: 1, 2, 4, 8, 16, 32 [default: 1]\n  \
-                     --viewport <mode>   Viewport mode: auto, raw [default: auto]\n  \
-                     --no-vertical-stretch  Disable vertical line doubling\n  \
-                     --floppy-speed <%>  Floppy read speed: 100%, 200%, 400%, 800%, turbo\n  \
-                     --hdf <file.hdf>    Mount Gayle IDE virtual hardfile (.hdf)\n  \
-                     --cpu <type>        Override CPU: 68000, 68010, 68020, 68030, 68040\n  \
-                     --chip-ram <size>   Override Chip RAM size: e.g. 512K, 1M, 2M\n  \
-                     --slow-ram <size>   Override Slow RAM size: e.g. 512K, 1M\n  \
-                     --fast-ram <size>   Override Fast RAM size: e.g. 1M, 2M, 4M, 8M\n  \
-                     --pal               Force PAL video timing\n  \
-                     --ntsc              Force NTSC video timing\n  \
-                     --df0 <file.adf>    Explicitly mount floppy in DF0\n  \
-                     --df1 <file.adf>    Explicitly mount floppy in DF1\n  \
-                     --df2 <file.adf>    Explicitly mount floppy in DF2\n  \
-                     --df3 <file.adf>    Explicitly mount floppy in DF3\n  \
-                     --trace-cpu <file>  Save assembly instruction trace to a file\n  \
-                     --trace-limit <n>   Stop tracing after N instructions\n  \
-                     --capture <file.png>  Run headless and save a PNG screenshot\n  \
-                     --capture-frames <n>  Frames to run before capture [default: 300]\n  \
-                     --capture-manifest <file.json>  Save capture evidence manifest";
+    let msg = r"Usage: rumiga-desktop [options] <kickstart.rom> [floppy1.adf] [floppy2.adf] ...
+
+Options:
+  -m, --model <model>     Machine profile: a500, a500-plus, a600, a1200
+  -s, --scale <factor>    Window scale: 1, 2, 4, 8, 16, 32 [default: 1]
+      --viewport <mode>   Viewport mode: auto, raw [default: auto]
+      --no-vertical-stretch  Disable vertical line doubling
+      --mouse-scale-x <f> Scaling factor for horizontal mouse [default: 0.5]
+      --mouse-scale-y <f> Scaling factor for vertical mouse [default: 1.0]
+      --floppy-speed <%>  Floppy read speed: 100%, 200%, 400%, 800%, turbo
+      --hdf <file.hdf>    Mount Gayle IDE virtual hardfile (.hdf)
+      --cpu <type>        Override CPU: 68000, 68010, 68020, 68030, 68040
+      --chip-ram <size>   Override Chip RAM size: e.g. 512K, 1M, 2M
+      --slow-ram <size>   Override Slow RAM size: e.g. 512K, 1M
+      --fast-ram <size>   Override Fast RAM size: e.g. 1M, 2M, 4M, 8M
+      --pal               Force PAL video timing
+      --ntsc              Force NTSC video timing
+      --df0 <file.adf>    Explicitly mount floppy in DF0
+      --df1 <file.adf>    Explicitly mount floppy in DF1
+      --df2 <file.adf>    Explicitly mount floppy in DF2
+      --df3 <file.adf>    Explicitly mount floppy in DF3
+      --trace-cpu <file>  Save assembly instruction trace to a file
+      --trace-limit <n>   Stop tracing after N instructions
+      --capture <file.png>  Run headless and save a PNG screenshot
+      --capture-frames <n>  Frames to run before capture [default: 300]
+      --capture-manifest <file.json>  Save capture evidence manifest";
     if to_stdout {
         println!("{msg}");
     } else {
@@ -1587,6 +1640,8 @@ mod tests {
             capture_path: None,
             capture_manifest_path: None,
             capture_frames: DEFAULT_CAPTURE_FRAMES,
+            mouse_scale_x: 0.5,
+            mouse_scale_y: 1.0,
         }
     }
 
@@ -2027,5 +2082,41 @@ mod tests {
             "workbench.adf".to_owned(),
         ];
         assert!(parse_args(&args).is_err());
+    }
+
+    #[test]
+    fn parse_args_accepts_mouse_scales() {
+        let args = vec![
+            "--mouse-scale-x".to_owned(),
+            "0.25".to_owned(),
+            "--mouse-scale-y".to_owned(),
+            "1.5".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+
+        assert_eq!(
+            parse_args(&args),
+            Ok(LaunchArgs {
+                mouse_scale_x: 0.25,
+                mouse_scale_y: 1.5,
+                ..default_test_args()
+            })
+        );
+
+        // Reject negative scales
+        let args2 = vec![
+            "--mouse-scale-x".to_owned(),
+            "-0.5".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+        assert!(parse_args(&args2).is_err());
+
+        // Reject zero scales
+        let args3 = vec![
+            "--mouse-scale-y".to_owned(),
+            "0.0".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+        assert!(parse_args(&args3).is_err());
     }
 }
