@@ -1482,7 +1482,16 @@ fn auto_vertical_bounds(
         }
     }
 
-    first_content_row.map(|first| (first.saturating_sub(1), (last_content_row + 2).min(height)))
+    first_content_row.and_then(|first| {
+        let y_start = first.saturating_sub(1);
+        let y_end = (last_content_row + 2).min(height);
+        let minimum_crop_height = (height / 4).max(2);
+        if y_end.saturating_sub(y_start) < minimum_crop_height {
+            None
+        } else {
+            Some((y_start, y_end))
+        }
+    })
 }
 
 fn row_has_video_content(row: &[u16], background: u16) -> bool {
@@ -1884,6 +1893,22 @@ mod tests {
             bg, bg, bg, fg, fg, bg, bg, bg, //
             bg, bg, bg, bg, bg, bg, bg, bg,
         ];
+
+        assert_eq!(auto_vertical_bounds(&framebuffer, width, height), None);
+    }
+
+    #[test]
+    fn auto_vertical_bounds_ignore_thin_top_dialog() {
+        let width = 10usize;
+        let height = 24usize;
+        let bg = 1u16;
+        let fg = 2u16;
+        let mut framebuffer = vec![bg; width * height];
+        for y in 2..4 {
+            let row = &mut framebuffer[y * width..(y + 1) * width];
+            row[0] = fg;
+            row[width - 1] = fg;
+        }
 
         assert_eq!(auto_vertical_bounds(&framebuffer, width, height), None);
     }
