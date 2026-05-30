@@ -19,7 +19,7 @@ const DEFAULT_VIEWPORT: MachineConfig['display']['viewport'] = {
   mode: 'Auto',
   x: 0,
   y: 0,
-  width: 736,
+  width: 754,
   height: 288,
   vertical_stretch: true,
 };

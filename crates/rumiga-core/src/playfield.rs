@@ -16,14 +16,14 @@
 /// First visible low-resolution hardware position in the normal OCS viewport.
 ///
 /// `WinUAE`'s normal non-extreme overscan limits clamp the visible horizontal
-/// range to roughly hpos 92..460, which gives Workbench room for side borders.
+/// range to roughly hpos 92..469, which gives Workbench room for side borders.
 pub const DISPLAY_LEFT_HPOS: u16 = 92;
 
 /// High-resolution pixels per normal PAL line.
 ///
-/// Lores playfields are expanded 2x horizontally into this buffer. The 736 px
-/// width matches `WinUAE`'s normal OCS visible span `(460 - 92) * 2`.
-pub const DISPLAY_WIDTH: u32 = 736;
+/// Lores playfields are expanded 2x horizontally into this buffer. The 754 px
+/// width matches `WinUAE`/`FS-UAE`'s native `AMIGA_WIDTH_MAX << 1` span.
+pub const DISPLAY_WIDTH: u32 = 754;
 
 /// Maximum PAL display height in non-interlaced lines.
 ///
@@ -398,6 +398,12 @@ mod tests {
     fn active_start_px(pf: &PlayfieldState) -> usize {
         let (hstart, _, _, _) = pf.display_window();
         usize::from(hstart.saturating_sub(DISPLAY_LEFT_HPOS)) * 2
+    }
+
+    #[test]
+    fn display_width_matches_uae_native_span() {
+        assert_eq!(DISPLAY_WIDTH, 754);
+        assert_eq!(DISPLAY_LEFT_HPOS + (DISPLAY_WIDTH as u16 / 2), 469);
     }
 
     #[test]
