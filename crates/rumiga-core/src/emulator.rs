@@ -53,6 +53,13 @@ const MAX_KEY_EVENTS: usize = 16;
 /// that starts them, enabling timer-based boot timeouts.
 const FORCE_CIA_TIMER_THRESHOLD: u64 = 22_000_000;
 
+/// Helper to translate raw Amiga keycodes to the required CIA-A SDR register format.
+/// The Amiga ROM keyboard handler decodes SDR via: decoded = ror( ~SDR, 1 )
+/// Therefore, the required SDR value is: SDR = ~( rol( decoded, 1 ) )
+const fn translate_amiga_keycode(keycode: u8) -> u8 {
+    !keycode.rotate_left(1)
+}
+
 /// Main emulator state combining CPU and all chipset subsystems.
 pub struct Emulator {
     /// m68k CPU core.
@@ -103,6 +110,8 @@ pub struct Emulator {
     mouse_x_counter: u8,
     /// Mouse Y hardware quadrature counter.
     mouse_y_counter: u8,
+    /// Keyboard transmission delay counter (in frames).
+    keyboard_delay: u8,
 }
 
 impl Emulator {
@@ -174,6 +183,7 @@ impl Emulator {
             mouse_right: false,
             mouse_x_counter: 0,
             mouse_y_counter: 0,
+            keyboard_delay: 0,
         }
     }
 
@@ -606,20 +616,22 @@ impl Emulator {
         }
 
         // Process pending key events into CIA-A serial data register
-        if !self.memory.cia.borrow().cia_a.icr_ir {
+        if self.keyboard_delay == 0 && !self.memory.cia.borrow().cia_a.icr_ir {
             if let Some((keycode, pressed)) = self.key_events.first().copied() {
                 // Amiga keyboard protocol: bit 7 = 0 for press, 1 for release
                 let code = if pressed { keycode } else { keycode | 0x80 };
+                let sdr_val = translate_amiga_keycode(code);
                 {
                     let mut cia_ref = self.memory.cia.borrow_mut();
                     let cia_a = &mut cia_ref.cia_a;
-                    cia_a.sdr = code;
+                    cia_a.sdr = sdr_val;
                     cia_a.icr_data |= 0x08; // Set Serial Port interrupt bit (ICR_SP)
                     if (cia_a.icr_mask & 0x08) != 0 {
                         cia_a.icr_ir = true;
                     }
                 }
                 self.key_events.remove(0);
+                self.keyboard_delay = 3; // Enforce a 3-frame delay between key events
             }
         }
 
@@ -631,6 +643,9 @@ impl Emulator {
 
         // VBlank handling
         if vpos == 0 {
+            if self.keyboard_delay > 0 {
+                self.keyboard_delay -= 1;
+            }
             {
                 self.chipset.intreq |= custom::INT_VERTB;
                 self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
@@ -1328,7 +1343,7 @@ mod tests {
         // CIA-A ICR_SP interrupt should be pending
         {
             let cia_a = &emu.memory.cia.borrow().cia_a;
-            assert_eq!(cia_a.sdr, 0x10);
+            assert_eq!(cia_a.sdr, 0xDF);
             assert!(cia_a.icr_ir);
             assert_ne!(cia_a.icr_data & 0x08, 0);
         }

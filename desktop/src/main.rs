@@ -322,6 +322,8 @@ fn main() {
     let mut presented_framebuffer = vec![0u16; WIDTH * presented_height];
 
     let mut last_mouse: Option<(f32, f32)> = None;
+    let mut last_y_start = 0;
+    let mut last_y_end = HEIGHT;
 
     while video.is_open() {
         // Check ESC to quit
@@ -351,8 +353,18 @@ fn main() {
                 if let Some((lmx, lmy)) = last_mouse {
                     #[allow(clippy::cast_possible_truncation)]
                     let dx = (mx - lmx) as i16;
+
+                    let mut dy_f = my - lmy;
+                    if launch_args.vertical_stretch {
+                        #[allow(clippy::cast_precision_loss)]
+                        let active_height = (last_y_end - last_y_start) as f32;
+                        #[allow(clippy::cast_precision_loss)]
+                        let p_height = presented_height as f32;
+                        dy_f *= active_height / p_height;
+                    }
                     #[allow(clippy::cast_possible_truncation)]
-                    let dy = (my - lmy) as i16;
+                    let dy = dy_f.round() as i16;
+
                     if dx != 0 || dy != 0 {
                         emulator.mouse_move(dx, dy);
                     }
@@ -375,6 +387,8 @@ fn main() {
             } else {
                 (0, HEIGHT)
             };
+            last_y_start = y_start;
+            last_y_end = y_end;
             if !stretch_vertical_viewport(
                 framebuffer,
                 WIDTH,
