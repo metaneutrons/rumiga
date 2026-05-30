@@ -199,7 +199,7 @@ impl PlayfieldState {
         let mut words_fetched = 0usize;
         let mut current_word = None;
         let line_visible = line >= vstart && line < vstop;
-        let source_offset = self.horizontal_source_offset(hstart);
+        let source_pixel_offset = self.horizontal_source_pixel_offset(hires, hstart);
 
         let mut hold_r = ((bg_color >> 16) & 0xFF) as u8;
         let mut hold_g = ((bg_color >> 8) & 0xFF) as u8;
@@ -218,9 +218,9 @@ impl PlayfieldState {
             // doubled in the high-resolution output buffer.
             let window_px = raster_hpos - hstart;
             let source_px = if hires {
-                (window_px + source_offset) * 2 + (px & 1)
+                (window_px * 2) + (px & 1) + source_pixel_offset
             } else {
-                window_px + source_offset
+                window_px + source_pixel_offset
             };
 
             let source_word = usize::from(source_px / PIXELS_PER_WORD);
@@ -316,7 +316,7 @@ impl PlayfieldState {
         }
     }
 
-    const fn horizontal_source_offset(&self, hstart: u16) -> u16 {
+    const fn horizontal_source_pixel_offset(&self, hires: bool, hstart: u16) -> u16 {
         if self.ddfstrt == 0 && self.ddfstop == 0 {
             return 0;
         }
@@ -324,7 +324,12 @@ impl PlayfieldState {
         let fetch_start = self.ddfstrt & 0x00FC;
         let standard_phase = STANDARD_DIW_START_HPOS - STANDARD_DDF_START_HPOS;
         let phase = hstart.saturating_sub(fetch_start);
-        phase.saturating_sub(standard_phase) / 2
+        let hidden_lores_pixels = phase.saturating_sub(standard_phase) / 2;
+        if hires {
+            (hidden_lores_pixels * 2) + PIXELS_PER_WORD
+        } else {
+            hidden_lores_pixels
+        }
     }
 
     fn color_index_at_bit(&self, num_planes: usize, bit_index: u16) -> u16 {
@@ -587,6 +592,33 @@ mod tests {
         let mut line_buffer = [0u16; DISPLAY_WIDTH as usize];
         pf.render_scanline(0x2C, &chip_ram, &mut line_buffer);
 
+        assert_eq!(pf.bplpt[0], 84);
+    }
+
+    #[test]
+    fn highres_ddf_skips_prefetch_word_before_display_window() {
+        let mut pf = PlayfieldState::new();
+        pf.bplcon0 = 0x8000 | 0x1000;
+        pf.diwstrt = 0x2C81;
+        pf.diwstop = 0x2CC1;
+        pf.ddfstrt = 0x0038;
+        pf.ddfstop = 0x00D8;
+        pf.color[0] = 0x0000;
+        pf.color[1] = 0x0FFF;
+
+        let mut chip_ram = [0u8; 256];
+        chip_ram[0] = 0xFF;
+        chip_ram[1] = 0xFF;
+        chip_ram[2] = 0x80;
+        chip_ram[3] = 0x00;
+        pf.bplpt[0] = 0;
+
+        let mut line_buffer = [0u16; DISPLAY_WIDTH as usize];
+        pf.render_scanline(0x2C, &chip_ram, &mut line_buffer);
+
+        let start = active_start_px(&pf);
+        assert_eq!(line_buffer[start], amiga_to_rgb565(0x0FFF));
+        assert_eq!(line_buffer[start + 1], amiga_to_rgb565(0x0000));
         assert_eq!(pf.bplpt[0], 84);
     }
 
