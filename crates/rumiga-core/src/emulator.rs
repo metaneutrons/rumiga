@@ -59,6 +59,63 @@ pub const EARLY_VIDEO_SCANLINE_DUMP: usize = 24;
 /// that starts them, enabling timer-based boot timeouts.
 const FORCE_CIA_TIMER_THRESHOLD: u64 = 22_000_000;
 
+/// Video register snapshot from the most recent rendered bitplane scanline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VideoScanlineSnapshot {
+    /// Beam vertical position.
+    pub vpos: u16,
+    /// Destination framebuffer line.
+    pub framebuffer_line: u16,
+    /// Display window horizontal start.
+    pub hstart: u16,
+    /// Display window horizontal stop.
+    pub hstop: u16,
+    /// Display window vertical start.
+    pub vstart: u16,
+    /// Display window vertical stop.
+    pub vstop: u16,
+    /// Bitplane control register 0.
+    pub bplcon0: u16,
+    /// Bitplane control register 1.
+    pub bplcon1: u16,
+    /// Display data fetch start.
+    pub ddfstrt: u16,
+    /// Display data fetch stop.
+    pub ddfstop: u16,
+    /// Odd bitplane modulo.
+    pub bpl1mod: u16,
+    /// Even bitplane modulo.
+    pub bpl2mod: u16,
+    /// Bitplane pointers at the start of this scanline.
+    pub bplpt: [u32; playfield::MAX_PLANES],
+    /// Chip RAM words sampled from each bitplane pointer at the start of this scanline.
+    pub bitplane_words: [[u16; VIDEO_SCANLINE_WORD_DUMP]; playfield::MAX_PLANES],
+    /// Active plane count.
+    pub num_planes: usize,
+}
+
+fn snapshot_bitplane_words(
+    chip_ram: &[u8],
+    bplpt: [u32; playfield::MAX_PLANES],
+    num_planes: usize,
+) -> [[u16; VIDEO_SCANLINE_WORD_DUMP]; playfield::MAX_PLANES] {
+    let mut words = [[0; VIDEO_SCANLINE_WORD_DUMP]; playfield::MAX_PLANES];
+    if chip_ram.is_empty() {
+        return words;
+    }
+
+    for plane in 0..num_planes.min(playfield::MAX_PLANES) {
+        let base = bplpt[plane] as usize;
+        for word_index in 0..VIDEO_SCANLINE_WORD_DUMP {
+            let addr = (base + word_index * 2) % chip_ram.len();
+            if addr + 1 < chip_ram.len() {
+                words[plane][word_index] = u16::from_be_bytes([chip_ram[addr], chip_ram[addr + 1]]);
+            }
+        }
+    }
+    words
+}
+
 /// Helper to translate raw Amiga keycodes to the required CIA-A SDR register format.
 /// The Amiga ROM keyboard handler decodes SDR via: decoded = ror( ~SDR, 1 )
 /// Therefore, the required SDR value is: SDR = ~( rol( decoded, 1 ) )
@@ -100,6 +157,12 @@ pub struct Emulator {
     pub frame_ready: bool,
     /// Total CPU cycles executed since start.
     pub total_cycles: u64,
+    /// First scanline in the current frame that rendered active bitplanes.
+    pub first_video_scanline: Option<VideoScanlineSnapshot>,
+    /// First active bitplane scanlines in the current frame.
+    pub early_video_scanlines: Vec<VideoScanlineSnapshot>,
+    /// Most recent scanline that rendered active bitplanes.
+    pub last_video_scanline: Option<VideoScanlineSnapshot>,
     /// Pending keyboard events (keycode, pressed).
     key_events: Vec<(u8, bool)>,
     /// Mouse delta X accumulator.
@@ -181,6 +244,9 @@ impl Emulator {
             trace_count: 0,
             frame_ready: false,
             total_cycles: 0,
+            first_video_scanline: None,
+            early_video_scanlines: Vec::new(),
+            last_video_scanline: None,
             key_events: Vec::new(),
             mouse_dx: 0,
             mouse_dy: 0,
@@ -313,6 +379,8 @@ impl Emulator {
     /// Run one full PAL frame (312 scanlines).
     pub fn run_frame(&mut self) {
         self.frame_ready = false;
+        self.first_video_scanline = None;
+        self.early_video_scanlines.clear();
         for _ in 0..SCANLINES_PAL {
             self.run_scanline();
         }
@@ -499,7 +567,34 @@ impl Emulator {
         if let Some(framebuffer_line) = framebuffer_line {
             let bitplane_dma = self.chipset.dmaen(custom::DMA_BITPLANE);
             let saved_bplcon0 = self.playfield.bplcon0;
+            let num_planes = self.playfield.num_planes();
             let chip_ram = self.memory.chip_ram();
+            if bitplane_dma && num_planes > 0 {
+                let (hstart, hstop, vstart, vstop) = self.playfield.display_window();
+                let bplpt = self.playfield.bplpt;
+                let snapshot = VideoScanlineSnapshot {
+                    vpos,
+                    framebuffer_line,
+                    hstart,
+                    hstop,
+                    vstart,
+                    vstop,
+                    bplcon0: self.playfield.bplcon0,
+                    bplcon1: self.playfield.bplcon1,
+                    ddfstrt: self.playfield.ddfstrt,
+                    ddfstop: self.playfield.ddfstop,
+                    bpl1mod: self.memory.custom_regs[(custom::BPL1MOD / 2) as usize],
+                    bpl2mod: self.memory.custom_regs[(custom::BPL2MOD / 2) as usize],
+                    bplpt,
+                    bitplane_words: snapshot_bitplane_words(chip_ram, bplpt, num_planes),
+                    num_planes,
+                };
+                if self.early_video_scanlines.len() < EARLY_VIDEO_SCANLINE_DUMP {
+                    self.early_video_scanlines.push(snapshot);
+                }
+                self.first_video_scanline.get_or_insert(snapshot);
+                self.last_video_scanline = Some(snapshot);
+            }
             if !bitplane_dma {
                 self.playfield.bplcon0 = 0;
             }

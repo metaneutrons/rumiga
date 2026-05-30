@@ -9,12 +9,15 @@ use std::path::{Path, PathBuf};
 use std::process;
 
 use minifb::Key;
-use rumiga_core::emulator::Emulator;
+use rumiga_core::custom;
+use rumiga_core::emulator::{
+    EARLY_VIDEO_SCANLINE_DUMP, Emulator, VIDEO_SCANLINE_WORD_DUMP, VideoScanlineSnapshot,
+};
 use rumiga_core::floppy::{
     FLOPPY_SPEED_COMPATIBLE_PERCENT, FLOPPY_SPEED_TURBO_PERCENT, is_supported_floppy_speed_percent,
 };
 use rumiga_core::memory::MemoryConfig;
-use rumiga_core::playfield::{DISPLAY_HEIGHT, DISPLAY_WIDTH};
+use rumiga_core::playfield::{DISPLAY_HEIGHT, DISPLAY_LEFT_HPOS, DISPLAY_WIDTH};
 use rumiga_platform::VideoOutput;
 use rumiga_platform_desktop::DesktopVideo;
 use sha2::{Digest, Sha256};
@@ -1146,6 +1149,7 @@ fn write_capture_manifest(path: &Path, context: &CaptureManifestContext<'_>) -> 
         count_non_zero_pixels(&context.frame.pixels),
         count_distinct_colors(&context.frame.pixels)
     );
+    push_video_state_json(&mut json, context.emulator);
     push_floppy_state_json(&mut json, &context.emulator.floppy);
     push_gayle_ide_state_json(&mut json, context.emulator);
     json.push_str("  \"media\": {\n");
@@ -1167,6 +1171,245 @@ fn write_capture_manifest(path: &Path, context: &CaptureManifestContext<'_>) -> 
     json.push_str("}\n");
 
     fs::write(path, json).map_err(|e| format!("Failed to write manifest '{}': {e}", path.display()))
+}
+
+fn push_video_state_json(json: &mut String, emulator: &Emulator) {
+    let regs = &emulator.memory.custom_regs;
+    let playfield = &emulator.playfield;
+    let (hstart, hstop, vstart, vstop) = playfield.display_window();
+    let active_x_start = active_x_for_hpos(hstart);
+    let active_x_end = active_x_for_hpos(hstop);
+
+    let _ = writeln!(json, "  \"video\": {{");
+    let _ = writeln!(
+        json,
+        "    \"display_window\": {{ \"hstart\": {}, \"hstop\": {}, \"vstart\": {}, \"vstop\": {} }},",
+        hstart, hstop, vstart, vstop
+    );
+    let _ = writeln!(
+        json,
+        "    \"active_frame_window\": {{ \"display_left_hpos\": {}, \"x_start\": {}, \"x_end\": {}, \"right_margin\": {} }},",
+        DISPLAY_LEFT_HPOS,
+        active_x_start,
+        active_x_end,
+        WIDTH.saturating_sub(active_x_end)
+    );
+    let _ = writeln!(
+        json,
+        "    \"diwstrt\": {},",
+        json_string(&format!("0x{:04X}", regs[(custom::DIWSTRT / 2) as usize]))
+    );
+    let _ = writeln!(
+        json,
+        "    \"diwstop\": {},",
+        json_string(&format!("0x{:04X}", regs[(custom::DIWSTOP / 2) as usize]))
+    );
+    let _ = writeln!(
+        json,
+        "    \"diwhigh\": {},",
+        json_string(&format!("0x{:04X}", regs[(custom::DIWHIGH / 2) as usize]))
+    );
+    let _ = writeln!(
+        json,
+        "    \"ddfstrt\": {},",
+        json_string(&format!("0x{:04X}", regs[(custom::DDFSTRT / 2) as usize]))
+    );
+    let _ = writeln!(
+        json,
+        "    \"ddfstop\": {},",
+        json_string(&format!("0x{:04X}", regs[(custom::DDFSTOP / 2) as usize]))
+    );
+    let _ = writeln!(
+        json,
+        "    \"bplcon0\": {},",
+        json_string(&format!("0x{:04X}", playfield.bplcon0))
+    );
+    let _ = writeln!(
+        json,
+        "    \"bplcon1\": {},",
+        json_string(&format!("0x{:04X}", playfield.bplcon1))
+    );
+    let _ = writeln!(
+        json,
+        "    \"bplcon2\": {},",
+        json_string(&format!("0x{:04X}", playfield.bplcon2))
+    );
+    let _ = writeln!(
+        json,
+        "    \"bplcon3\": {},",
+        json_string(&format!("0x{:04X}", playfield.bplcon3))
+    );
+    let _ = writeln!(
+        json,
+        "    \"bplcon4\": {},",
+        json_string(&format!("0x{:04X}", playfield.bplcon4))
+    );
+    let _ = writeln!(
+        json,
+        "    \"fmode\": {},",
+        json_string(&format!("0x{:04X}", playfield.fmode))
+    );
+    let _ = writeln!(json, "    \"num_planes\": {},", playfield.num_planes());
+    push_video_scanline_json(json, "first_scanline", emulator.first_video_scanline, true);
+    push_early_video_scanlines_json(json, emulator);
+    push_video_scanline_json(json, "last_scanline", emulator.last_video_scanline, false);
+    json.push_str("  },\n");
+}
+
+fn push_video_scanline_json(
+    json: &mut String,
+    key: &str,
+    scanline: Option<VideoScanlineSnapshot>,
+    trailing_comma: bool,
+) {
+    if let Some(scanline) = scanline {
+        let active_x_start = active_x_for_hpos(scanline.hstart);
+        let active_x_end = active_x_for_hpos(scanline.hstop);
+        let _ = writeln!(json, "    {key:?}: {{");
+        let _ = writeln!(json, "      \"vpos\": {},", scanline.vpos);
+        let _ = writeln!(
+            json,
+            "      \"framebuffer_line\": {},",
+            scanline.framebuffer_line
+        );
+        let _ = writeln!(
+            json,
+            "      \"display_window\": {{ \"hstart\": {}, \"hstop\": {}, \"vstart\": {}, \"vstop\": {} }},",
+            scanline.hstart, scanline.hstop, scanline.vstart, scanline.vstop
+        );
+        let _ = writeln!(
+            json,
+            "      \"active_frame_window\": {{ \"display_left_hpos\": {}, \"x_start\": {}, \"x_end\": {}, \"right_margin\": {} }},",
+            DISPLAY_LEFT_HPOS,
+            active_x_start,
+            active_x_end,
+            WIDTH.saturating_sub(active_x_end)
+        );
+        let _ = writeln!(
+            json,
+            "      \"bplcon0\": {},",
+            json_string(&format!("0x{:04X}", scanline.bplcon0))
+        );
+        let _ = writeln!(
+            json,
+            "      \"bplcon1\": {},",
+            json_string(&format!("0x{:04X}", scanline.bplcon1))
+        );
+        let _ = writeln!(
+            json,
+            "      \"ddfstrt\": {},",
+            json_string(&format!("0x{:04X}", scanline.ddfstrt))
+        );
+        let _ = writeln!(
+            json,
+            "      \"ddfstop\": {},",
+            json_string(&format!("0x{:04X}", scanline.ddfstop))
+        );
+        let _ = writeln!(
+            json,
+            "      \"bpl1mod\": {},",
+            json_string(&format!("0x{:04X}", scanline.bpl1mod))
+        );
+        let _ = writeln!(
+            json,
+            "      \"bpl2mod\": {},",
+            json_string(&format!("0x{:04X}", scanline.bpl2mod))
+        );
+        push_scanline_bplpt_json(json, &scanline);
+        push_scanline_bitplane_words_json(json, &scanline);
+        let _ = writeln!(json, "      \"num_planes\": {}", scanline.num_planes);
+        if trailing_comma {
+            json.push_str("    },\n");
+        } else {
+            json.push_str("    }\n");
+        }
+    } else if trailing_comma {
+        let _ = writeln!(json, "    {key:?}: null,");
+    } else {
+        let _ = writeln!(json, "    {key:?}: null");
+    }
+}
+
+fn push_early_video_scanlines_json(json: &mut String, emulator: &Emulator) {
+    let _ = writeln!(
+        json,
+        "    \"early_scanline_limit\": {},",
+        EARLY_VIDEO_SCANLINE_DUMP
+    );
+    json.push_str("    \"early_scanlines\": [\n");
+    for (index, scanline) in emulator.early_video_scanlines.iter().enumerate() {
+        let _ = writeln!(json, "      {{");
+        let _ = writeln!(json, "        \"vpos\": {},", scanline.vpos);
+        let _ = writeln!(
+            json,
+            "        \"framebuffer_line\": {},",
+            scanline.framebuffer_line
+        );
+        push_scanline_bplpt_json_with_indent(json, scanline, "        ");
+        push_scanline_bitplane_words_json_with_indent(json, scanline, "        ");
+        let _ = writeln!(json, "        \"num_planes\": {}", scanline.num_planes);
+        if index + 1 == emulator.early_video_scanlines.len() {
+            json.push_str("      }\n");
+        } else {
+            json.push_str("      },\n");
+        }
+    }
+    json.push_str("    ],\n");
+}
+
+fn push_scanline_bplpt_json(json: &mut String, scanline: &VideoScanlineSnapshot) {
+    push_scanline_bplpt_json_with_indent(json, scanline, "      ");
+}
+
+fn push_scanline_bplpt_json_with_indent(
+    json: &mut String,
+    scanline: &VideoScanlineSnapshot,
+    indent: &str,
+) {
+    let planes = scanline.num_planes.min(scanline.bplpt.len());
+    let _ = write!(json, "{indent}\"bplpt\": [");
+    for plane in 0..planes {
+        if plane > 0 {
+            json.push_str(", ");
+        }
+        json.push_str(&json_string(&format!("0x{:06X}", scanline.bplpt[plane])));
+    }
+    json.push_str("],\n");
+}
+
+fn push_scanline_bitplane_words_json(json: &mut String, scanline: &VideoScanlineSnapshot) {
+    push_scanline_bitplane_words_json_with_indent(json, scanline, "      ");
+}
+
+fn push_scanline_bitplane_words_json_with_indent(
+    json: &mut String,
+    scanline: &VideoScanlineSnapshot,
+    indent: &str,
+) {
+    let planes = scanline.num_planes.min(scanline.bitplane_words.len());
+    let _ = writeln!(json, "{indent}\"bitplane_words\": [");
+    for plane in 0..planes {
+        let _ = write!(json, "{indent}  [");
+        for word_index in 0..VIDEO_SCANLINE_WORD_DUMP {
+            if word_index > 0 {
+                json.push_str(", ");
+            }
+            json.push_str(&json_string(&format!(
+                "0x{:04X}",
+                scanline.bitplane_words[plane][word_index]
+            )));
+        }
+        if plane + 1 == planes {
+            json.push_str("]\n");
+        } else {
+            json.push_str("],\n");
+        }
+    }
+    let _ = writeln!(json, "{indent}],");
+}
+
+fn active_x_for_hpos(hpos: u16) -> usize {
+    usize::from(hpos.saturating_sub(DISPLAY_LEFT_HPOS)).saturating_mul(2)
 }
 
 fn push_gayle_ide_state_json(json: &mut String, emulator: &Emulator) {
