@@ -48,6 +48,10 @@ pub struct BlitterState {
     pub bltdmod: i16,
     /// Size register (height\[15:6\], width\[5:0\] in words). Writing starts blit.
     pub bltsize: u16,
+    /// Active blit height in rows after legacy or ECS/AGA size decoding.
+    pub vblitsize: u32,
+    /// Active blit width in words after legacy or ECS/AGA size decoding.
+    pub hblitsize: u32,
     /// Channel A data register.
     pub bltadat: u16,
     /// Channel B data register.
@@ -88,6 +92,8 @@ impl BlitterState {
             bltcmod: 0,
             bltdmod: 0,
             bltsize: 0,
+            vblitsize: 0,
+            hblitsize: 0,
             bltadat: 0,
             bltbdat: 0,
             bltcdat: 0,
@@ -106,9 +112,50 @@ impl BlitterState {
 
     /// Called when `BLTSIZE` is written; initiates a blit operation.
     pub fn start_blit(&mut self) {
+        if self.vblitsize == 0 && self.hblitsize == 0 {
+            self.decode_legacy_size();
+        }
         self.bltbold = 0;
         self.busy = true;
         self.done = false;
+    }
+
+    /// Decode and start a legacy `BLTSIZE` write.
+    pub fn start_legacy_size_blit(&mut self, value: u16) {
+        self.bltsize = value;
+        self.decode_legacy_size();
+        self.start_blit();
+    }
+
+    /// Decode the ECS/AGA vertical size register.
+    pub fn set_vertical_size(&mut self, value: u16) {
+        self.vblitsize = u32::from(value & 0x7FFF);
+        if self.vblitsize == 0 {
+            self.vblitsize = 0x8000;
+        }
+    }
+
+    /// Decode and start an ECS/AGA horizontal size register write.
+    pub fn start_horizontal_size_blit(&mut self, value: u16) {
+        self.hblitsize = u32::from(value & 0x07FF);
+        if self.vblitsize == 0 {
+            self.vblitsize = 0x8000;
+        }
+        if self.hblitsize == 0 {
+            self.hblitsize = 0x0800;
+        }
+        self.start_blit();
+    }
+
+    fn decode_legacy_size(&mut self) {
+        self.vblitsize = u32::from(self.bltsize >> 6);
+        self.hblitsize = u32::from(self.bltsize & 0x3F);
+        if self.vblitsize == 0 {
+            self.vblitsize = 1024;
+        }
+        if self.hblitsize == 0 {
+            self.hblitsize = u32::from(MAX_WIDTH);
+        }
     }
 
     /// Load the B data register and update the held shifted B value.
@@ -144,8 +191,8 @@ impl BlitterState {
         clippy::similar_names
     )]
     fn execute_line(&mut self, chip_ram: &mut [u8]) {
-        let vblitsize = self.bltsize >> 6;
-        let hblitsize = self.bltsize & 0x3F;
+        let vblitsize = self.vblitsize;
+        let hblitsize = self.hblitsize;
         if vblitsize == 0 || hblitsize < 2 {
             return;
         }
@@ -271,12 +318,11 @@ impl BlitterState {
     /// Execute an area (copy/fill) blit.
     #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
     fn execute_area(&mut self, chip_ram: &mut [u8]) {
-        let height = self.bltsize >> 6;
-        let mut width = self.bltsize & 0x3F;
-        if width == 0 {
-            width = MAX_WIDTH;
+        let height = self.vblitsize;
+        let width = self.hblitsize;
+        if height == 0 || width == 0 {
+            return;
         }
-
         let ash = (self.bltcon0 >> 12) & 0xF;
         let bsh = (self.bltcon1 >> 12) & 0xF;
         let minterm = (self.bltcon0 & 0xFF) as u8;
@@ -563,6 +609,27 @@ mod tests {
         blitter.execute_blit(&mut chip_ram);
         assert!(!blitter.is_busy());
         assert!(blitter.done);
+    }
+
+    #[test]
+    fn legacy_zero_bltsize_decodes_hardware_maxima() {
+        let mut blitter = BlitterState::new();
+
+        blitter.start_legacy_size_blit(0);
+
+        assert_eq!(blitter.vblitsize, 1024);
+        assert_eq!(blitter.hblitsize, u32::from(MAX_WIDTH));
+    }
+
+    #[test]
+    fn ecs_aga_size_registers_decode_extended_maxima() {
+        let mut blitter = BlitterState::new();
+
+        blitter.set_vertical_size(0);
+        blitter.start_horizontal_size_blit(0);
+
+        assert_eq!(blitter.vblitsize, 0x8000);
+        assert_eq!(blitter.hblitsize, 0x0800);
     }
 
     #[test]

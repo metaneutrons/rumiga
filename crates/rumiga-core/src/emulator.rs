@@ -45,6 +45,12 @@ const FRAMEBUFFER_SIZE: usize = DISPLAY_WIDTH * playfield::DISPLAY_HEIGHT as usi
 /// Maximum queued key events per frame.
 const MAX_KEY_EVENTS: usize = 16;
 
+/// Number of words dumped per bitplane in scanline capture manifests.
+pub const VIDEO_SCANLINE_WORD_DUMP: usize = 48;
+
+/// Number of early active scanlines retained for video capture diagnostics.
+pub const EARLY_VIDEO_SCANLINE_DUMP: usize = 24;
+
 /// Cycle threshold after which CIA timers are force-started if still stopped (~frame 160).
 ///
 /// On Kickstart 1.3, timer.device should start the CIA timers during `InitCode`.
@@ -207,12 +213,7 @@ impl Emulator {
         }
         if self.memory.blitter_completed {
             self.memory.blitter_completed = false;
-            // Mark the blitter as finished in our local state
-            self.blitter.busy = false;
-            self.blitter.done = true;
-            // Fire blitter-done interrupt
-            self.chipset.intreq |= custom::INT_BLIT;
-            self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
+            self.finish_completed_blitter();
         }
     }
 
@@ -223,13 +224,22 @@ impl Emulator {
         }
         if self.memory.blitter_completed {
             self.memory.blitter_completed = false;
-            // Mark the blitter as finished in our local state
+            self.finish_completed_blitter();
+        }
+    }
+
+    fn finish_completed_blitter(&mut self) {
+        if let Some(mut blitter) = self.memory.completed_blitter.take() {
+            blitter.busy = false;
+            blitter.done = true;
+            self.blitter = blitter;
+        } else {
             self.blitter.busy = false;
             self.blitter.done = true;
-            // Fire blitter-done interrupt
-            self.chipset.intreq |= custom::INT_BLIT;
-            self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
         }
+
+        self.chipset.intreq |= custom::INT_BLIT;
+        self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
     }
 
     /// Returns whether the specified floppy drive (0–3) has dirty data.
@@ -489,12 +499,12 @@ impl Emulator {
         if let Some(framebuffer_line) = framebuffer_line {
             let bitplane_dma = self.chipset.dmaen(custom::DMA_BITPLANE);
             let saved_bplcon0 = self.playfield.bplcon0;
+            let chip_ram = self.memory.chip_ram();
             if !bitplane_dma {
                 self.playfield.bplcon0 = 0;
             }
 
             let mut line_buffer = [0u16; DISPLAY_WIDTH];
-            let chip_ram = self.memory.chip_ram();
             self.playfield
                 .render_scanline(vpos, chip_ram, &mut line_buffer);
             self.playfield.bplcon0 = saved_bplcon0;
@@ -789,15 +799,7 @@ impl Emulator {
     fn sync_readable_regs(&mut self) {
         // Lazy check of background blitter done signal
         if self.memory.blit_thread.is_some() {
-            self.memory.sync_blitter_lazy();
-            if self.memory.blit_thread.is_none() {
-                // Done! Finalize it
-                self.blitter.busy = false;
-                self.blitter.done = true;
-                // Fire blitter-done interrupt
-                self.chipset.intreq |= custom::INT_BLIT;
-                self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
-            }
+            self.sync_blitter_lazy();
         }
 
         let blit_busy = self.memory.blit_thread.is_some();
@@ -979,6 +981,9 @@ impl Emulator {
 
         match offset {
             custom::BLTCON0 => self.blitter.bltcon0 = value,
+            custom::BLTCON0L => {
+                self.blitter.bltcon0 = (self.blitter.bltcon0 & 0xFF00) | (value & 0x00FF);
+            }
             custom::BLTCON1 => self.blitter.bltcon1 = value,
             custom::BLTAFWM => self.blitter.bltafwm = value,
             custom::BLTALWM => self.blitter.bltalwm = value,
@@ -1036,19 +1041,26 @@ impl Emulator {
             custom::BLTBDAT => self.blitter.load_bdat(value),
             custom::BLTADAT => self.blitter.bltadat = value,
             custom::BLTSIZE => {
-                self.blitter.bltsize = value;
-                self.blitter.start_blit();
-
-                let mut chip_ram = std::mem::take(&mut self.memory.chip_ram);
-                let mut blitter = self.blitter.clone();
-                let handle = std::thread::spawn(move || {
-                    blitter.execute_blit(&mut chip_ram);
-                    chip_ram
-                });
-                self.memory.blit_thread = Some(handle);
+                self.blitter.start_legacy_size_blit(value);
+                self.start_blitter_thread();
+            }
+            custom::BLTSIZV => self.blitter.set_vertical_size(value),
+            custom::BLTSIZH => {
+                self.blitter.start_horizontal_size_blit(value);
+                self.start_blitter_thread();
             }
             _ => {}
         }
+    }
+
+    fn start_blitter_thread(&mut self) {
+        let mut chip_ram = std::mem::take(&mut self.memory.chip_ram);
+        let mut blitter = self.blitter.clone();
+        let handle = std::thread::spawn(move || {
+            blitter.execute_blit(&mut chip_ram);
+            (chip_ram, blitter)
+        });
+        self.memory.blit_thread = Some(handle);
     }
 
     /// Get the current framebuffer contents.
@@ -1322,6 +1334,76 @@ mod tests {
         // The blit_thread in memory should now be cleared
         assert!(emu.memory.blit_thread.is_none());
         assert!(!emu.blitter.busy);
+        assert!(emu.blitter.done);
+        assert_eq!(emu.blitter.bltapt, 0x1004);
+        assert_eq!(emu.blitter.bltdpt, 0x2004);
+    }
+
+    #[test]
+    fn completed_blit_preserves_postincremented_pointers() {
+        let mut emu = Emulator::new(MemoryConfig::a500());
+        emu.memory.overlay = false;
+
+        for (offset, value) in [0xAA, 0xBB, 0xCC, 0xDD, 0x12, 0x34, 0x56, 0x78]
+            .into_iter()
+            .enumerate()
+        {
+            emu.memory.write_byte(0x1000 + offset as u32, value);
+        }
+
+        emu.dispatch_register_write(custom::BLTCON0, 0x09F0);
+        emu.dispatch_register_write(custom::BLTAPTH, 0x0000);
+        emu.dispatch_register_write(custom::BLTAPTL, 0x1000);
+        emu.dispatch_register_write(custom::BLTDPTH, 0x0000);
+        emu.dispatch_register_write(custom::BLTDPTL, 0x2000);
+        emu.dispatch_register_write(custom::BLTSIZE, (1 << 6) | 2);
+        emu.sync_blitter();
+
+        emu.dispatch_register_write(custom::BLTSIZE, (1 << 6) | 2);
+        emu.sync_blitter();
+
+        assert_eq!(emu.memory.read_byte(0x2004), 0x12);
+        assert_eq!(emu.memory.read_byte(0x2005), 0x34);
+        assert_eq!(emu.memory.read_byte(0x2006), 0x56);
+        assert_eq!(emu.memory.read_byte(0x2007), 0x78);
+        assert_eq!(emu.blitter.bltapt, 0x1008);
+        assert_eq!(emu.blitter.bltdpt, 0x2008);
+    }
+
+    #[test]
+    fn bltcon0l_updates_only_lower_control_byte() {
+        let mut emu = Emulator::new(MemoryConfig::a1200());
+
+        emu.dispatch_register_write(custom::BLTCON0, 0xAB00);
+        emu.dispatch_register_write(custom::BLTCON0L, 0x00F0);
+
+        assert_eq!(emu.blitter.bltcon0, 0xABF0);
+    }
+
+    #[test]
+    fn bltsizv_bltsizh_start_extended_blit() {
+        let mut emu = Emulator::new(MemoryConfig::a1200());
+        emu.memory.overlay = false;
+
+        emu.memory.write_byte(0x1000, 0x12);
+        emu.memory.write_byte(0x1001, 0x34);
+        emu.memory.write_byte(0x1002, 0x56);
+        emu.memory.write_byte(0x1003, 0x78);
+
+        emu.dispatch_register_write(custom::BLTCON0, 0x09F0);
+        emu.dispatch_register_write(custom::BLTAPTH, 0x0000);
+        emu.dispatch_register_write(custom::BLTAPTL, 0x1000);
+        emu.dispatch_register_write(custom::BLTDPTH, 0x0000);
+        emu.dispatch_register_write(custom::BLTDPTL, 0x2000);
+
+        emu.dispatch_register_write(custom::BLTSIZV, 1);
+        emu.dispatch_register_write(custom::BLTSIZH, 2);
+        emu.sync_blitter();
+
+        assert_eq!(emu.memory.read_byte(0x2000), 0x12);
+        assert_eq!(emu.memory.read_byte(0x2001), 0x34);
+        assert_eq!(emu.memory.read_byte(0x2002), 0x56);
+        assert_eq!(emu.memory.read_byte(0x2003), 0x78);
         assert!(emu.blitter.done);
     }
 

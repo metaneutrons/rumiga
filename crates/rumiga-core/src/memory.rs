@@ -19,6 +19,7 @@ use std::cell::{Cell, RefCell};
 
 use m68k::AddressBus;
 
+use crate::blitter::BlitterState;
 use crate::cia::CiaPair;
 use crate::custom;
 use crate::ide::AtaController;
@@ -159,9 +160,11 @@ pub struct AmigaMemory {
     /// Gayle IDE controller.
     pub ide: RefCell<AtaController>,
     /// Active blitter execution thread.
-    pub blit_thread: Option<std::thread::JoinHandle<Vec<u8>>>,
+    pub blit_thread: Option<std::thread::JoinHandle<(Vec<u8>, BlitterState)>>,
     /// Set when the blitter thread finishes and RAM is restored.
     pub blitter_completed: bool,
+    /// Final blitter register state returned by the completed blit thread.
+    pub completed_blitter: Option<BlitterState>,
 }
 
 impl AmigaMemory {
@@ -200,6 +203,7 @@ impl AmigaMemory {
             ide: RefCell::new(AtaController::new()),
             blit_thread: None,
             blitter_completed: false,
+            completed_blitter: None,
         }
     }
 
@@ -232,8 +236,9 @@ impl AmigaMemory {
     /// Wait for the active background blit thread to complete and restore chip RAM.
     pub fn sync_blitter(&mut self) {
         if let Some(handle) = self.blit_thread.take() {
-            if let Ok(chip_ram) = handle.join() {
+            if let Ok((chip_ram, blitter)) = handle.join() {
                 self.chip_ram = chip_ram;
+                self.completed_blitter = Some(blitter);
                 self.blitter_completed = true;
             }
         }
