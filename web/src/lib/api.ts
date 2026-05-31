@@ -13,6 +13,10 @@ export interface FileListResponse {
   free_bytes: number;
 }
 
+export interface FormatRequest {
+  confirm_token: string;
+}
+
 export interface WifiNetwork {
   ssid: string;
   rssi: number;
@@ -23,13 +27,19 @@ export interface WifiStatus {
   connected: boolean;
   ssid: string | null;
   ip: string | null;
-  mode: 'SoftAp' | 'Client' | 'Disconnected';
+  mode: WifiMode;
 }
 
 export interface WifiScanResponse {
   networks: WifiNetwork[];
 }
 
+export interface WifiConnectRequest {
+  ssid: string;
+  password: string;
+}
+
+export type WifiMode = 'SoftAp' | 'Client' | 'Disconnected';
 export type AmigaModel = 'A500' | 'A500Plus' | 'A1200';
 
 export interface ChannelMixConfig {

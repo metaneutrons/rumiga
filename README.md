@@ -106,6 +106,12 @@ scripts/generate-compatibility-report.py \
   --output target/evidence/compatibility-report.md
 ```
 
+Check that Rust REST DTOs still match the web UI TypeScript contract:
+
+```bash
+scripts/check-api-dto-parity.py
+```
+
 The desktop REST API also exposes `GET /api/machine/support-bundle` for a
 redacted JSON support snapshot. It includes current status, display settings,
 network counters, screenshot metadata, and media file names, but not ROM, HDF,
