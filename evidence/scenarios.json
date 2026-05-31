@@ -1,0 +1,254 @@
+{
+  "schema": {
+    "id": "rumiga.evidence.scenario-catalog.v1",
+    "version": 1
+  },
+  "scenarios": [
+    {
+      "id": "a500-kick13-insert-screen",
+      "tier": "tier-1-ocs",
+      "machine": "a500",
+      "cpu": "68000",
+      "video_standard": "pal",
+      "milestone": "Kickstart 1.3 no-disk insert-hand screen renders without distortion.",
+      "command": "cargo run --release -p rumiga-desktop --bin rumiga-desktop -- --model a500 --cpu 68000 --capture target/evidence/a500-kick13-insert-screen/rumiga.png --capture-manifest target/evidence/a500-kick13-insert-screen/rumiga.json --capture-frames 1200 $RUMIGA_A500_KICK13_ROM",
+      "required_assets": [
+        "RUMIGA_A500_KICK13_ROM"
+      ],
+      "status_when_missing": "skipped-missing-assets",
+      "notes": [
+        "Primary visual baseline for the Kickstart 1.3 insert-hand regression.",
+        "Reference image should be captured from FS-UAE/WinUAE using the same ROM hash."
+      ]
+    },
+    {
+      "id": "a500-workbench13-adf",
+      "tier": "tier-1-ocs",
+      "machine": "a500",
+      "cpu": "68000",
+      "video_standard": "pal",
+      "milestone": "Workbench 1.3 boots from DF0 ADF to a usable desktop.",
+      "command": "cargo run --release -p rumiga-desktop --bin rumiga-desktop -- --model a500 --cpu 68000 --capture target/evidence/a500-workbench13-adf/rumiga.png --capture-manifest target/evidence/a500-workbench13-adf/rumiga.json --capture-frames 6000 $RUMIGA_A500_KICK13_ROM $RUMIGA_WORKBENCH13_ADF",
+      "required_assets": [
+        "RUMIGA_A500_KICK13_ROM",
+        "RUMIGA_WORKBENCH13_ADF"
+      ],
+      "status_when_missing": "skipped-missing-assets",
+      "notes": [
+        "Tracks floppy, CIA timer, OCS viewport, and Workbench input-readiness in one boot path."
+      ]
+    },
+    {
+      "id": "ocs-curated-corpus",
+      "tier": "tier-1-ocs",
+      "machine": "a500",
+      "cpu": "68000",
+      "video_standard": "pal",
+      "target_count": 20,
+      "milestone": "Twenty approved OCS titles reach documented menu/gameplay/demo milestones.",
+      "command": "target/evidence/ocs-curated-corpus/<title>/rumiga.json",
+      "required_assets": [
+        "local approved OCS ADF set"
+      ],
+      "status_when_missing": "skipped-missing-assets",
+      "notes": [
+        "Catalog group placeholder; expand into per-title scenarios as legally usable assets are selected.",
+        "Each title must record a milestone, reference emulator result, and failure owner."
+      ]
+    },
+    {
+      "id": "a500plus-workbench2x-adf",
+      "tier": "tier-2-ecs",
+      "machine": "a500plus",
+      "cpu": "68000",
+      "video_standard": "pal",
+      "milestone": "Workbench 2.x boots from ADF with ECS display behavior.",
+      "command": "cargo run --release -p rumiga-desktop --bin rumiga-desktop -- --model a500plus --cpu 68000 --capture target/evidence/a500plus-workbench2x-adf/rumiga.png --capture-manifest target/evidence/a500plus-workbench2x-adf/rumiga.json --capture-frames 6000 $RUMIGA_A500PLUS_ROM $RUMIGA_WORKBENCH2X_ADF",
+      "required_assets": [
+        "RUMIGA_A500PLUS_ROM",
+        "RUMIGA_WORKBENCH2X_ADF"
+      ],
+      "status_when_missing": "skipped-missing-assets",
+      "notes": [
+        "Proves ECS register and Workbench 2.x baseline before broader ECS corpus work."
+      ]
+    },
+    {
+      "id": "a600-hdf",
+      "tier": "tier-2-ecs-gayle",
+      "machine": "a600",
+      "cpu": "68000",
+      "video_standard": "pal",
+      "milestone": "A600 profile boots a Gayle IDE HDF and reports safe geometry/write policy.",
+      "command": "cargo run --release -p rumiga-desktop --bin rumiga-desktop -- --model a600 --cpu 68000 --hdf $RUMIGA_A600_HDF --capture target/evidence/a600-hdf/rumiga.png --capture-manifest target/evidence/a600-hdf/rumiga.json --capture-frames 6000 $RUMIGA_A600_ROM",
+      "required_assets": [
+        "RUMIGA_A600_ROM",
+        "RUMIGA_A600_HDF"
+      ],
+      "status_when_missing": "skipped-missing-assets",
+      "notes": [
+        "Separates A600 Gayle/RDB evidence from the A1200 HDF baseline."
+      ]
+    },
+    {
+      "id": "a1200-kick3x-insert-screen",
+      "tier": "tier-3-aga",
+      "machine": "a1200",
+      "cpu": "68020",
+      "video_standard": "pal",
+      "milestone": "A1200 Kickstart 3.x no-disk insert screen renders without edge wrap.",
+      "command": "cargo run --release -p rumiga-desktop --bin rumiga-desktop -- --model a1200 --cpu 68020 --capture target/evidence/a1200-kick3x-insert-screen/rumiga.png --capture-manifest target/evidence/a1200-kick3x-insert-screen/rumiga.json --capture-frames 1200 $RUMIGA_A1200_ROM",
+      "required_assets": [
+        "RUMIGA_A1200_ROM"
+      ],
+      "status_when_missing": "skipped-missing-assets",
+      "notes": [
+        "Fast visual guard for AGA insert-screen and viewport regressions."
+      ]
+    },
+    {
+      "id": "a1200-workbench31-adf",
+      "tier": "tier-3-aga",
+      "machine": "a1200",
+      "cpu": "68020",
+      "video_standard": "pal",
+      "milestone": "Workbench 3.1 boots from ADF and presents correct native geometry.",
+      "command": "cargo run --release -p rumiga-desktop --bin rumiga-desktop -- --model a1200 --cpu 68020 --capture target/evidence/a1200-workbench31-adf/rumiga.png --capture-manifest target/evidence/a1200-workbench31-adf/rumiga.json --capture-frames 8000 $RUMIGA_A1200_ROM $RUMIGA_WORKBENCH31_ADF",
+      "required_assets": [
+        "RUMIGA_A1200_ROM",
+        "RUMIGA_WORKBENCH31_ADF"
+      ],
+      "status_when_missing": "skipped-missing-assets",
+      "notes": [
+        "ADF path complements A1200 HDF boot evidence and keeps trackdisk regressions visible."
+      ]
+    },
+    {
+      "id": "a1200-hdf",
+      "tier": "tier-3-aga",
+      "machine": "a1200",
+      "cpu": "68020",
+      "video_standard": "pal",
+      "milestone": "Workbench 3.1.4 HDF reaches desktop or classified media requester with clean viewport edges.",
+      "command": "scripts/capture-a1200-hdf.sh",
+      "required_assets": [
+        "RUMIGA_A1200_ROM",
+        "RUMIGA_A1200_HDF"
+      ],
+      "status_when_missing": "skipped-missing-assets",
+      "notes": [
+        "Near-term release evidence pack for A1200, Gayle IDE, HDF, viewport, and manifest integrity.",
+        "Use RUMIGA_HDF_SNAPSHOT for write-path evidence without mutating the source image."
+      ]
+    },
+    {
+      "id": "aga-curated-corpus",
+      "tier": "tier-3-aga",
+      "machine": "a1200",
+      "cpu": "68020",
+      "video_standard": "pal",
+      "target_count": 20,
+      "milestone": "Twenty approved AGA titles cover palettes, HAM8, sprites, scrolling, and high-resolution modes.",
+      "command": "target/evidence/aga-curated-corpus/<title>/rumiga.json",
+      "required_assets": [
+        "local approved AGA ADF/HDF set"
+      ],
+      "status_when_missing": "skipped-missing-assets",
+      "notes": [
+        "Catalog group placeholder; expand into per-title scenarios as legally usable assets are selected.",
+        "Do not promote Workbench-only success to full AGA compatibility."
+      ]
+    },
+    {
+      "id": "a2065-slirp",
+      "tier": "tier-4-network",
+      "machine": "a1200",
+      "cpu": "68020",
+      "video_standard": "pal",
+      "milestone": "A2065 is present, SLIRP link is up, and packet counters are recorded.",
+      "command": "scripts/capture-a2065-slirp.sh",
+      "required_assets": [
+        "RUMIGA_NETWORK_ROM",
+        "RUMIGA_NETWORK_HDF"
+      ],
+      "status_when_missing": "skipped-missing-assets",
+      "notes": [
+        "Default link evidence does not require a configured guest TCP/IP stack.",
+        "Packet capture must remain local-fixture only or be redacted before sharing."
+      ]
+    },
+    {
+      "id": "a2065-guest-tcp",
+      "tier": "tier-4-network",
+      "machine": "a1200",
+      "cpu": "68020",
+      "video_standard": "pal",
+      "milestone": "Guest Amiga TCP stack configures A2065, pings gateway, resolves DNS, fetches HTTP, and validates checksum.",
+      "command": "RUMIGA_NETWORK_EVIDENCE_MODE=guest-tcp RUMIGA_NETWORK_EXPECT_A2065_CONFIGURED=1 RUMIGA_NETWORK_EXPECT_TX_MIN=1 RUMIGA_NETWORK_EXPECT_RX_MIN=1 scripts/capture-a2065-slirp.sh",
+      "required_assets": [
+        "RUMIGA_NETWORK_ROM",
+        "RUMIGA_NETWORK_HDF with A2065/SANA-II driver and TCP/IP stack"
+      ],
+      "status_when_missing": "skipped-missing-assets",
+      "notes": [
+        "This is the promotion gate from link-ready network evidence to functional guest TCP evidence."
+      ]
+    },
+    {
+      "id": "rest-web-control-roundtrip",
+      "tier": "tier-5-ops",
+      "machine": "desktop",
+      "cpu": "host",
+      "video_standard": "n/a",
+      "milestone": "CLI, REST API, and web UI expose the same completed controls for machine, viewport, storage, audio, screenshot, and network.",
+      "command": "scripts/check-api-dto-parity.py",
+      "required_assets": [],
+      "status_when_missing": "skipped-missing-assets",
+      "notes": [
+        "DTO and endpoint parity is automated; interactive UI parity still needs browser-level acceptance coverage."
+      ]
+    },
+    {
+      "id": "ppc-accelerator",
+      "tier": "out-of-scope",
+      "machine": "accelerator",
+      "cpu": "ppc",
+      "video_standard": "n/a",
+      "milestone": "Explicit exclusion: PPC and accelerator-board parity are outside the current enterprise target.",
+      "command": "n/a",
+      "required_assets": [],
+      "status_when_missing": "unsupported-out-of-scope",
+      "notes": [
+        "Do not count this as a regression or release blocker."
+      ]
+    },
+    {
+      "id": "scsi-controller",
+      "tier": "out-of-scope",
+      "machine": "expansion",
+      "cpu": "n/a",
+      "video_standard": "n/a",
+      "milestone": "Explicit exclusion: third-party SCSI controller support is outside the current enterprise target.",
+      "command": "n/a",
+      "required_assets": [],
+      "status_when_missing": "unsupported-out-of-scope",
+      "notes": [
+        "Gayle IDE HDF is the supported hard-disk path for this roadmap."
+      ]
+    },
+    {
+      "id": "rtg-picasso96",
+      "tier": "out-of-scope",
+      "machine": "graphics-expansion",
+      "cpu": "n/a",
+      "video_standard": "rtg",
+      "milestone": "Explicit exclusion: RTG/Picasso96 is outside the current native-chipset target.",
+      "command": "n/a",
+      "required_assets": [],
+      "status_when_missing": "unsupported-out-of-scope",
+      "notes": [
+        "Viewport and border correctness must be proven on native OCS/ECS/AGA output, not hidden by RTG."
+      ]
+    }
+  ]
+}

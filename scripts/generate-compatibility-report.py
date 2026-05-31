@@ -14,13 +14,23 @@ from typing import Any
 
 EXPECTED_SCHEMA_ID = "rumiga.capture.v1"
 EXPECTED_SCHEMA_VERSION = 1
+CATALOG_SCHEMA_ID = "rumiga.evidence.scenario-catalog.v1"
+CATALOG_SCHEMA_VERSION = 1
+REPORT_STATUSES = (
+    "pass",
+    "partial",
+    "fail",
+    "skipped-missing-assets",
+    "unsupported-out-of-scope",
+)
 
 
 @dataclass(frozen=True)
 class ScenarioResult:
-    path: Path
+    path: Path | None
     scenario: str
     status: str
+    tier: str
     profile: str
     frames: str
     git: str
@@ -30,6 +40,18 @@ class ScenarioResult:
     network: str
     media: str
     evidence: str
+    notes: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ScenarioCatalogEntry:
+    scenario: str
+    tier: str
+    status_when_missing: str
+    profile: str
+    milestone: str
+    command: str
+    required_assets: tuple[str, ...]
     notes: tuple[str, ...]
 
 
@@ -48,6 +70,11 @@ def parse_args() -> argparse.Namespace:
         help="Markdown report path to write.",
     )
     parser.add_argument(
+        "--scenario-catalog",
+        default="evidence/scenarios.json",
+        help="Optional versioned scenario catalog used to include skipped and out-of-scope rows.",
+    )
+    parser.add_argument(
         "--strict",
         action="store_true",
         help="Exit non-zero if any scenario is classified as fail.",
@@ -62,6 +89,80 @@ def load_json(path: Path) -> tuple[dict[str, Any] | None, str | None]:
         return None, f"could not read manifest: {exc}"
     except json.JSONDecodeError as exc:
         return None, f"invalid JSON: {exc}"
+
+
+def load_catalog(path: Path) -> tuple[dict[str, ScenarioCatalogEntry], list[str]]:
+    if not path.exists():
+        return {}, []
+
+    data, error = load_json(path)
+    if data is None:
+        return {}, [f"scenario catalog {path}: {error}"]
+
+    errors: list[str] = []
+    schema = data.get("schema", {})
+    if schema.get("id") != CATALOG_SCHEMA_ID or schema.get("version") != CATALOG_SCHEMA_VERSION:
+        errors.append(
+            f"scenario catalog schema is {schema.get('id')}@{schema.get('version')}, "
+            f"expected {CATALOG_SCHEMA_ID}@{CATALOG_SCHEMA_VERSION}"
+        )
+
+    entries: dict[str, ScenarioCatalogEntry] = {}
+    scenarios = data.get("scenarios", [])
+    if not isinstance(scenarios, list):
+        return {}, errors + ["scenario catalog `scenarios` must be a list"]
+
+    for index, item in enumerate(scenarios):
+        if not isinstance(item, dict):
+            errors.append(f"scenario catalog item {index} is not an object")
+            continue
+
+        scenario = scalar(item.get("id"), "").strip()
+        if not scenario:
+            errors.append(f"scenario catalog item {index} is missing id")
+            continue
+        if scenario in entries:
+            errors.append(f"scenario catalog id {scenario} is duplicated")
+            continue
+
+        status = scalar(item.get("status_when_missing"), "skipped-missing-assets")
+        if status not in ("skipped-missing-assets", "unsupported-out-of-scope"):
+            errors.append(
+                f"scenario catalog id {scenario} has invalid status_when_missing {status}"
+            )
+            status = "skipped-missing-assets"
+
+        required_assets = tuple(
+            str(asset)
+            for asset in item.get("required_assets", [])
+            if isinstance(asset, str)
+        )
+        notes = tuple(
+            str(note)
+            for note in item.get("notes", [])
+            if isinstance(note, str)
+        )
+        profile = "/".join(
+            part
+            for part in (
+                scalar(item.get("machine"), ""),
+                scalar(item.get("cpu"), ""),
+                scalar(item.get("video_standard"), ""),
+            )
+            if part
+        )
+        entries[scenario] = ScenarioCatalogEntry(
+            scenario=scenario,
+            tier=scalar(item.get("tier"), "uncatalogued"),
+            status_when_missing=status,
+            profile=profile or "n/a",
+            milestone=scalar(item.get("milestone")),
+            command=scalar(item.get("command")),
+            required_assets=required_assets,
+            notes=notes,
+        )
+
+    return entries, errors
 
 
 def scalar(value: Any, default: str = "n/a") -> str:
@@ -96,13 +197,21 @@ def manifest_paths(root: Path) -> list[Path]:
     return sorted(root.glob("**/rumiga.json"))
 
 
-def classify_manifest(path: Path, root: Path, data: dict[str, Any] | None, error: str | None) -> ScenarioResult:
+def classify_manifest(
+    path: Path,
+    root: Path,
+    catalog: dict[str, ScenarioCatalogEntry],
+    data: dict[str, Any] | None,
+    error: str | None,
+) -> ScenarioResult:
     scenario = scenario_name(path, root)
+    catalog_entry = catalog.get(scenario)
     if data is None:
         return ScenarioResult(
             path=path,
             scenario=scenario,
             status="fail",
+            tier=catalog_entry.tier if catalog_entry else "uncatalogued",
             profile="n/a",
             frames="n/a",
             git="n/a",
@@ -128,6 +237,8 @@ def classify_manifest(path: Path, root: Path, data: dict[str, Any] | None, error
     notes: list[str] = []
     hard_fail = False
     partial = False
+    if catalog_entry:
+        notes.append(f"catalog milestone: {catalog_entry.milestone}")
 
     if schema.get("id") != EXPECTED_SCHEMA_ID or schema.get("version") != EXPECTED_SCHEMA_VERSION:
         hard_fail = True
@@ -220,6 +331,7 @@ def classify_manifest(path: Path, root: Path, data: dict[str, Any] | None, error
         path=path,
         scenario=scenario,
         status=status,
+        tier=catalog_entry.tier if catalog_entry else "uncatalogued",
         profile=profile,
         frames=frames,
         git=git,
@@ -240,6 +352,32 @@ def scenario_name(path: Path, root: Path) -> str:
         parent = path.parent
     text = str(parent)
     return text if text else path.parent.name
+
+
+def skipped_catalog_result(entry: ScenarioCatalogEntry) -> ScenarioResult:
+    notes = list(entry.notes)
+    if entry.required_assets:
+        notes.append("required assets: " + ", ".join(entry.required_assets))
+    if entry.command != "n/a":
+        notes.append(f"reproduction command: {entry.command}")
+    notes.append(f"catalog milestone: {entry.milestone}")
+
+    return ScenarioResult(
+        path=None,
+        scenario=entry.scenario,
+        status=entry.status_when_missing,
+        tier=entry.tier,
+        profile=entry.profile,
+        frames="n/a",
+        git="n/a",
+        viewport="n/a",
+        edge="n/a",
+        hdf="n/a",
+        network="n/a",
+        media="local assets required" if entry.required_assets else "n/a",
+        evidence=entry.command,
+        notes=tuple(notes),
+    )
 
 
 def hdf_status(hdf: dict[str, Any], has_hdf: bool) -> str:
@@ -309,23 +447,40 @@ def markdown_table_row(values: tuple[str, ...]) -> str:
     return "| " + " | ".join(escaped) + " |"
 
 
-def render_report(root: Path, output: Path, results: list[ScenarioResult]) -> str:
+def render_report(
+    root: Path,
+    output: Path,
+    catalog_path: Path,
+    catalog_errors: list[str],
+    results: list[ScenarioResult],
+) -> str:
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    counts = {status: sum(1 for result in results if result.status == status) for status in ("pass", "partial", "fail")}
+    counts = {
+        status: sum(1 for result in results if result.status == status)
+        for status in REPORT_STATUSES
+    }
 
     lines = [
         "# Rumiga Compatibility Evidence Report",
         "",
         f"- Generated: `{generated}`",
         f"- Evidence root: `{root}`",
+        f"- Scenario catalog: `{catalog_path}`",
         f"- Output: `{output}`",
-        f"- Scenarios: `{len(results)}` pass=`{counts['pass']}` partial=`{counts['partial']}` fail=`{counts['fail']}`",
+        (
+            f"- Scenarios: `{len(results)}` pass=`{counts['pass']}` "
+            f"partial=`{counts['partial']}` fail=`{counts['fail']}` "
+            f"skipped=`{counts['skipped-missing-assets']}` "
+            f"unsupported=`{counts['unsupported-out-of-scope']}`"
+        ),
         "",
         "## Status Rules",
         "",
         "- `pass`: configured gates passed for the scenario manifest.",
         "- `partial`: emulator path is usable but an evidence gate is incomplete, such as guest TCP traffic not observed.",
         "- `fail`: schema, viewport edge, boot workaround, RDB, or required network contract failed.",
+        "- `skipped-missing-assets`: cataloged scenario was not run because local ROM/media inputs were not supplied.",
+        "- `unsupported-out-of-scope`: cataloged feature is explicitly outside the current WinUAE-parity target.",
         "",
         "## Scenario Matrix",
         "",
@@ -333,6 +488,7 @@ def render_report(root: Path, output: Path, results: list[ScenarioResult]) -> st
             (
                 "Scenario",
                 "Status",
+                "Tier",
                 "Profile",
                 "Frames",
                 "Git",
@@ -344,7 +500,7 @@ def render_report(root: Path, output: Path, results: list[ScenarioResult]) -> st
                 "Evidence",
             )
         ),
-        markdown_table_row(("-" * 8, "-" * 6, "-" * 7, "-" * 6, "-" * 3, "-" * 8, "-" * 4, "-" * 3, "-" * 7, "-" * 5, "-" * 8)),
+        markdown_table_row(("-" * 8, "-" * 6, "-" * 4, "-" * 7, "-" * 6, "-" * 3, "-" * 8, "-" * 4, "-" * 3, "-" * 7, "-" * 5, "-" * 8)),
     ]
 
     for result in results:
@@ -353,6 +509,7 @@ def render_report(root: Path, output: Path, results: list[ScenarioResult]) -> st
                 (
                     result.scenario,
                     result.status,
+                    result.tier,
                     result.profile,
                     result.frames,
                     result.git,
@@ -370,6 +527,11 @@ def render_report(root: Path, output: Path, results: list[ScenarioResult]) -> st
     for result in results:
         joined_notes = "; ".join(result.notes)
         lines.append(f"- `{result.scenario}`: {result.status} - {joined_notes}")
+
+    if catalog_errors:
+        lines.extend(["", "## Catalog Warnings", ""])
+        for error in catalog_errors:
+            lines.append(f"- {error}")
 
     lines.extend(
         [
@@ -389,25 +551,38 @@ def main() -> int:
     args = parse_args()
     root = Path(args.evidence_root)
     output = Path(args.output)
+    catalog_path = Path(args.scenario_catalog)
+    catalog, catalog_errors = load_catalog(catalog_path)
     paths = manifest_paths(root)
 
     results = [
-        classify_manifest(path, root, *load_json(path))
+        classify_manifest(path, root, catalog, *load_json(path))
         for path in paths
     ]
+    observed = {result.scenario for result in results}
+    results.extend(
+        skipped_catalog_result(entry)
+        for scenario, entry in catalog.items()
+        if scenario not in observed
+    )
 
-    report = render_report(root, output, results)
+    report = render_report(root, output, catalog_path, catalog_errors, results)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(report)
 
     fail_count = sum(1 for result in results if result.status == "fail")
     partial_count = sum(1 for result in results if result.status == "partial")
     pass_count = sum(1 for result in results if result.status == "pass")
+    skipped_count = sum(1 for result in results if result.status == "skipped-missing-assets")
+    unsupported_count = sum(1 for result in results if result.status == "unsupported-out-of-scope")
     print(
-        f"wrote {output} from {len(results)} manifests "
-        f"(pass={pass_count} partial={partial_count} fail={fail_count})"
+        f"wrote {output} from {len(results)} scenario entries "
+        f"(pass={pass_count} partial={partial_count} fail={fail_count} "
+        f"skipped={skipped_count} unsupported={unsupported_count})"
     )
 
+    if args.strict and catalog_errors:
+        return 5
     if args.strict and fail_count:
         return 4
     return 0

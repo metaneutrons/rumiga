@@ -8,6 +8,21 @@ Generated evidence belongs under `target/evidence/<scenario>/` by default. That
 keeps local ROM/media paths and generated images out of git while making each
 scenario easy to regenerate.
 
+## Scenario Catalog
+
+`evidence/scenarios.json` is the versioned compatibility catalog. It lists the
+release-gate scenarios, local asset variables, reproduction commands, and
+explicit out-of-scope features. Generated reports include catalog entries even
+when no manifest exists yet:
+
+- `skipped-missing-assets`: the scenario needs local ROM/media inputs that were
+  not supplied for this run.
+- `unsupported-out-of-scope`: the feature is intentionally excluded from the
+  current WinUAE-parity target.
+
+When adding a scenario, give it a stable `id` matching its evidence directory
+under `target/evidence/<id>/`.
+
 ## A1200 Workbench HDF
 
 Run the stock A1200 HDF evidence scenario with:
@@ -110,6 +125,7 @@ scripts/generate-compatibility-report.py
 The script defaults to:
 
 - evidence root: `target/evidence`
+- scenario catalog: `evidence/scenarios.json`
 - output: `target/evidence/compatibility-report.md`
 
 Override paths for release-candidate bundles:
@@ -117,6 +133,7 @@ Override paths for release-candidate bundles:
 ```sh
 scripts/generate-compatibility-report.py \
   --evidence-root target/evidence \
+  --scenario-catalog evidence/scenarios.json \
   --output target/evidence/compatibility-report.md
 ```
 
