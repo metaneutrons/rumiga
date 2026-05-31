@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -55,6 +56,13 @@ class ScenarioCatalogEntry:
     notes: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class FilteredManifest:
+    path: Path
+    scenario: str
+    reason: str
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate a Rumiga compatibility report from rumiga.json manifests.",
@@ -78,6 +86,16 @@ def parse_args() -> argparse.Namespace:
         "--strict",
         action="store_true",
         help="Exit non-zero if any scenario is classified as fail.",
+    )
+    parser.add_argument(
+        "--git-sha",
+        default=None,
+        help="Only include manifests produced by this git SHA or SHA prefix.",
+    )
+    parser.add_argument(
+        "--current-git-only",
+        action="store_true",
+        help="Only include manifests produced by the current Rumiga HEAD.",
     )
     return parser.parse_args()
 
@@ -195,6 +213,46 @@ def manifest_paths(root: Path) -> list[Path]:
     if not root.exists():
         return []
     return sorted(root.glob("**/rumiga.json"))
+
+
+def current_git_sha() -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return result.stdout.strip() or None
+
+
+def manifest_git_sha(data: dict[str, Any]) -> str | None:
+    producer = data.get("producer", {})
+    if not isinstance(producer, dict):
+        return None
+    value = producer.get("git_sha")
+    if not isinstance(value, str):
+        return None
+    return value.strip() or None
+
+
+def git_sha_matches(actual: str, required: str) -> bool:
+    return actual.startswith(required) or required.startswith(actual)
+
+
+def filter_reason(data: dict[str, Any], required_git_sha: str | None) -> str | None:
+    if required_git_sha is None:
+        return None
+
+    actual_git_sha = manifest_git_sha(data)
+    if actual_git_sha is None:
+        return f"missing producer git SHA, required {short_sha(required_git_sha)}"
+    if not git_sha_matches(actual_git_sha, required_git_sha):
+        return f"git {short_sha(actual_git_sha)} does not match required {short_sha(required_git_sha)}"
+    return None
 
 
 def classify_manifest(
@@ -453,6 +511,8 @@ def render_report(
     catalog_path: Path,
     catalog_errors: list[str],
     results: list[ScenarioResult],
+    filtered: list[FilteredManifest],
+    git_filter: str | None,
 ) -> str:
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     counts = {
@@ -466,6 +526,8 @@ def render_report(
         f"- Generated: `{generated}`",
         f"- Evidence root: `{root}`",
         f"- Scenario catalog: `{catalog_path}`",
+        f"- Git filter: `{short_sha(git_filter) if git_filter else 'none'}`",
+        f"- Filtered manifests: `{len(filtered)}`",
         f"- Output: `{output}`",
         (
             f"- Scenarios: `{len(results)}` pass=`{counts['pass']}` "
@@ -533,6 +595,11 @@ def render_report(
         for error in catalog_errors:
             lines.append(f"- {error}")
 
+    if filtered:
+        lines.extend(["", "## Filtered Manifests", ""])
+        for item in filtered:
+            lines.append(f"- `{item.scenario}` (`{item.path}`): {item.reason}")
+
     lines.extend(
         [
             "",
@@ -552,13 +619,34 @@ def main() -> int:
     root = Path(args.evidence_root)
     output = Path(args.output)
     catalog_path = Path(args.scenario_catalog)
+    git_filter = args.git_sha.strip() if isinstance(args.git_sha, str) else None
+    if git_filter == "":
+        git_filter = None
+    if args.current_git_only:
+        git_filter = current_git_sha()
+        if git_filter is None:
+            print("could not resolve current git SHA for --current-git-only", file=sys.stderr)
+            return 6
     catalog, catalog_errors = load_catalog(catalog_path)
     paths = manifest_paths(root)
 
-    results = [
-        classify_manifest(path, root, catalog, *load_json(path))
-        for path in paths
-    ]
+    results: list[ScenarioResult] = []
+    filtered: list[FilteredManifest] = []
+    for path in paths:
+        data, error = load_json(path)
+        if data is not None:
+            reason = filter_reason(data, git_filter)
+            if reason is not None:
+                filtered.append(
+                    FilteredManifest(
+                        path=path,
+                        scenario=scenario_name(path, root),
+                        reason=reason,
+                    )
+                )
+                continue
+        results.append(classify_manifest(path, root, catalog, data, error))
+
     observed = {result.scenario for result in results}
     results.extend(
         skipped_catalog_result(entry)
@@ -566,7 +654,7 @@ def main() -> int:
         if scenario not in observed
     )
 
-    report = render_report(root, output, catalog_path, catalog_errors, results)
+    report = render_report(root, output, catalog_path, catalog_errors, results, filtered, git_filter)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(report)
 
@@ -578,7 +666,7 @@ def main() -> int:
     print(
         f"wrote {output} from {len(results)} scenario entries "
         f"(pass={pass_count} partial={partial_count} fail={fail_count} "
-        f"skipped={skipped_count} unsupported={unsupported_count})"
+        f"skipped={skipped_count} unsupported={unsupported_count} filtered={len(filtered)})"
     )
 
     if args.strict and catalog_errors:

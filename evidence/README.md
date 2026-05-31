@@ -141,6 +141,12 @@ Use `--strict` in automation when a failed scenario should fail the job. A
 `partial` result is allowed for cases that are useful evidence but not full
 feature proof yet, such as A2065 link/configuration without guest TCP packets.
 
+Use `--current-git-only` for release gates that reuse a long-lived evidence
+directory. The report will ignore stale manifests from older Rumiga revisions,
+list them under "Filtered Manifests", and classify catalog entries with no
+current manifest as skipped. Use `--git-sha <sha-or-prefix>` to reproduce the
+same filtering for a specific build.
+
 ## Current Classification Rules
 
 - `edge_integrity.mirrored_non_background_pixels == 0` means the first visible
