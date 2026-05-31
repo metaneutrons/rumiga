@@ -44,10 +44,12 @@ export interface AudioConfig {
 
 export type ScalingMode = 'Integer' | 'AspectFit' | 'Stretch';
 export type ViewportMode = 'Raw' | 'Auto' | 'Manual';
+export type ViewportPreset = 'NativeFullBorder' | 'VisibleArea' | 'Overscan' | 'AutoCenter';
 export type FloppySpeedPercent = 0 | 100 | 200 | 400 | 800;
 
 export interface ViewportConfig {
   mode: ViewportMode;
+  preset: ViewportPreset;
   x: number;
   y: number;
   width: number;

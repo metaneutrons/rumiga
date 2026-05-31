@@ -148,9 +148,29 @@ impl Default for ViewportMode {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub enum ViewportPreset {
+    /// Keep the complete native framebuffer, including chipset border.
+    NativeFullBorder,
+    /// Derive the active Amiga display area from DIW/DDF state.
+    VisibleArea,
+    /// Keep the full overscan-capable native framebuffer.
+    Overscan,
+    /// Center the active display while preserving native frame evidence.
+    AutoCenter,
+}
+
+impl Default for ViewportPreset {
+    fn default() -> Self {
+        Self::AutoCenter
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ViewportConfig {
     #[serde(default)]
     pub mode: ViewportMode,
+    #[serde(default)]
+    pub preset: ViewportPreset,
     #[serde(default)]
     pub x: i16,
     #[serde(default)]
@@ -167,6 +187,7 @@ impl Default for ViewportConfig {
     fn default() -> Self {
         Self {
             mode: ViewportMode::Auto,
+            preset: ViewportPreset::AutoCenter,
             x: 0,
             y: 0,
             width: default_viewport_width(),

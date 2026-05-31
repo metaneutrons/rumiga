@@ -12,11 +12,13 @@ import {
   type AmigaModel,
   type ScalingMode,
   type ViewportMode,
+  type ViewportPreset,
   type FloppySpeedPercent,
 } from '@/lib/api';
 
 const DEFAULT_VIEWPORT: MachineConfig['display']['viewport'] = {
   mode: 'Auto',
+  preset: 'AutoCenter',
   x: 0,
   y: 0,
   width: 754,
@@ -25,12 +27,29 @@ const DEFAULT_VIEWPORT: MachineConfig['display']['viewport'] = {
 };
 const DEFAULT_FLOPPY_SPEED_PERCENT: FloppySpeedPercent = 100;
 const FLOPPY_SPEED_OPTIONS: FloppySpeedPercent[] = [100, 200, 400, 800, 0];
+type ViewportChoice = ViewportPreset | 'Manual';
+const VIEWPORT_CHOICES: Array<{ value: ViewportChoice; label: string }> = [
+  { value: 'AutoCenter', label: 'Auto center' },
+  { value: 'VisibleArea', label: 'Visible area' },
+  { value: 'NativeFullBorder', label: 'Native full border' },
+  { value: 'Overscan', label: 'Overscan' },
+  { value: 'Manual', label: 'Manual crop' },
+];
 
 function isFloppySpeedPercent(value: unknown): value is FloppySpeedPercent {
   return (
     typeof value === 'number' &&
     (value === 0 || value === 100 || value === 200 || value === 400 || value === 800)
   );
+}
+
+function viewportModeForChoice(choice: ViewportChoice): ViewportMode {
+  if (choice === 'Manual') return 'Manual';
+  return choice === 'NativeFullBorder' || choice === 'Overscan' ? 'Raw' : 'Auto';
+}
+
+function viewportChoiceForConfig(viewport: MachineConfig['display']['viewport']): ViewportChoice {
+  return viewport.mode === 'Manual' ? 'Manual' : viewport.preset;
 }
 
 function normalizeConfig(config: MachineConfig): MachineConfig {
@@ -258,23 +277,30 @@ export default function MachinePage() {
             </select>
           </label>
           <label className="block">
-            <span className="text-sm text-zinc-400">Viewport</span>
+            <span className="text-sm text-zinc-400">Viewport preset</span>
             <select
-              value={viewport.mode}
-              onChange={(e) =>
+              value={viewportChoiceForConfig(viewport)}
+              onChange={(e) => {
+                const choice = e.target.value as ViewportChoice;
                 setConfig({
                   ...config,
                   display: {
                     ...config.display,
-                    viewport: { ...viewport, mode: e.target.value as ViewportMode },
+                    viewport: {
+                      ...viewport,
+                      mode: viewportModeForChoice(choice),
+                      preset: choice === 'Manual' ? viewport.preset : choice,
+                    },
                   },
-                })
-              }
+                });
+              }}
               className="mt-1 block w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm"
             >
-              <option value="Auto">Auto native</option>
-              <option value="Raw">Raw overscan</option>
-              <option value="Manual">Manual crop</option>
+              {VIEWPORT_CHOICES.map((choice) => (
+                <option key={choice.value} value={choice.value}>
+                  {choice.label}
+                </option>
+              ))}
             </select>
           </label>
           <label className="flex items-center gap-2">

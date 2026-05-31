@@ -63,6 +63,7 @@ print(f"git={producer.get('git_sha')} dirty={producer.get('git_dirty')}")
 print(f"frames={run.get('frames')} stopped={run.get('stopped')}")
 print(
     "viewport="
+    f"preset={viewport.get('preset')} "
     f"{viewport.get('source_width')}x{viewport.get('source_height')}"
     f" -> {viewport.get('output_width')}x{viewport.get('output_height')}"
     f" stretch={viewport.get('vertical_stretch')}"
@@ -92,6 +93,7 @@ notes_path.write_text(
             f"- Frames: `{run.get('frames')}` stopped=`{run.get('stopped')}`",
             (
                 "- Viewport: "
+                f"preset=`{viewport.get('preset')}` "
                 f"`{viewport.get('source_width')}x{viewport.get('source_height')}`"
                 f" -> `{viewport.get('output_width')}x{viewport.get('output_height')}`"
                 f" stretch=`{viewport.get('vertical_stretch')}`"

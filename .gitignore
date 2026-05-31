@@ -20,6 +20,7 @@ Cargo.lock
 /web/node_modules/
 /web/.next/
 /web/out/
+/web/tsconfig.tsbuildinfo
 
 # ROM files (user-provided, not committed)
 *.rom

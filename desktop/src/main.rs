@@ -551,6 +551,10 @@ impl MachineModel {
 enum ViewportMode {
     Auto,
     Raw,
+    NativeFullBorder,
+    VisibleArea,
+    Overscan,
+    AutoCenter,
 }
 
 impl ViewportMode {
@@ -558,7 +562,29 @@ impl ViewportMode {
         match value.to_ascii_lowercase().as_str() {
             "auto" => Some(Self::Auto),
             "raw" => Some(Self::Raw),
+            "native-full-border" | "native_full_border" | "full-border" => {
+                Some(Self::NativeFullBorder)
+            }
+            "visible-area" | "visible_area" | "visible" => Some(Self::VisibleArea),
+            "overscan" => Some(Self::Overscan),
+            "auto-center" | "auto_center" | "center" => Some(Self::AutoCenter),
             _ => None,
+        }
+    }
+
+    const fn api_mode(self) -> rumiga_api::ViewportMode {
+        match self {
+            Self::Raw | Self::NativeFullBorder | Self::Overscan => rumiga_api::ViewportMode::Raw,
+            Self::Auto | Self::VisibleArea | Self::AutoCenter => rumiga_api::ViewportMode::Auto,
+        }
+    }
+
+    const fn api_preset(self) -> rumiga_api::ViewportPreset {
+        match self {
+            Self::Raw | Self::NativeFullBorder => rumiga_api::ViewportPreset::NativeFullBorder,
+            Self::VisibleArea => rumiga_api::ViewportPreset::VisibleArea,
+            Self::Overscan => rumiga_api::ViewportPreset::Overscan,
+            Self::Auto | Self::AutoCenter => rumiga_api::ViewportPreset::AutoCenter,
         }
     }
 }
@@ -1594,7 +1620,8 @@ fn print_usage(to_stdout: bool) {
 Options:
   -m, --model <model>     Machine profile: a500, a500-plus, a600, a1200
   -s, --scale <factor>    Window scale: 1, 2, 4, 8, 16, 32 [default: 1]
-      --viewport <mode>   Viewport mode: auto, raw [default: auto]
+      --viewport <mode>   Viewport mode: auto, raw, native-full-border,
+                          visible-area, overscan, auto-center [default: auto]
       --no-vertical-stretch  Disable vertical line doubling
       --mouse-scale-x <f> Scaling factor for horizontal mouse [default: 0.5]
       --mouse-scale-y <f> Scaling factor for vertical mouse [default: 1.0]
@@ -1778,8 +1805,9 @@ fn write_capture_manifest(path: &Path, context: &CaptureManifestContext<'_>) -> 
     );
     let _ = writeln!(
         json,
-        "  \"viewport\": {{ \"mode\": {}, \"vertical_stretch\": {}, \"source_width\": {}, \"source_height\": {}, \"source_x_start\": {}, \"source_x_end\": {}, \"source_y_start\": {}, \"source_y_end\": {}, \"output_width\": {}, \"output_height\": {} }},",
+        "  \"viewport\": {{ \"mode\": {}, \"preset\": {}, \"vertical_stretch\": {}, \"source_width\": {}, \"source_height\": {}, \"source_x_start\": {}, \"source_x_end\": {}, \"source_y_start\": {}, \"source_y_end\": {}, \"output_width\": {}, \"output_height\": {} }},",
         json_string(&format!("{:?}", &context.display.viewport.mode)),
+        json_string(&format!("{:?}", &context.display.viewport.preset)),
         context.display.viewport.vertical_stretch,
         WIDTH,
         HEIGHT,
@@ -2508,10 +2536,8 @@ fn json_string(value: &str) -> String {
 
 fn display_config_from_launch_args(args: &LaunchArgs) -> rumiga_api::DisplayConfig {
     let mut display = rumiga_api::DisplayConfig::default();
-    display.viewport.mode = match args.viewport_mode {
-        ViewportMode::Auto => rumiga_api::ViewportMode::Auto,
-        ViewportMode::Raw => rumiga_api::ViewportMode::Raw,
-    };
+    display.viewport.mode = args.viewport_mode.api_mode();
+    display.viewport.preset = args.viewport_mode.api_preset();
     display.viewport.vertical_stretch = args.vertical_stretch;
     display
 }
@@ -2530,10 +2556,25 @@ fn resolve_viewport_rect(
 ) -> ViewportRect {
     match &display.viewport.mode {
         rumiga_api::ViewportMode::Raw => ViewportRect::full_frame(),
-        rumiga_api::ViewportMode::Auto => playfield
+        rumiga_api::ViewportMode::Auto => automatic_viewport_rect(&display.viewport, playfield),
+        rumiga_api::ViewportMode::Manual => manual_viewport_rect(&display.viewport),
+    }
+}
+
+fn automatic_viewport_rect(
+    viewport: &rumiga_api::ViewportConfig,
+    playfield: Option<&PlayfieldState>,
+) -> ViewportRect {
+    match viewport.preset {
+        rumiga_api::ViewportPreset::NativeFullBorder | rumiga_api::ViewportPreset::Overscan => {
+            ViewportRect::full_frame()
+        }
+        rumiga_api::ViewportPreset::VisibleArea => playfield
+            .and_then(visible_area_viewport_rect)
+            .unwrap_or_else(ViewportRect::full_frame),
+        rumiga_api::ViewportPreset::AutoCenter => playfield
             .and_then(chipset_display_window_rect)
             .unwrap_or_else(ViewportRect::full_frame),
-        rumiga_api::ViewportMode::Manual => manual_viewport_rect(&display.viewport),
     }
 }
 
@@ -2550,6 +2591,23 @@ fn chipset_display_window_rect(playfield: &PlayfieldState) -> Option<ViewportRec
         x: 0,
         y: 0,
         width: WIDTH,
+        height: y_height,
+    })
+}
+
+fn visible_area_viewport_rect(playfield: &PlayfieldState) -> Option<ViewportRect> {
+    let (hstart, hstop, vstart, vstop) = playfield.display_window();
+    let x_start = active_x_for_hpos(hstart).min(WIDTH - 1);
+    let x_end = active_x_for_hpos(hstop).min(WIDTH).max(x_start + 1);
+    let y_height = usize::from(vstop.saturating_sub(vstart)).min(HEIGHT);
+    if y_height == 0 || x_end <= x_start {
+        return None;
+    }
+
+    Some(ViewportRect {
+        x: x_start,
+        y: 0,
+        width: x_end - x_start,
         height: y_height,
     })
 }
@@ -2800,6 +2858,23 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_accepts_named_viewport_preset() {
+        let args = vec![
+            "--viewport".to_owned(),
+            "visible-area".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+
+        assert_eq!(
+            parse_args(&args),
+            Ok(LaunchArgs {
+                viewport_mode: ViewportMode::VisibleArea,
+                ..default_test_args()
+            })
+        );
+    }
+
+    #[test]
     fn parse_args_accepts_floppy_speed() {
         let args = vec![
             "--floppy-speed".to_owned(),
@@ -2923,6 +2998,28 @@ mod tests {
                 y: 0,
                 width: WIDTH,
                 height: 283,
+            }
+        );
+    }
+
+    #[test]
+    fn visible_area_preset_uses_active_horizontal_window() {
+        let mut playfield = PlayfieldState::new();
+        playfield.diwstrt = 0x1D81;
+        playfield.diwstop = 0x38C1;
+        let mut display = rumiga_api::DisplayConfig::default();
+        display.viewport.preset = rumiga_api::ViewportPreset::VisibleArea;
+        let (hstart, hstop, vstart, vstop) = playfield.display_window();
+
+        let rect = resolve_viewport_rect(&display, Some(&playfield));
+
+        assert_eq!(
+            rect,
+            ViewportRect {
+                x: active_x_for_hpos(hstart),
+                y: 0,
+                width: active_x_for_hpos(hstop) - active_x_for_hpos(hstart),
+                height: usize::from(vstop.saturating_sub(vstart)),
             }
         );
     }
@@ -3080,6 +3177,7 @@ mod tests {
         assert_eq!(manifest["native_framebuffer"]["width"], WIDTH);
         assert_eq!(manifest["native_framebuffer"]["height"], HEIGHT);
         assert_eq!(manifest["viewport"]["source_width"], WIDTH);
+        assert_eq!(manifest["viewport"]["preset"], "AutoCenter");
         assert_eq!(manifest["viewport"]["output_width"], 2);
         assert_eq!(
             manifest["edge_integrity"]["first_lines"],
