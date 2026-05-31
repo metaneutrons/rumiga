@@ -901,6 +901,11 @@ struct EdgeInspection {
     left_non_background_pixels: usize,
     right_non_background_pixels: usize,
     mirrored_non_background_pixels: usize,
+    right_edge_wrapped_to_left_pixels: usize,
+    left_edge_wrapped_to_right_pixels: usize,
+    content_line_count: usize,
+    min_content_width: usize,
+    max_content_width: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2538,14 +2543,19 @@ fn push_edge_integrity_json(json: &mut String, framebuffer: &[u16]) {
     ) {
         let _ = writeln!(
             json,
-            "  \"edge_integrity\": {{ \"first_lines\": {}, \"edge_width\": {}, \"sampled_lines\": {}, \"background_rgb565\": {}, \"left_non_background_pixels\": {}, \"right_non_background_pixels\": {}, \"mirrored_non_background_pixels\": {} }},",
+            "  \"edge_integrity\": {{ \"first_lines\": {}, \"edge_width\": {}, \"sampled_lines\": {}, \"background_rgb565\": {}, \"left_non_background_pixels\": {}, \"right_non_background_pixels\": {}, \"mirrored_non_background_pixels\": {}, \"right_edge_wrapped_to_left_pixels\": {}, \"left_edge_wrapped_to_right_pixels\": {}, \"content_line_count\": {}, \"min_content_width\": {}, \"max_content_width\": {} }},",
             edge.first_lines,
             edge.edge_width,
             edge.sampled_lines,
             json_string(&rgb565_hex(edge.background_rgb565)),
             edge.left_non_background_pixels,
             edge.right_non_background_pixels,
-            edge.mirrored_non_background_pixels
+            edge.mirrored_non_background_pixels,
+            edge.right_edge_wrapped_to_left_pixels,
+            edge.left_edge_wrapped_to_right_pixels,
+            edge.content_line_count,
+            edge.min_content_width,
+            edge.max_content_width
         );
     } else {
         json.push_str("  \"edge_integrity\": null,\n");
@@ -3290,10 +3300,18 @@ fn inspect_frame_edges(
     let mut left_non_background = 0usize;
     let mut right_non_background = 0usize;
     let mut mirrored_non_background = 0usize;
+    let mut right_edge_wrapped_to_left = 0usize;
+    let mut left_edge_wrapped_to_right = 0usize;
+    let mut content_line_count = 0usize;
+    let mut min_content_width = usize::MAX;
+    let mut max_content_width = 0usize;
 
     for line in 0..sampled_lines {
         let line_start = line * width;
         let right_start = line_start + width - edge_width;
+        let line_pixels = &framebuffer[line_start..line_start + width];
+        let left_edge = &line_pixels[..edge_width];
+        let right_edge = &line_pixels[width - edge_width..];
         for x in 0..edge_width {
             let left = framebuffer[line_start + x];
             let right = framebuffer[right_start + x];
@@ -3307,6 +3325,20 @@ fn inspect_frame_edges(
                 mirrored_non_background += 1;
             }
         }
+        right_edge_wrapped_to_left +=
+            wrapped_suffix_to_prefix_pixels(left_edge, right_edge, background);
+        left_edge_wrapped_to_right +=
+            wrapped_suffix_to_prefix_pixels(right_edge, left_edge, background);
+
+        if let Some(content_width) = line_content_width(line_pixels, background) {
+            content_line_count += 1;
+            min_content_width = min_content_width.min(content_width);
+            max_content_width = max_content_width.max(content_width);
+        }
+    }
+
+    if content_line_count == 0 {
+        min_content_width = 0;
     }
 
     Some(EdgeInspection {
@@ -3317,7 +3349,36 @@ fn inspect_frame_edges(
         left_non_background_pixels: left_non_background,
         right_non_background_pixels: right_non_background,
         mirrored_non_background_pixels: mirrored_non_background,
+        right_edge_wrapped_to_left_pixels: right_edge_wrapped_to_left,
+        left_edge_wrapped_to_right_pixels: left_edge_wrapped_to_right,
+        content_line_count,
+        min_content_width,
+        max_content_width,
     })
+}
+
+fn wrapped_suffix_to_prefix_pixels(
+    destination_edge: &[u16],
+    source_edge: &[u16],
+    background: u16,
+) -> usize {
+    let max_len = destination_edge.len().min(source_edge.len());
+    for len in (1..=max_len).rev() {
+        let destination_prefix = &destination_edge[..len];
+        let source_suffix = &source_edge[source_edge.len() - len..];
+        if destination_prefix == source_suffix
+            && destination_prefix.iter().any(|&p| p != background)
+        {
+            return len;
+        }
+    }
+    0
+}
+
+fn line_content_width(line_pixels: &[u16], background: u16) -> Option<usize> {
+    let first = line_pixels.iter().position(|&pixel| pixel != background)?;
+    let last = line_pixels.iter().rposition(|&pixel| pixel != background)?;
+    Some(last - first + 1)
 }
 
 fn json_string(value: &str) -> String {
@@ -4181,7 +4242,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::cognitive_complexity)]
+    #[allow(clippy::cognitive_complexity, clippy::too_many_lines)]
     fn capture_manifest_contains_stable_schema_fields() {
         let config = MemoryConfig::a500();
         let emulator = Emulator::new(config.clone());
@@ -4280,6 +4341,11 @@ mod tests {
             manifest["edge_integrity"]["edge_width"],
             EDGE_INSPECTION_WIDTH
         );
+        assert!(manifest["edge_integrity"]["right_edge_wrapped_to_left_pixels"].is_number());
+        assert!(manifest["edge_integrity"]["left_edge_wrapped_to_right_pixels"].is_number());
+        assert!(manifest["edge_integrity"]["content_line_count"].is_number());
+        assert!(manifest["edge_integrity"]["min_content_width"].is_number());
+        assert!(manifest["edge_integrity"]["max_content_width"].is_number());
         assert_eq!(manifest["run"]["frames"], 42);
         assert!(manifest["media"]["rom"]["sha256"].is_string());
     }
@@ -4422,6 +4488,11 @@ mod tests {
         assert_eq!(report.left_non_background_pixels, 0);
         assert_eq!(report.right_non_background_pixels, height * 2);
         assert_eq!(report.mirrored_non_background_pixels, 0);
+        assert_eq!(report.right_edge_wrapped_to_left_pixels, 0);
+        assert_eq!(report.left_edge_wrapped_to_right_pixels, 0);
+        assert_eq!(report.content_line_count, height);
+        assert_eq!(report.min_content_width, 2);
+        assert_eq!(report.max_content_width, 2);
     }
 
     #[test]
@@ -4443,6 +4514,68 @@ mod tests {
         assert_eq!(report.left_non_background_pixels, 6);
         assert_eq!(report.right_non_background_pixels, 6);
         assert_eq!(report.mirrored_non_background_pixels, 6);
+        assert_eq!(report.right_edge_wrapped_to_left_pixels, 6);
+        assert_eq!(report.left_edge_wrapped_to_right_pixels, 6);
+    }
+
+    #[test]
+    fn edge_inspection_detects_right_edge_suffix_wrapped_to_left_prefix() {
+        let width = 10usize;
+        let height = 3usize;
+        let mut framebuffer = vec![0u16; width * height];
+        for line in 0..height {
+            let start = line * width;
+            framebuffer[start] = 0x2222;
+            framebuffer[start + 1] = 0x3333;
+            framebuffer[start + 6] = 0x9999;
+            framebuffer[start + 7] = 0x8888;
+            framebuffer[start + 8] = 0x2222;
+            framebuffer[start + 9] = 0x3333;
+        }
+
+        let report =
+            inspect_frame_edges(&framebuffer, width, height, 20, 4).expect("valid edge report");
+
+        assert_eq!(report.mirrored_non_background_pixels, 0);
+        assert_eq!(report.right_edge_wrapped_to_left_pixels, height * 2);
+        assert_eq!(report.left_edge_wrapped_to_right_pixels, 0);
+    }
+
+    #[test]
+    fn edge_inspection_reports_stable_content_widths_across_first_lines() {
+        let width = 12usize;
+        let height = 4usize;
+        let mut framebuffer = vec![0u16; width * height];
+        for line in 0..height {
+            let start = line * width;
+            for x in 4..8 {
+                framebuffer[start + x] = 0x7777;
+            }
+        }
+
+        let report =
+            inspect_frame_edges(&framebuffer, width, height, 20, 2).expect("valid edge report");
+
+        assert_eq!(report.content_line_count, height);
+        assert_eq!(report.min_content_width, 4);
+        assert_eq!(report.max_content_width, 4);
+    }
+
+    #[test]
+    fn prepare_capture_frame_keeps_bottom_line_inside_auto_viewport() {
+        let mut framebuffer = vec![0u16; WIDTH * HEIGHT];
+        let mut playfield = PlayfieldState::new();
+        playfield.diwstrt = 0x1D81;
+        playfield.diwstop = 0x38C1;
+        let display = rumiga_api::DisplayConfig::default();
+        let rect = resolve_viewport_rect(&display, Some(&playfield));
+        framebuffer[(rect.height - 1) * WIDTH + 3] = 0x7BEF;
+
+        let frame = prepare_capture_frame(&framebuffer, &display, Some(&playfield))
+            .expect("valid frame buffer");
+        let bottom_start = (frame.height - 1) * frame.width;
+
+        assert_eq!(frame.pixels[bottom_start + 3], 0x7BEF);
     }
 
     #[test]

@@ -151,9 +151,15 @@ same filtering for a specific build.
 
 - `edge_integrity.mirrored_non_background_pixels == 0` means the first visible
   lines did not show the reported right-edge pixels injected at x=0.
+- `edge_integrity.right_edge_wrapped_to_left_pixels == 0` means no detected
+  suffix from the right edge appeared as a prefix on the left edge in the
+  sampled first lines. The companion `left_edge_wrapped_to_right_pixels` checks
+  the opposite direction.
 - Non-zero mirrored edge pixels are a display regression candidate and should be
   compared against FS-UAE from the same ROM/HDF inputs before changing host
   scaling behavior.
+- Non-zero wrapped edge pixels are a native framebuffer regression candidate;
+  cropping or vertical stretching must not be used to hide them.
 - A requester asking for `LIBS/workbench.library` is classified as a media or
   install-state result for the supplied HDF, not as a Gayle/IDE boot failure.
 - `a2065-link-ready-awaiting-guest-driver` means SLIRP and A2065 are enabled,

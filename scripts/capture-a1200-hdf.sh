@@ -62,9 +62,17 @@ cia = data.get("cia", {})
 gayle = data.get("gayle_ide", {})
 hdf_snapshot = gayle.get("hdf_snapshot")
 network = data.get("network", {})
+edge_regression_pixels = sum(
+    int(edge.get(name) or 0)
+    for name in (
+        "mirrored_non_background_pixels",
+        "right_edge_wrapped_to_left_pixels",
+        "left_edge_wrapped_to_right_pixels",
+    )
+)
 classification = (
     "viewport-edge-clean"
-    if edge.get("mirrored_non_background_pixels", 1) == 0
+    if edge_regression_pixels == 0
     else "viewport-edge-regression-candidate"
 )
 
@@ -90,6 +98,9 @@ print(
     f"left={edge.get('left_non_background_pixels')}"
     f" right={edge.get('right_non_background_pixels')}"
     f" mirrored={edge.get('mirrored_non_background_pixels')}"
+    f" right_to_left={edge.get('right_edge_wrapped_to_left_pixels')}"
+    f" left_to_right={edge.get('left_edge_wrapped_to_right_pixels')}"
+    f" content_width={edge.get('min_content_width')}..{edge.get('max_content_width')}"
 )
 print(
     "boot_workarounds="
@@ -178,7 +189,10 @@ notes_path.write_text(
                 "- Edge integrity: "
                 f"left=`{edge.get('left_non_background_pixels')}` "
                 f"right=`{edge.get('right_non_background_pixels')}` "
-                f"mirrored=`{edge.get('mirrored_non_background_pixels')}`"
+                f"mirrored=`{edge.get('mirrored_non_background_pixels')}` "
+                f"right_to_left=`{edge.get('right_edge_wrapped_to_left_pixels')}` "
+                f"left_to_right=`{edge.get('left_edge_wrapped_to_right_pixels')}` "
+                f"content_width=`{edge.get('min_content_width')}..{edge.get('max_content_width')}`"
             ),
             (
                 "- Boot workarounds: "

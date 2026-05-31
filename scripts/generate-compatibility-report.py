@@ -310,11 +310,25 @@ def classify_manifest(
         notes.append("capture did not stop cleanly")
 
     mirrored = int_value(edge.get("mirrored_non_background_pixels"))
+    right_to_left = int_value(edge.get("right_edge_wrapped_to_left_pixels"))
+    left_to_right = int_value(edge.get("left_edge_wrapped_to_right_pixels"))
     left_edge = int_value(edge.get("left_non_background_pixels"))
     right_edge = int_value(edge.get("right_non_background_pixels"))
     if mirrored > 0:
         hard_fail = True
         notes.append(f"edge mirror regression candidate: {mirrored} mirrored pixels")
+    if right_to_left > 0:
+        hard_fail = True
+        notes.append(
+            "right-edge wrap regression candidate: "
+            f"{right_to_left} pixels injected at the left edge"
+        )
+    if left_to_right > 0:
+        hard_fail = True
+        notes.append(
+            "left-edge wrap regression candidate: "
+            f"{left_to_right} pixels injected at the right edge"
+        )
 
     if bool_value(boot.get("forced_cia_timer_start")) or int_value(boot.get("forced_cia_timer_start_count")) > 0:
         hard_fail = True
@@ -380,7 +394,10 @@ def classify_manifest(
         f"->{scalar(viewport.get('output_width'))}x{scalar(viewport.get('output_height'))}"
         f" stretch={scalar(viewport.get('vertical_stretch'))}"
     )
-    edge_summary = f"L{left_edge}/R{right_edge}/M{mirrored}"
+    edge_summary = (
+        f"L{left_edge}/R{right_edge}/M{mirrored}/"
+        f"R2L{right_to_left}/L2R{left_to_right}"
+    )
     hdf_summary = hdf_status(hdf, has_hdf)
     network_summary = network_status(network, network_enabled)
     media_summary = media_status(media)
