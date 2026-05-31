@@ -172,6 +172,9 @@ same filtering for a specific build.
 - `a2065-link-ready-awaiting-guest-driver` means SLIRP and A2065 are enabled,
   but the current HDF did not autoconfigure/use the card within the frame
   budget.
+- The cataloged `a2065-slirp` scenario is link/contract evidence: A2065 must be
+  present, SLIRP must be up, and packet counters must be reported. Guest packet
+  exchange is promoted through the separate `a2065-guest-tcp` scenario.
 - `guest-tcp-evidence` requires a guest network stack to configure A2065 and
   meet the packet-counter thresholds set by the scenario.
 - Compatibility reports classify a scenario as `fail` for schema drift,

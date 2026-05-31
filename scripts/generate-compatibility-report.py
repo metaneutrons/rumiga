@@ -366,6 +366,15 @@ def classify_manifest(
         if device != "a2065" or backend != "slirp" or not present or not link_up:
             hard_fail = True
             notes.append("A2065/SLIRP contract is incomplete")
+        elif scenario == "a2065-slirp":
+            if configured:
+                notes.append(
+                    "A2065/SLIRP link evidence passed; guest TCP packet proof is tracked by a2065-guest-tcp"
+                )
+            else:
+                notes.append(
+                    "A2065/SLIRP link is ready; guest driver did not configure the card in this run"
+                )
         elif not configured:
             partial = True
             notes.append("A2065 link is ready but guest did not configure the card")
