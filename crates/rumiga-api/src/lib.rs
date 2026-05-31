@@ -374,6 +374,75 @@ fn default_network_mac_address() -> String {
     String::from(DEFAULT_NETWORK_MAC_ADDRESS)
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+pub struct NetworkPacketCounters {
+    #[serde(default)]
+    pub tx_packets: u64,
+    #[serde(default)]
+    pub rx_packets: u64,
+    #[serde(default)]
+    pub dropped_packets: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)]
+pub struct NetworkStatus {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub device: NetworkDevice,
+    #[serde(default)]
+    pub backend: NetworkBackend,
+    #[serde(default = "default_network_mac_address")]
+    pub mac_address: String,
+    #[serde(default)]
+    pub a2065_present: bool,
+    #[serde(default)]
+    pub a2065_configured: bool,
+    #[serde(default)]
+    pub a2065_shut_up: bool,
+    #[serde(default)]
+    pub a2065_base_address: Option<String>,
+    #[serde(default = "default_network_mac_address")]
+    pub a2065_card_mac_address: String,
+    #[serde(default)]
+    pub link_up: bool,
+    #[serde(default)]
+    pub counters: NetworkPacketCounters,
+}
+
+impl NetworkStatus {
+    #[must_use]
+    pub fn from_config(config: &NetworkConfig) -> Self {
+        Self {
+            enabled: config.enabled(),
+            device: config.device,
+            backend: config.backend,
+            mac_address: config.mac_address.clone(),
+            a2065_card_mac_address: config.mac_address.clone(),
+            ..Self::default()
+        }
+    }
+}
+
+impl Default for NetworkStatus {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            device: NetworkDevice::A2065,
+            backend: NetworkBackend::Disabled,
+            mac_address: default_network_mac_address(),
+            a2065_present: false,
+            a2065_configured: false,
+            a2065_shut_up: false,
+            a2065_base_address: None,
+            a2065_card_mac_address: default_network_mac_address(),
+            link_up: false,
+            counters: NetworkPacketCounters::default(),
+        }
+    }
+}
+
 #[must_use]
 pub fn is_valid_unicast_mac_address(value: &str) -> bool {
     let bytes = value.as_bytes();
@@ -415,6 +484,8 @@ pub struct MachineStatus {
     pub running: bool,
     pub fps: f32,
     pub model: AmigaModel,
+    #[serde(default)]
+    pub network: NetworkStatus,
 }
 
 // ─── Generic API Response ────────────────────────────────────────────────────
@@ -468,5 +539,17 @@ mod tests {
         assert!(!is_valid_unicast_mac_address("00:00:00:00:00:00"));
         assert!(!is_valid_unicast_mac_address("02-52-55-4d-49-47"));
         assert!(!is_valid_unicast_mac_address("02:52:55:4d:49"));
+    }
+
+    #[test]
+    fn network_status_defaults_to_disabled_a2065() {
+        let status = NetworkStatus::default();
+
+        assert!(!status.enabled);
+        assert_eq!(status.backend, NetworkBackend::Disabled);
+        assert_eq!(status.device, NetworkDevice::A2065);
+        assert_eq!(status.mac_address, DEFAULT_NETWORK_MAC_ADDRESS);
+        assert_eq!(status.a2065_card_mac_address, DEFAULT_NETWORK_MAC_ADDRESS);
+        assert_eq!(status.counters, NetworkPacketCounters::default());
     }
 }

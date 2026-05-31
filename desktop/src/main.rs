@@ -60,6 +60,7 @@ struct SharedState {
     pub hdf_path: Option<String>,
     pub hdf_write_policy: rumiga_api::HdfWritePolicy,
     pub network: rumiga_api::NetworkConfig,
+    pub network_status: rumiga_api::NetworkStatus,
     pub stereo_separation: u8,
     pub display: rumiga_api::DisplayConfig,
     pub screenshot: Vec<u32>,
@@ -145,6 +146,7 @@ async fn get_status(
             running: s.running,
             fps: s.fps,
             model: model_enum,
+            network: s.network_status.clone(),
         }
     )))
 }
@@ -911,6 +913,7 @@ fn main() {
 
     let initial_rect = resolve_viewport_rect(&display_config, None);
     let initial_height = presented_height(initial_rect, display_config.viewport.vertical_stretch);
+    let initial_network_status = network_status_from_emulator(&launch_args.network, &emulator);
 
     let shared_state = Arc::new(Mutex::new(SharedState {
         running: true,
@@ -925,6 +928,7 @@ fn main() {
         hdf_path: launch_args.hdf_path.clone(),
         hdf_write_policy: launch_args.hdf_write_policy,
         network: launch_args.network.clone(),
+        network_status: initial_network_status,
         stereo_separation: launch_args.audio_separation,
         display: display_config.clone(),
         screenshot: vec![0; initial_rect.width * initial_height],
@@ -1054,8 +1058,10 @@ fn main() {
                     if let Err(e) = network_backend.configure(&config, &mut emulator) {
                         eprintln!("API Error: Failed to update network backend: {e}");
                     }
+                    let network_status = network_status_from_emulator(&config, &emulator);
                     let mut s = shared_state.lock().unwrap();
                     s.network = config;
+                    s.network_status = network_status;
                 }
             }
         }
@@ -1128,6 +1134,10 @@ fn main() {
             if let Err(e) = network_backend.pump(&emulator) {
                 eprintln!("Network backend error: {e}");
             }
+            let network_status = {
+                let network = shared_state.lock().unwrap().network.clone();
+                network_status_from_emulator(&network, &emulator)
+            };
             let framebuffer = emulator.framebuffer();
             let display_config = {
                 let s = shared_state.lock().unwrap();
@@ -1158,6 +1168,7 @@ fn main() {
                 s.screenshot.resize(frame.pixels.len(), 0);
                 s.screenshot_width = u32::try_from(frame.width).unwrap_or(u32::MAX);
                 s.screenshot_height = u32::try_from(frame.height).unwrap_or(u32::MAX);
+                s.network_status = network_status;
                 for (i, &pixel) in frame.pixels.iter().enumerate() {
                     s.screenshot[i] = rumiga_platform_desktop::rgb565_to_argb(pixel);
                 }
@@ -2546,37 +2557,67 @@ fn push_rdb_geometry_json(json: &mut String, rdb: &rumiga_core::ide::RdbGeometry
     let _ = writeln!(json, "    }},");
 }
 
+fn network_status_from_emulator(
+    network: &rumiga_api::NetworkConfig,
+    emulator: &Emulator,
+) -> rumiga_api::NetworkStatus {
+    let a2065 = emulator.memory.a2065.borrow().status();
+    rumiga_api::NetworkStatus {
+        enabled: network.enabled(),
+        device: network.device,
+        backend: network.backend,
+        mac_address: network.mac_address.clone(),
+        a2065_present: a2065.enabled,
+        a2065_configured: a2065.configured,
+        a2065_shut_up: a2065.shut_up,
+        a2065_base_address: a2065
+            .base_address
+            .map(|base_address| format!("0x{base_address:06X}")),
+        a2065_card_mac_address: a2065.mac_address.to_colon_string(),
+        link_up: a2065.link_up,
+        counters: rumiga_api::NetworkPacketCounters {
+            tx_packets: a2065.counters.tx_packets,
+            rx_packets: a2065.counters.rx_packets,
+            dropped_packets: a2065.counters.dropped_packets,
+        },
+    }
+}
+
 fn push_network_state_json(
     json: &mut String,
     network: &rumiga_api::NetworkConfig,
     emulator: &Emulator,
 ) {
-    let a2065 = emulator.memory.a2065.borrow().status();
+    let status = network_status_from_emulator(network, emulator);
     let _ = writeln!(json, "  \"network\": {{");
-    let _ = writeln!(json, "    \"enabled\": {},", network.enabled());
+    let _ = writeln!(json, "    \"enabled\": {},", status.enabled);
     let _ = writeln!(
         json,
         "    \"device\": {},",
-        json_string(network.device.as_str())
+        json_string(status.device.as_str())
     );
     let _ = writeln!(
         json,
         "    \"backend\": {},",
-        json_string(network.backend.as_str())
+        json_string(status.backend.as_str())
     );
     let _ = writeln!(
         json,
         "    \"mac_address\": {},",
-        json_string(&network.mac_address)
+        json_string(&status.mac_address)
     );
-    let _ = writeln!(json, "    \"a2065_present\": {},", a2065.enabled);
-    let _ = writeln!(json, "    \"a2065_configured\": {},", a2065.configured);
-    let _ = writeln!(json, "    \"a2065_shut_up\": {},", a2065.shut_up);
-    if let Some(base_address) = a2065.base_address {
+    let _ = writeln!(json, "    \"a2065_present\": {},", status.a2065_present);
+    let _ = writeln!(
+        json,
+        "    \"a2065_configured\": {},",
+        status.a2065_configured
+    );
+    let _ = writeln!(json, "    \"a2065_shut_up\": {},", status.a2065_shut_up);
+    if let Some(base_address) = &status.a2065_base_address {
         let _ = writeln!(
             json,
             "    \"a2065_base_address\": {},",
-            json_string(&format!("0x{base_address:06X}"))
+            json_string(base_address)
         );
     } else {
         let _ = writeln!(json, "    \"a2065_base_address\": null,");
@@ -2584,15 +2625,15 @@ fn push_network_state_json(
     let _ = writeln!(
         json,
         "    \"a2065_card_mac_address\": {},",
-        json_string(&a2065.mac_address.to_colon_string())
+        json_string(&status.a2065_card_mac_address)
     );
-    let _ = writeln!(json, "    \"link_up\": {},", a2065.link_up);
-    let _ = writeln!(json, "    \"tx_packets\": {},", a2065.counters.tx_packets);
-    let _ = writeln!(json, "    \"rx_packets\": {},", a2065.counters.rx_packets);
+    let _ = writeln!(json, "    \"link_up\": {},", status.link_up);
+    let _ = writeln!(json, "    \"tx_packets\": {},", status.counters.tx_packets);
+    let _ = writeln!(json, "    \"rx_packets\": {},", status.counters.rx_packets);
     let _ = writeln!(
         json,
         "    \"dropped_packets\": {}",
-        a2065.counters.dropped_packets
+        status.counters.dropped_packets
     );
     json.push_str("  },\n");
 }

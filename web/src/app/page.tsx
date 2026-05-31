@@ -15,6 +15,15 @@ function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
+function networkBackendLabel(backend: MachineConfig['network']['backend']): string {
+  return backend === 'Slirp' ? 'SLIRP / NAT' : 'Disabled';
+}
+
+function networkSummary(status: MachineStatus | null, config: MachineConfig): string {
+  if (!status) return networkBackendLabel(config.network.backend);
+  return `${networkBackendLabel(status.network.backend)} (${status.network.link_up ? 'link up' : 'link down'})`;
+}
+
 export default function DashboardPage() {
   const [status, setStatus] = useState<MachineStatus | null>(null);
   const [config, setConfig] = useState<MachineConfig | null>(null);
@@ -267,7 +276,7 @@ export default function DashboardPage() {
                 <div className="flex items-center justify-between text-sm py-1.5 border-b border-zinc-800/40">
                   <span className="text-zinc-400 font-medium">A2065 Network</span>
                   <span className="font-bold text-zinc-200">
-                    {config.network.backend === 'Slirp' ? 'SLIRP / NAT' : 'Disabled'}
+                    {networkSummary(status, config)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-sm py-1.5 border-b border-zinc-800/40">

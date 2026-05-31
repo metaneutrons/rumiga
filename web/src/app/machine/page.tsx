@@ -67,6 +67,12 @@ function viewportChoiceForConfig(viewport: MachineConfig['display']['viewport'])
   return viewport.mode === 'Manual' ? 'Manual' : viewport.preset;
 }
 
+function networkAutoconfigLabel(status: MachineStatus['network']): string {
+  if (status.a2065_configured) return status.a2065_base_address ?? 'configured';
+  if (status.a2065_present) return 'waiting';
+  return 'absent';
+}
+
 function normalizeConfig(config: MachineConfig): MachineConfig {
   return {
     ...config,
@@ -155,6 +161,7 @@ export default function MachinePage() {
   }
 
   const viewport = config.display.viewport ?? DEFAULT_VIEWPORT;
+  const networkStatus = status?.network;
 
   return (
     <div className="space-y-6">
@@ -343,6 +350,32 @@ export default function MachinePage() {
               className="mt-1 block w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 font-mono text-sm"
             />
           </label>
+          {networkStatus && (
+            <div className="grid gap-2 rounded border border-zinc-800 bg-zinc-950/40 p-3 text-sm sm:grid-cols-2">
+              <div>
+                <span className="block text-xs uppercase text-zinc-500">Link</span>
+                <span className={networkStatus.link_up ? 'font-medium text-emerald-400' : 'font-medium text-zinc-400'}>
+                  {networkStatus.link_up ? 'Up' : 'Down'}
+                </span>
+              </div>
+              <div>
+                <span className="block text-xs uppercase text-zinc-500">Autoconfig</span>
+                <span className="font-mono text-zinc-200">
+                  {networkAutoconfigLabel(networkStatus)}
+                </span>
+              </div>
+              <div>
+                <span className="block text-xs uppercase text-zinc-500">TX packets</span>
+                <span className="font-mono text-zinc-200">{networkStatus.counters.tx_packets}</span>
+              </div>
+              <div>
+                <span className="block text-xs uppercase text-zinc-500">RX / dropped</span>
+                <span className="font-mono text-zinc-200">
+                  {networkStatus.counters.rx_packets} / {networkStatus.counters.dropped_packets}
+                </span>
+              </div>
+            </div>
+          )}
         </fieldset>
 
         <fieldset className="space-y-3">

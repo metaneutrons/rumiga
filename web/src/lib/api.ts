@@ -72,6 +72,26 @@ export interface NetworkConfig {
   mac_address: string;
 }
 
+export interface NetworkPacketCounters {
+  tx_packets: number;
+  rx_packets: number;
+  dropped_packets: number;
+}
+
+export interface NetworkStatus {
+  enabled: boolean;
+  device: NetworkDevice;
+  backend: NetworkBackend;
+  mac_address: string;
+  a2065_present: boolean;
+  a2065_configured: boolean;
+  a2065_shut_up: boolean;
+  a2065_base_address: string | null;
+  a2065_card_mac_address: string;
+  link_up: boolean;
+  counters: NetworkPacketCounters;
+}
+
 export interface MachineConfig {
   model: AmigaModel;
   chip_ram_kb: number;
@@ -91,6 +111,7 @@ export interface MachineStatus {
   running: boolean;
   fps: number;
   model: AmigaModel;
+  network: NetworkStatus;
 }
 
 export interface ApiResponse<T> {
