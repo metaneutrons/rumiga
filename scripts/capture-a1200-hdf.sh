@@ -51,6 +51,7 @@ producer = data.get("producer", {})
 run = data.get("run", {})
 schema = data.get("schema", {})
 boot_workarounds = data.get("boot_workarounds", {})
+cia = data.get("cia", {})
 classification = (
     "viewport-edge-clean"
     if edge.get("mirrored_non_background_pixels", 1) == 0
@@ -86,6 +87,18 @@ print(
     f" forced_cia_timer_start_count={boot_workarounds.get('forced_cia_timer_start_count')}"
     f" rom_drive_step_patch={boot_workarounds.get('rom_drive_step_patch')}"
 )
+for cia_name in ("a", "b"):
+    timer_a = cia.get(cia_name, {}).get("timer_a", {})
+    timer_b = cia.get(cia_name, {}).get("timer_b", {})
+    print(
+        f"cia_{cia_name}="
+        f"ta_ctrl={timer_a.get('control')}"
+        f" ta_start={timer_a.get('start_writes')}"
+        f" ta_underflows={timer_a.get('underflows')}"
+        f" tb_ctrl={timer_b.get('control')}"
+        f" tb_start={timer_b.get('start_writes')}"
+        f" tb_underflows={timer_b.get('underflows')}"
+    )
 print(f"classification={classification}")
 
 notes_path.write_text(
@@ -121,6 +134,20 @@ notes_path.write_text(
                 f"forced_cia_timer_start=`{boot_workarounds.get('forced_cia_timer_start')}` "
                 f"forced_cia_timer_start_count=`{boot_workarounds.get('forced_cia_timer_start_count')}` "
                 f"rom_drive_step_patch=`{boot_workarounds.get('rom_drive_step_patch')}`"
+            ),
+            (
+                "- CIA-A timers: "
+                f"ta_start=`{cia.get('a', {}).get('timer_a', {}).get('start_writes')}` "
+                f"ta_underflows=`{cia.get('a', {}).get('timer_a', {}).get('underflows')}` "
+                f"tb_start=`{cia.get('a', {}).get('timer_b', {}).get('start_writes')}` "
+                f"tb_underflows=`{cia.get('a', {}).get('timer_b', {}).get('underflows')}`"
+            ),
+            (
+                "- CIA-B timers: "
+                f"ta_start=`{cia.get('b', {}).get('timer_a', {}).get('start_writes')}` "
+                f"ta_underflows=`{cia.get('b', {}).get('timer_a', {}).get('underflows')}` "
+                f"tb_start=`{cia.get('b', {}).get('timer_b', {}).get('start_writes')}` "
+                f"tb_underflows=`{cia.get('b', {}).get('timer_b', {}).get('underflows')}`"
             ),
             f"- Classification: `{classification}`",
             "",

@@ -13,6 +13,7 @@ use axum::{
     routing::{delete, get, post},
 };
 use minifb::Key;
+use rumiga_core::cia::CiaState;
 use rumiga_core::custom;
 use rumiga_core::emulator::{
     EARLY_VIDEO_SCANLINE_DUMP, Emulator, VIDEO_SCANLINE_WORD_DUMP, VideoScanlineSnapshot,
@@ -1820,6 +1821,7 @@ fn write_capture_manifest(path: &Path, context: &CaptureManifestContext<'_>) -> 
     );
     push_native_framebuffer_json(&mut json);
     push_boot_workarounds_json(&mut json, context.emulator);
+    push_cia_state_json(&mut json, context.emulator);
     let _ = writeln!(
         json,
         "  \"framebuffer\": {{ \"background_rgb565\": {}, \"pixels_different_from_background\": {}, \"non_zero_rgb565_pixels\": {}, \"distinct_colors\": {} }},",
@@ -1894,6 +1896,49 @@ fn push_boot_workarounds_json(json: &mut String, emulator: &Emulator) {
         emulator.forced_cia_timer_start_count,
         emulator.memory.rom_drive_step_patch_applied
     );
+}
+
+fn push_cia_state_json(json: &mut String, emulator: &Emulator) {
+    let cia = emulator.memory.cia.borrow();
+    json.push_str("  \"cia\": {\n");
+    push_single_cia_json(json, "a", &cia.cia_a, "    ", true);
+    push_single_cia_json(json, "b", &cia.cia_b, "    ", false);
+    json.push_str("  },\n");
+}
+
+fn push_single_cia_json(json: &mut String, name: &str, cia: &CiaState, indent: &str, comma: bool) {
+    let suffix = if comma { "," } else { "" };
+    let _ = writeln!(json, "{indent}\"{name}\": {{");
+    let _ = writeln!(
+        json,
+        "{indent}  \"icr\": {{ \"pending\": {}, \"mask\": {}, \"ir\": {} }},",
+        json_string(&format!("0x{:02X}", cia.icr_data)),
+        json_string(&format!("0x{:02X}", cia.icr_mask)),
+        cia.icr_ir
+    );
+    let _ = writeln!(
+        json,
+        "{indent}  \"timer_a\": {{ \"counter\": {}, \"latch\": {}, \"control\": {}, \"start_writes\": {}, \"stop_writes\": {}, \"force_load_writes\": {}, \"underflows\": {} }},",
+        json_string(&format!("0x{:04X}", cia.timer_a)),
+        json_string(&format!("0x{:04X}", cia.timer_a_latch)),
+        json_string(&format!("0x{:02X}", cia.cra)),
+        cia.timer_a_stats.start_writes,
+        cia.timer_a_stats.stop_writes,
+        cia.timer_a_stats.force_load_writes,
+        cia.timer_a_stats.underflows
+    );
+    let _ = writeln!(
+        json,
+        "{indent}  \"timer_b\": {{ \"counter\": {}, \"latch\": {}, \"control\": {}, \"start_writes\": {}, \"stop_writes\": {}, \"force_load_writes\": {}, \"underflows\": {} }}",
+        json_string(&format!("0x{:04X}", cia.timer_b)),
+        json_string(&format!("0x{:04X}", cia.timer_b_latch)),
+        json_string(&format!("0x{:02X}", cia.crb)),
+        cia.timer_b_stats.start_writes,
+        cia.timer_b_stats.stop_writes,
+        cia.timer_b_stats.force_load_writes,
+        cia.timer_b_stats.underflows
+    );
+    let _ = writeln!(json, "{indent}}}{suffix}");
 }
 
 fn push_edge_integrity_json(json: &mut String, framebuffer: &[u16]) {
@@ -3196,6 +3241,10 @@ mod tests {
             0
         );
         assert_eq!(manifest["boot_workarounds"]["rom_drive_step_patch"], false);
+        assert_eq!(manifest["cia"]["a"]["timer_a"]["start_writes"], 0);
+        assert_eq!(manifest["cia"]["a"]["timer_a"]["underflows"], 0);
+        assert_eq!(manifest["cia"]["b"]["timer_b"]["start_writes"], 0);
+        assert_eq!(manifest["cia"]["b"]["timer_b"]["underflows"], 0);
         assert_eq!(manifest["viewport"]["source_width"], WIDTH);
         assert_eq!(manifest["viewport"]["preset"], "AutoCenter");
         assert_eq!(manifest["viewport"]["output_width"], 2);

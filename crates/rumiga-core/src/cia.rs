@@ -51,6 +51,30 @@ const ICR_TB: u8 = 1 << 1;
 /// ICR bit: set/clear control.
 const ICR_SET: u8 = 1 << 7;
 
+/// Observable timer-control statistics for boot and scheduler evidence.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct CiaTimerStats {
+    /// Number of control writes that transitioned the timer from stopped to running.
+    pub start_writes: u64,
+    /// Number of control writes that transitioned the timer from running to stopped.
+    pub stop_writes: u64,
+    /// Number of control writes that used the force-load bit.
+    pub force_load_writes: u64,
+    /// Number of timer underflows observed by the emulator.
+    pub underflows: u64,
+}
+
+impl CiaTimerStats {
+    const fn new() -> Self {
+        Self {
+            start_writes: 0,
+            stop_writes: 0,
+            force_load_writes: 0,
+            underflows: 0,
+        }
+    }
+}
+
 /// State of a single CIA 8520 chip.
 #[derive(Clone, Debug)]
 pub struct CiaState {
@@ -66,10 +90,14 @@ pub struct CiaState {
     pub timer_a: u16,
     /// Timer A latch (reload value).
     pub timer_a_latch: u16,
+    /// Timer A control/write evidence counters.
+    pub timer_a_stats: CiaTimerStats,
     /// Timer B counter.
     pub timer_b: u16,
     /// Timer B latch (reload value).
     pub timer_b_latch: u16,
+    /// Timer B control/write evidence counters.
+    pub timer_b_stats: CiaTimerStats,
     /// Control Register A.
     pub cra: u8,
     /// Control Register B.
@@ -103,8 +131,10 @@ impl CiaState {
             ddrb: 0,
             timer_a: 0xFFFF,
             timer_a_latch: 0xFFFF,
+            timer_a_stats: CiaTimerStats::new(),
             timer_b: 0xFFFF,
             timer_b_latch: 0xFFFF,
+            timer_b_stats: CiaTimerStats::new(),
             cra: 0,
             crb: 0,
             icr_data: 0,
@@ -223,12 +253,14 @@ impl CiaState {
                 }
             }
             REG_CRA => {
+                update_timer_control_stats(&mut self.timer_a_stats, self.cra, value);
                 self.cra = value & !CR_LOAD;
                 if value & CR_LOAD != 0 {
                     self.timer_a = self.timer_a_latch;
                 }
             }
             REG_CRB => {
+                update_timer_control_stats(&mut self.timer_b_stats, self.crb, value);
                 self.crb = value & !CR_LOAD;
                 if value & CR_LOAD != 0 {
                     self.timer_b = self.timer_b_latch;
@@ -246,6 +278,7 @@ impl CiaState {
             self.timer_a = self.timer_a.wrapping_sub(1);
             if self.timer_a == 0xFFFF {
                 self.icr_data |= ICR_TA;
+                self.timer_a_stats.underflows += 1;
                 self.timer_a = self.timer_a_latch;
                 if self.cra & CR_ONESHOT != 0 {
                     self.cra &= !CR_START;
@@ -257,6 +290,7 @@ impl CiaState {
             self.timer_b = self.timer_b.wrapping_sub(1);
             if self.timer_b == 0xFFFF {
                 self.icr_data |= ICR_TB;
+                self.timer_b_stats.underflows += 1;
                 self.timer_b = self.timer_b_latch;
                 if self.crb & CR_ONESHOT != 0 {
                     self.crb &= !CR_START;
@@ -301,6 +335,18 @@ impl CiaState {
         } else {
             false
         }
+    }
+}
+
+fn update_timer_control_stats(stats: &mut CiaTimerStats, previous: u8, next: u8) {
+    if previous & CR_START == 0 && next & CR_START != 0 {
+        stats.start_writes += 1;
+    }
+    if previous & CR_START != 0 && next & CR_START == 0 {
+        stats.stop_writes += 1;
+    }
+    if next & CR_LOAD != 0 {
+        stats.force_load_writes += 1;
     }
 }
 
@@ -371,6 +417,20 @@ mod tests {
         let val = cia.timer_a;
         cia.tick();
         assert_eq!(cia.timer_a, val);
+    }
+
+    #[test]
+    fn timer_control_write_stats_track_start_stop_and_load() {
+        let mut cia = CiaState::new();
+
+        cia.write(REG_CRA, CR_LOAD);
+        cia.write(REG_CRA, CR_START | CR_LOAD);
+        cia.write(REG_CRA, CR_START);
+        cia.write(REG_CRA, 0);
+
+        assert_eq!(cia.timer_a_stats.force_load_writes, 2);
+        assert_eq!(cia.timer_a_stats.start_writes, 1);
+        assert_eq!(cia.timer_a_stats.stop_writes, 1);
     }
 
     #[test]
