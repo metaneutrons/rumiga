@@ -12,6 +12,7 @@ categories.workspace = true
 
 [dependencies]
 m68k = { workspace = true }
+core_affinity = "0.8"
 
 [lints]
 workspace = true

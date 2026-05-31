@@ -146,6 +146,34 @@ impl AudioState {
         }
     }
 
+    /// Apply stereo separation scaling between mono (0%) and hard-pan (100%).
+    ///
+    /// At 100% (default), channels 0 and 3 are 100% left, 1 and 2 are 100% right.
+    /// At 0%, all channels are mixed 50% left and 50% right (mono).
+    /// Panning scales linearly in between.
+    pub fn apply_separation(&mut self, separation: u8) {
+        let sep = separation.min(100);
+        let main_pct = 50 + sep / 2;
+        let cross_pct = 50 - sep / 2;
+
+        self.channel_mix[0] = ChannelMix {
+            left_pct: main_pct,
+            right_pct: cross_pct,
+        };
+        self.channel_mix[1] = ChannelMix {
+            left_pct: cross_pct,
+            right_pct: main_pct,
+        };
+        self.channel_mix[2] = ChannelMix {
+            left_pct: cross_pct,
+            right_pct: main_pct,
+        };
+        self.channel_mix[3] = ChannelMix {
+            left_pct: main_pct,
+            right_pct: cross_pct,
+        };
+    }
+
     /// Advances one channel by one DMA tick.
     ///
     /// Decrements `period_counter`; on underflow outputs the next sample byte
@@ -441,5 +469,31 @@ mod tests {
             sum_active < sum_inactive,
             "Active low pass should attenuate high frequencies"
         );
+    }
+
+    #[test]
+    fn test_apply_separation() {
+        let mut state = AudioState::new();
+
+        // Test 100% (default)
+        state.apply_separation(100);
+        assert_eq!(state.channel_mix[0].left_pct, 100);
+        assert_eq!(state.channel_mix[0].right_pct, 0);
+        assert_eq!(state.channel_mix[1].left_pct, 0);
+        assert_eq!(state.channel_mix[1].right_pct, 100);
+
+        // Test 0% (mono)
+        state.apply_separation(0);
+        assert_eq!(state.channel_mix[0].left_pct, 50);
+        assert_eq!(state.channel_mix[0].right_pct, 50);
+        assert_eq!(state.channel_mix[1].left_pct, 50);
+        assert_eq!(state.channel_mix[1].right_pct, 50);
+
+        // Test 50%
+        state.apply_separation(50);
+        assert_eq!(state.channel_mix[0].left_pct, 75);
+        assert_eq!(state.channel_mix[0].right_pct, 25);
+        assert_eq!(state.channel_mix[1].left_pct, 25);
+        assert_eq!(state.channel_mix[1].right_pct, 75);
     }
 }

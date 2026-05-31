@@ -316,20 +316,130 @@ impl BlitterState {
     }
 
     /// Execute an area (copy/fill) blit.
-    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
     fn execute_area(&mut self, chip_ram: &mut [u8]) {
         let height = self.vblitsize;
         let width = self.hblitsize;
         if height == 0 || width == 0 {
             return;
         }
+        let efe = (self.bltcon1 & 0x10) != 0; // Exclusive fill enable
+        let ife = (self.bltcon1 & 0x08) != 0; // Inclusive fill enable
+        let fill = efe || ife;
+
+        if fill {
+            self.execute_area_fill(chip_ram);
+        } else {
+            self.execute_area_nofill(chip_ram);
+        }
+    }
+
+    #[inline]
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
+    fn execute_area_nofill(&mut self, chip_ram: &mut [u8]) {
+        let height = self.vblitsize;
+        let width = self.hblitsize;
         let ash = (self.bltcon0 >> 12) & 0xF;
         let bsh = (self.bltcon1 >> 12) & 0xF;
         let minterm = (self.bltcon0 & 0xFF) as u8;
         let desc = (self.bltcon1 & 0x02) != 0; // Descending mode
-        let efe = (self.bltcon1 & 0x10) != 0; // Exclusive fill enable
+        let step: u32 = if desc { 0u32.wrapping_sub(2) } else { 2 };
+        let mut a_prev: u16 = 0;
+        let mut b_prev: u16 = 0;
+        let mut b_hold = self.bltbhold;
+        let mut pending_d: Option<(u32, u16)> = None;
+
+        for _row in 0..height {
+            for col in 0..width {
+                let a_raw = if self.bltcon0 & USE_A != 0 {
+                    let value = read_word(chip_ram, self.bltapt);
+                    self.bltadat = value;
+                    value
+                } else {
+                    self.bltadat
+                };
+
+                let mask = match (col == 0, col == width - 1) {
+                    (true, true) => self.bltafwm & self.bltalwm,
+                    (true, false) => self.bltafwm,
+                    (false, true) => self.bltalwm,
+                    (false, false) => 0xFFFF,
+                };
+                let a_masked = a_raw & mask;
+                let a_shifted = shift_dma_word(a_masked, &mut a_prev, ash, desc);
+
+                if self.bltcon0 & USE_B != 0 {
+                    let b_raw = read_word(chip_ram, self.bltbpt);
+                    self.bltbdat = b_raw;
+                    b_hold = shift_dma_word(b_raw, &mut b_prev, bsh, desc);
+                    self.bltbold = b_raw;
+                }
+                let b_shifted = b_hold;
+
+                let c = if self.bltcon0 & USE_C != 0 {
+                    let value = read_word(chip_ram, self.bltcpt);
+                    self.bltcdat = value;
+                    if desc {
+                        self.bltbdat = value;
+                    }
+                    value
+                } else {
+                    self.bltcdat
+                };
+
+                if let Some((addr, value)) = pending_d.take() {
+                    write_word(chip_ram, addr, value);
+                }
+
+                let result = apply_minterm(a_shifted, b_shifted, c, minterm);
+
+                if self.bltcon0 & USE_D != 0 {
+                    pending_d = Some((self.bltdpt, result));
+                }
+
+                if self.bltcon0 & USE_A != 0 {
+                    self.bltapt = self.bltapt.wrapping_add(step);
+                }
+                if self.bltcon0 & USE_B != 0 {
+                    self.bltbpt = self.bltbpt.wrapping_add(step);
+                }
+                if self.bltcon0 & USE_C != 0 {
+                    self.bltcpt = self.bltcpt.wrapping_add(step);
+                }
+                if self.bltcon0 & USE_D != 0 {
+                    self.bltdpt = self.bltdpt.wrapping_add(step);
+                }
+            }
+
+            // Add modulo after each row
+            if self.bltcon0 & USE_A != 0 {
+                self.bltapt = apply_area_modulo(self.bltapt, self.bltamod, desc);
+            }
+            if self.bltcon0 & USE_B != 0 {
+                self.bltbpt = apply_area_modulo(self.bltbpt, self.bltbmod, desc);
+            }
+            if self.bltcon0 & USE_C != 0 {
+                self.bltcpt = apply_area_modulo(self.bltcpt, self.bltcmod, desc);
+            }
+            if self.bltcon0 & USE_D != 0 {
+                self.bltdpt = apply_area_modulo(self.bltdpt, self.bltdmod, desc);
+            }
+        }
+        if let Some((addr, value)) = pending_d {
+            write_word(chip_ram, addr, value);
+        }
+        self.bltbhold = b_hold;
+    }
+
+    #[inline]
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
+    fn execute_area_fill(&mut self, chip_ram: &mut [u8]) {
+        let height = self.vblitsize;
+        let width = self.hblitsize;
+        let ash = (self.bltcon0 >> 12) & 0xF;
+        let bsh = (self.bltcon1 >> 12) & 0xF;
+        let minterm = (self.bltcon0 & 0xFF) as u8;
+        let desc = (self.bltcon1 & 0x02) != 0; // Descending mode
         let ife = (self.bltcon1 & 0x08) != 0; // Inclusive fill enable
-        let fill = efe || ife;
         let fci = (self.bltcon1 & 0x04) != 0; // Fill carry in
         let step: u32 = if desc { 0u32.wrapping_sub(2) } else { 2 };
         let mut a_prev: u16 = 0;
@@ -383,33 +493,28 @@ impl BlitterState {
                 let result = apply_minterm(a_shifted, b_shifted, c, minterm);
 
                 // Apply fill mode (processes bits right-to-left within each word)
-                let output = if fill {
-                    let mut filled: u16 = 0;
-                    for bit in 0..16u16 {
-                        let src_bit = (result >> bit) & 1;
-                        if src_bit != 0 {
-                            if ife {
-                                // Inclusive: set bit, then toggle state
-                                filled |= 1 << bit;
-                                fill_state = !fill_state;
-                            } else {
-                                // Exclusive: toggle state, then set if state
-                                fill_state = !fill_state;
-                                if fill_state {
-                                    filled |= 1 << bit;
-                                }
-                            }
-                        } else if fill_state {
+                let mut filled: u16 = 0;
+                for bit in 0..16u16 {
+                    let src_bit = (result >> bit) & 1;
+                    if src_bit != 0 {
+                        if ife {
+                            // Inclusive: set bit, then toggle state
                             filled |= 1 << bit;
+                            fill_state = !fill_state;
+                        } else {
+                            // Exclusive: toggle state, then set if state
+                            fill_state = !fill_state;
+                            if fill_state {
+                                filled |= 1 << bit;
+                            }
                         }
+                    } else if fill_state {
+                        filled |= 1 << bit;
                     }
-                    filled
-                } else {
-                    result
-                };
+                }
 
                 if self.bltcon0 & USE_D != 0 {
-                    pending_d = Some((self.bltdpt, output));
+                    pending_d = Some((self.bltdpt, filled));
                 }
 
                 if self.bltcon0 & USE_A != 0 {

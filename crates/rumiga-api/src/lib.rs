@@ -89,6 +89,12 @@ pub struct ChannelMixConfig {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AudioConfig {
     pub channel_mix: [ChannelMixConfig; 4],
+    #[serde(default = "default_stereo_separation")]
+    pub stereo_separation: u8,
+}
+
+const fn default_stereo_separation() -> u8 {
+    100
 }
 
 impl Default for AudioConfig {
@@ -113,6 +119,7 @@ impl Default for AudioConfig {
                     right_pct: 0,
                 },
             ],
+            stereo_separation: default_stereo_separation(),
         }
     }
 }

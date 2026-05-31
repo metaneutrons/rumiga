@@ -39,6 +39,7 @@ export interface ChannelMixConfig {
 
 export interface AudioConfig {
   channel_mix: [ChannelMixConfig, ChannelMixConfig, ChannelMixConfig, ChannelMixConfig];
+  stereo_separation: number;
 }
 
 export type ScalingMode = 'Integer' | 'AspectFit' | 'Stretch';

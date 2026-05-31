@@ -8,6 +8,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
 
+use axum::{
+    Router,
+    routing::{delete, get, post},
+};
 use minifb::Key;
 use rumiga_core::custom;
 use rumiga_core::emulator::{
@@ -17,10 +21,479 @@ use rumiga_core::floppy::{
     FLOPPY_SPEED_COMPATIBLE_PERCENT, FLOPPY_SPEED_TURBO_PERCENT, is_supported_floppy_speed_percent,
 };
 use rumiga_core::memory::MemoryConfig;
-use rumiga_core::playfield::{DISPLAY_HEIGHT, DISPLAY_LEFT_HPOS, DISPLAY_WIDTH};
+use rumiga_core::playfield::{DISPLAY_HEIGHT, DISPLAY_LEFT_HPOS, DISPLAY_WIDTH, PlayfieldState};
 use rumiga_platform::VideoOutput;
 use rumiga_platform_desktop::DesktopVideo;
 use sha2::{Digest, Sha256};
+use std::sync::{Arc, Mutex};
+
+#[derive(rust_embed::RustEmbed)]
+#[folder = "../web/out/"]
+struct Asset;
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+enum ApiCommand {
+    Reset,
+    Pause,
+    Resume,
+    InsertFloppy { drive_idx: usize, path: String },
+    EjectFloppy { drive_idx: usize },
+    UpdateAudioSeparation { separation: u8 },
+    UpdateFloppySpeed { percent: u16 },
+}
+
+struct SharedState {
+    pub running: bool,
+    pub fps: f32,
+    pub model: String,
+    pub chip_ram_kb: u32,
+    pub slow_ram_kb: u32,
+    pub fast_ram_kb: u32,
+    pub rom_file: String,
+    pub floppy: [Option<String>; 4],
+    pub floppy_speed_percent: u16,
+    pub stereo_separation: u8,
+    pub display: rumiga_api::DisplayConfig,
+    pub screenshot: Vec<u32>,
+    pub screenshot_width: u32,
+    pub screenshot_height: u32,
+    pub pending_commands: Vec<ApiCommand>,
+}
+
+fn get_mime_type(path: &str) -> &'static str {
+    let ext = std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+    if ext.eq_ignore_ascii_case("html") {
+        "text/html; charset=utf-8"
+    } else if ext.eq_ignore_ascii_case("css") {
+        "text/css"
+    } else if ext.eq_ignore_ascii_case("js") || ext.eq_ignore_ascii_case("mjs") {
+        "application/javascript"
+    } else if ext.eq_ignore_ascii_case("json") {
+        "application/json"
+    } else if ext.eq_ignore_ascii_case("png") {
+        "image/png"
+    } else if ext.eq_ignore_ascii_case("svg") {
+        "image/svg+xml"
+    } else if ext.eq_ignore_ascii_case("ico") {
+        "image/x-icon"
+    } else {
+        "application/octet-stream"
+    }
+}
+
+async fn static_handler(
+    axum::extract::State(_state): axum::extract::State<Arc<Mutex<SharedState>>>,
+    req: axum::http::Request<axum::body::Body>,
+) -> impl axum::response::IntoResponse {
+    let path = req.uri().path().trim_start_matches('/');
+    let asset_path = if path.is_empty() {
+        "index.html".to_string()
+    } else if path.ends_with('/') {
+        format!("{path}index.html")
+    } else {
+        path.to_string()
+    };
+
+    let file = if let Some(content) = Asset::get(&asset_path) {
+        Some((asset_path, content))
+    } else if let Some(content) = Asset::get(&format!("{}.html", asset_path.trim_end_matches('/')))
+    {
+        Some((
+            format!("{}.html", asset_path.trim_end_matches('/')),
+            content,
+        ))
+    } else {
+        Asset::get("index.html").map(|content| ("index.html".to_string(), content))
+    };
+
+    if let Some((resolved_path, data)) = file {
+        let mime_type = get_mime_type(&resolved_path);
+        axum::response::Response::builder()
+            .header(axum::http::header::CONTENT_TYPE, mime_type)
+            .body(axum::body::Body::from(data.data))
+            .unwrap()
+    } else {
+        axum::response::Response::builder()
+            .status(axum::http::StatusCode::NOT_FOUND)
+            .body(axum::body::Body::from("404 Not Found"))
+            .unwrap()
+    }
+}
+
+async fn get_status(
+    axum::extract::State(state): axum::extract::State<Arc<Mutex<SharedState>>>,
+) -> axum::response::Json<serde_json::Value> {
+    let s = state.lock().unwrap();
+    let model_enum = match s.model.as_str() {
+        "a1200" => rumiga_api::AmigaModel::A1200,
+        "a500-plus" | "a600" => rumiga_api::AmigaModel::A500Plus,
+        _ => rumiga_api::AmigaModel::A500,
+    };
+    axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::ok(
+        rumiga_api::MachineStatus {
+            running: s.running,
+            fps: s.fps,
+            model: model_enum,
+        }
+    )))
+}
+
+async fn get_config(
+    axum::extract::State(state): axum::extract::State<Arc<Mutex<SharedState>>>,
+) -> axum::response::Json<serde_json::Value> {
+    let config = {
+        let s = state.lock().unwrap();
+        let model_enum = match s.model.as_str() {
+            "a1200" => rumiga_api::AmigaModel::A1200,
+            "a500-plus" | "a600" => rumiga_api::AmigaModel::A500Plus,
+            _ => rumiga_api::AmigaModel::A500,
+        };
+        rumiga_api::MachineConfig {
+            model: model_enum,
+            chip_ram_kb: s.chip_ram_kb,
+            slow_ram_kb: s.slow_ram_kb,
+            fast_ram_kb: s.fast_ram_kb,
+            rom_file: s.rom_file.clone(),
+            floppy: s.floppy.clone(),
+            floppy_speed_percent: s.floppy_speed_percent,
+            audio: rumiga_api::AudioConfig {
+                channel_mix: [
+                    rumiga_api::ChannelMixConfig {
+                        left_pct: 100,
+                        right_pct: 0,
+                    },
+                    rumiga_api::ChannelMixConfig {
+                        left_pct: 0,
+                        right_pct: 100,
+                    },
+                    rumiga_api::ChannelMixConfig {
+                        left_pct: 0,
+                        right_pct: 100,
+                    },
+                    rumiga_api::ChannelMixConfig {
+                        left_pct: 100,
+                        right_pct: 0,
+                    },
+                ],
+                stereo_separation: s.stereo_separation,
+            },
+            display: s.display.clone(),
+        }
+    };
+    axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::ok(config)))
+}
+
+async fn put_config(
+    axum::extract::State(state): axum::extract::State<Arc<Mutex<SharedState>>>,
+    axum::Json(payload): axum::Json<rumiga_api::MachineConfig>,
+) -> axum::response::Json<serde_json::Value> {
+    if !is_supported_floppy_speed_percent(payload.floppy_speed_percent) {
+        return axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::err(
+            "Unsupported floppy speed".to_string()
+        )));
+    }
+    if payload.audio.stereo_separation > 100 {
+        return axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::err(
+            "Stereo separation must be 0-100".to_string()
+        )));
+    }
+    if payload.display.viewport.width == 0 || payload.display.viewport.height == 0 {
+        return axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::err(
+            "Viewport width and height must be greater than zero".to_string()
+        )));
+    }
+
+    let mut s = state.lock().unwrap();
+    if s.floppy_speed_percent != payload.floppy_speed_percent {
+        s.pending_commands.push(ApiCommand::UpdateFloppySpeed {
+            percent: payload.floppy_speed_percent,
+        });
+    }
+    if s.stereo_separation != payload.audio.stereo_separation {
+        s.pending_commands.push(ApiCommand::UpdateAudioSeparation {
+            separation: payload.audio.stereo_separation,
+        });
+    }
+
+    s.chip_ram_kb = payload.chip_ram_kb;
+    s.slow_ram_kb = payload.slow_ram_kb;
+    s.fast_ram_kb = payload.fast_ram_kb;
+    s.rom_file = payload.rom_file;
+    s.floppy = payload.floppy;
+    s.floppy_speed_percent = payload.floppy_speed_percent;
+    s.stereo_separation = payload.audio.stereo_separation;
+    s.display = payload.display;
+    drop(s);
+
+    axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::ok(())))
+}
+
+async fn post_reset(
+    axum::extract::State(state): axum::extract::State<Arc<Mutex<SharedState>>>,
+) -> axum::response::Json<serde_json::Value> {
+    state
+        .lock()
+        .unwrap()
+        .pending_commands
+        .push(ApiCommand::Reset);
+    axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::ok(())))
+}
+
+async fn post_pause(
+    axum::extract::State(state): axum::extract::State<Arc<Mutex<SharedState>>>,
+) -> axum::response::Json<serde_json::Value> {
+    state
+        .lock()
+        .unwrap()
+        .pending_commands
+        .push(ApiCommand::Pause);
+    axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::ok(())))
+}
+
+async fn post_resume(
+    axum::extract::State(state): axum::extract::State<Arc<Mutex<SharedState>>>,
+) -> axum::response::Json<serde_json::Value> {
+    state
+        .lock()
+        .unwrap()
+        .pending_commands
+        .push(ApiCommand::Resume);
+    axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::ok(())))
+}
+
+#[derive(serde::Deserialize)]
+struct FloppyInsertRequest {
+    drive_idx: usize,
+    path: String,
+}
+
+async fn post_floppy_insert(
+    axum::extract::State(state): axum::extract::State<Arc<Mutex<SharedState>>>,
+    axum::Json(payload): axum::Json<FloppyInsertRequest>,
+) -> axum::response::Json<serde_json::Value> {
+    if payload.drive_idx >= 4 {
+        return axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::err(
+            "Invalid drive index".to_string()
+        )));
+    }
+    state
+        .lock()
+        .unwrap()
+        .pending_commands
+        .push(ApiCommand::InsertFloppy {
+            drive_idx: payload.drive_idx,
+            path: payload.path,
+        });
+    axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::ok(())))
+}
+
+#[derive(serde::Deserialize)]
+struct FloppyEjectRequest {
+    drive_idx: usize,
+}
+
+async fn post_floppy_eject(
+    axum::extract::State(state): axum::extract::State<Arc<Mutex<SharedState>>>,
+    axum::Json(payload): axum::Json<FloppyEjectRequest>,
+) -> axum::response::Json<serde_json::Value> {
+    if payload.drive_idx >= 4 {
+        return axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::err(
+            "Invalid drive index".to_string()
+        )));
+    }
+    state
+        .lock()
+        .unwrap()
+        .pending_commands
+        .push(ApiCommand::EjectFloppy {
+            drive_idx: payload.drive_idx,
+        });
+    axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::ok(())))
+}
+
+#[derive(serde::Deserialize)]
+struct AudioSeparationRequest {
+    separation: u8,
+}
+
+async fn post_audio_separation(
+    axum::extract::State(state): axum::extract::State<Arc<Mutex<SharedState>>>,
+    axum::Json(payload): axum::Json<AudioSeparationRequest>,
+) -> axum::response::Json<serde_json::Value> {
+    if payload.separation > 100 {
+        return axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::err(
+            "Separation must be 0-100".to_string()
+        )));
+    }
+    state
+        .lock()
+        .unwrap()
+        .pending_commands
+        .push(ApiCommand::UpdateAudioSeparation {
+            separation: payload.separation,
+        });
+    axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::ok(())))
+}
+
+#[allow(clippy::many_single_char_names)]
+async fn get_screenshot(
+    axum::extract::State(state): axum::extract::State<Arc<Mutex<SharedState>>>,
+) -> axum::response::Response<axum::body::Body> {
+    let (pixels, w, h) = {
+        let s = state.lock().unwrap();
+        (
+            s.screenshot.clone(),
+            s.screenshot_width,
+            s.screenshot_height,
+        )
+    };
+    if pixels.is_empty() || w == 0 || h == 0 {
+        return axum::response::Response::builder()
+            .status(axum::http::StatusCode::NO_CONTENT)
+            .body(axum::body::Body::from("No screenshot available"))
+            .unwrap();
+    }
+
+    let mut png_bytes = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut png_bytes, w, h);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        if let Ok(mut writer) = encoder.write_header() {
+            let mut rgba_bytes = vec![0u8; pixels.len() * 4];
+            for (i, &argb) in pixels.iter().enumerate() {
+                let r = ((argb >> 16) & 0xFF) as u8;
+                let g = ((argb >> 8) & 0xFF) as u8;
+                let b = (argb & 0xFF) as u8;
+                let a = ((argb >> 24) & 0xFF) as u8;
+                rgba_bytes[i * 4] = r;
+                rgba_bytes[i * 4 + 1] = g;
+                rgba_bytes[i * 4 + 2] = b;
+                rgba_bytes[i * 4 + 3] = a;
+            }
+            let _ = writer.write_image_data(&rgba_bytes);
+        }
+    }
+
+    axum::response::Response::builder()
+        .header(axum::http::header::CONTENT_TYPE, "image/png")
+        .header(
+            axum::http::header::CACHE_CONTROL,
+            "no-store, must-revalidate",
+        )
+        .body(axum::body::Body::from(png_bytes))
+        .unwrap()
+}
+
+async fn get_files(
+    req: axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> axum::response::Json<serde_json::Value> {
+    let sub_path = req.get("path").cloned().unwrap_or_default();
+    let decoded = percent_encoding::percent_decode_str(&sub_path)
+        .decode_utf8_lossy()
+        .to_string();
+    let base_dir = std::path::Path::new("/Volumes/Dev/Source/rumiga");
+    let target_dir = if decoded.is_empty() {
+        base_dir.to_path_buf()
+    } else {
+        base_dir.join(decoded.trim_start_matches('/'))
+    };
+
+    if !target_dir.starts_with(base_dir) {
+        return axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::err(
+            "Access denied".to_string()
+        )));
+    }
+
+    let mut files = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&target_dir) {
+        for entry in entries.flatten() {
+            if let Ok(meta) = entry.metadata() {
+                files.push(rumiga_api::FileEntry {
+                    name: entry.file_name().to_string_lossy().to_string(),
+                    size: meta.len(),
+                    is_directory: meta.is_dir(),
+                });
+            }
+        }
+    }
+
+    axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::ok(
+        rumiga_api::FileListResponse {
+            path: sub_path,
+            files,
+            total_bytes: 1024 * 1024 * 1024,
+            free_bytes: 512 * 1024 * 1024,
+        }
+    )))
+}
+
+async fn post_upload(
+    mut multipart: axum::extract::Multipart,
+) -> axum::response::Json<serde_json::Value> {
+    let base_dir = std::path::Path::new("/Volumes/Dev/Source/rumiga");
+    while let Ok(Some(field)) = multipart.next_field().await {
+        if let Some(filename) = field.file_name() {
+            let safe_name = filename.replace("..", "").replace('/', "");
+            let dest = base_dir.join(safe_name);
+            if let Ok(data) = field.bytes().await {
+                if std::fs::write(&dest, data).is_ok() {
+                    eprintln!("Uploaded file to {}", dest.display());
+                }
+            }
+        }
+    }
+    axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::ok(())))
+}
+
+async fn delete_file_handler(
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> axum::response::Json<serde_json::Value> {
+    let base_dir = std::path::Path::new("/Volumes/Dev/Source/rumiga");
+    let safe_name = name.replace("..", "").replace('/', "");
+    let target = base_dir.join(safe_name);
+    if target.starts_with(base_dir) && target.is_file() {
+        let _ = std::fs::remove_file(target);
+    }
+    axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::ok(())))
+}
+
+async fn get_wifi_status() -> axum::response::Json<serde_json::Value> {
+    axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::ok(
+        rumiga_api::WifiStatus {
+            connected: true,
+            ssid: Some("RumigaHostWiFi".to_string()),
+            ip: Some("192.168.1.100".to_string()),
+            mode: rumiga_api::WifiMode::Client,
+        }
+    )))
+}
+
+async fn post_wifi_scan() -> axum::response::Json<serde_json::Value> {
+    axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::ok(
+        rumiga_api::WifiScanResponse {
+            networks: vec![
+                rumiga_api::WifiNetwork {
+                    ssid: "RumigaHostWiFi".to_string(),
+                    rssi: -45,
+                    secured: true
+                },
+                rumiga_api::WifiNetwork {
+                    ssid: "GuestNetwork".to_string(),
+                    rssi: -70,
+                    secured: true
+                },
+            ]
+        }
+    )))
+}
+
+async fn post_wifi_connect() -> axum::response::Json<serde_json::Value> {
+    axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::ok(())))
+}
 
 const WIDTH: usize = DISPLAY_WIDTH as usize;
 const HEIGHT: usize = DISPLAY_HEIGHT as usize;
@@ -84,13 +557,6 @@ impl ViewportMode {
             _ => None,
         }
     }
-
-    const fn name(self) -> &'static str {
-        match self {
-            Self::Auto => "auto",
-            Self::Raw => "raw",
-        }
-    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -120,6 +586,7 @@ struct LaunchArgs {
     capture_frames: u64,
     mouse_scale_x: f32,
     mouse_scale_y: f32,
+    audio_separation: u8,
 }
 
 #[derive(Clone, Debug)]
@@ -133,12 +600,42 @@ struct CaptureFrame {
     pixels: Vec<u16>,
     width: usize,
     height: usize,
+    source_x_start: usize,
+    source_x_end: usize,
     source_y_start: usize,
     source_y_end: usize,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ViewportRect {
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+}
+
+impl ViewportRect {
+    const fn full_frame() -> Self {
+        Self {
+            x: 0,
+            y: 0,
+            width: WIDTH,
+            height: HEIGHT,
+        }
+    }
+
+    const fn x_end(self) -> usize {
+        self.x + self.width
+    }
+
+    const fn y_end(self) -> usize {
+        self.y + self.height
+    }
+}
+
 struct CaptureEvidenceContext<'a> {
     args: &'a LaunchArgs,
+    display: &'a rumiga_api::DisplayConfig,
     model: MachineModel,
     config: &'a MemoryConfig,
     rom: &'a FileEvidence,
@@ -151,6 +648,7 @@ struct CaptureManifestContext<'a> {
     image_path: &'a Path,
     frame: &'a CaptureFrame,
     args: &'a LaunchArgs,
+    display: &'a rumiga_api::DisplayConfig,
     model: MachineModel,
     config: &'a MemoryConfig,
     emulator: &'a Emulator,
@@ -248,7 +746,11 @@ fn main() {
         }
     }
     emulator.set_floppy_speed_percent(launch_args.floppy_speed_percent);
+    emulator
+        .audio
+        .apply_separation(launch_args.audio_separation);
     emulator.load_rom(&rom_data);
+    let display_config = display_config_from_launch_args(&launch_args);
 
     let mut floppy_paths: [Option<String>; 4] = [None, None, None, None];
     let mut floppy_evidence: [Option<FileEvidence>; 4] = std::array::from_fn(|_| None);
@@ -311,6 +813,7 @@ fn main() {
                 floppies: &floppy_evidence,
                 hdf: hdf_evidence.as_ref(),
                 capture_path,
+                display: &display_config,
             },
         ) {
             eprintln!("Capture failed: {e}");
@@ -319,24 +822,83 @@ fn main() {
         return;
     }
 
-    let presented_height = presented_height(launch_args.vertical_stretch);
-    let mut video = DesktopVideo::new("Rumiga", WIDTH, presented_height, launch_args.scale)
-        .unwrap_or_else(|| {
-            eprintln!("Failed to create video window");
-            process::exit(1);
+    let initial_rect = resolve_viewport_rect(&display_config, None);
+    let initial_height = presented_height(initial_rect, display_config.viewport.vertical_stretch);
+
+    let shared_state = Arc::new(Mutex::new(SharedState {
+        running: true,
+        fps: 50.0,
+        model: model.name().to_string(),
+        chip_ram_kb: config_summary.chip_ram_size / 1024,
+        slow_ram_kb: config_summary.slow_ram_size / 1024,
+        fast_ram_kb: config_summary.fast_ram_size / 1024,
+        rom_file: launch_args.rom_path.clone(),
+        floppy: floppy_paths.clone(),
+        floppy_speed_percent: launch_args.floppy_speed_percent,
+        stereo_separation: launch_args.audio_separation,
+        display: display_config.clone(),
+        screenshot: vec![0; initial_rect.width * initial_height],
+        screenshot_width: u32::try_from(initial_rect.width).unwrap(),
+        screenshot_height: u32::try_from(initial_height).unwrap(),
+        pending_commands: Vec::new(),
+    }));
+
+    let server_state = Arc::clone(&shared_state);
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        rt.block_on(async {
+            let app = Router::new()
+                .route("/api/machine/status", get(get_status))
+                .route("/api/machine/config", get(get_config).put(put_config))
+                .route("/api/machine/reset", post(post_reset))
+                .route("/api/machine/pause", post(post_pause))
+                .route("/api/machine/resume", post(post_resume))
+                .route("/api/machine/start", post(post_resume))
+                .route("/api/machine/stop", post(post_pause))
+                .route("/api/machine/floppy/insert", post(post_floppy_insert))
+                .route("/api/machine/floppy/eject", post(post_floppy_eject))
+                .route("/api/machine/audio/separation", post(post_audio_separation))
+                .route("/api/machine/screenshot", get(get_screenshot))
+                .route("/api/files", get(get_files))
+                .route("/api/files/upload", post(post_upload))
+                .route("/api/files/:name", delete(delete_file_handler))
+                .route("/api/wifi/status", get(get_wifi_status))
+                .route("/api/wifi/scan", post(post_wifi_scan))
+                .route("/api/wifi/connect", post(post_wifi_connect))
+                .fallback(static_handler)
+                .with_state(server_state);
+
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:8080")
+                .await
+                .unwrap();
+            eprintln!("REST API server listening at http://127.0.0.1:8080");
+            axum::serve(listener, app).await.unwrap();
         });
+    });
+
+    let mut video = DesktopVideo::new(
+        "Rumiga",
+        initial_rect.width,
+        initial_height,
+        launch_args.scale,
+    )
+    .unwrap_or_else(|| {
+        eprintln!("Failed to create video window");
+        process::exit(1);
+    });
 
     let window_handle = video.window_handle();
-
-    #[allow(clippy::cast_possible_truncation)]
-    let (w, h) = (WIDTH as u32, presented_height as u32);
-    let mut presented_framebuffer = vec![0u16; WIDTH * presented_height];
 
     let mut last_mouse: Option<(f32, f32)> = None;
     let mut mouse_accum_x = 0.0f32;
     let mut mouse_accum_y = 0.0f32;
     let mut last_y_start = 0;
-    let mut last_y_end = HEIGHT;
+    let mut last_y_end = initial_rect.height;
+    let mut last_presented_height = initial_height;
 
     while video.is_open() {
         // Check ESC to quit
@@ -344,93 +906,162 @@ fn main() {
             break;
         }
 
-        // Pass key events to emulator
-        {
-            let win = window_handle.borrow();
-            for key in win.get_keys_pressed(minifb::KeyRepeat::No) {
-                if let Some(keycode) = map_key_to_amiga(key) {
-                    emulator.key_event(keycode, true);
+        // Drain and execute pending API commands
+        let commands = {
+            let mut s = shared_state.lock().unwrap();
+            std::mem::take(&mut s.pending_commands)
+        };
+
+        for cmd in commands {
+            match cmd {
+                ApiCommand::Reset => {
+                    eprintln!("API: Resetting machine...");
+                    emulator.cpu.reset(&mut emulator.memory);
                 }
-            }
-            for key in win.get_keys_released() {
-                if let Some(keycode) = map_key_to_amiga(key) {
-                    emulator.key_event(keycode, false);
+                ApiCommand::Pause => {
+                    eprintln!("API: Pausing emulation...");
+                    let mut s = shared_state.lock().unwrap();
+                    s.running = false;
+                }
+                ApiCommand::Resume => {
+                    eprintln!("API: Resuming emulation...");
+                    let mut s = shared_state.lock().unwrap();
+                    s.running = true;
+                }
+                ApiCommand::InsertFloppy { drive_idx, path } => {
+                    eprintln!("API: Inserting floppy {path} into DF{drive_idx}");
+                    if let Ok(adf_data) = std::fs::read(&path) {
+                        emulator.insert_floppy(drive_idx, adf_data);
+                        shared_state.lock().unwrap().floppy[drive_idx] = Some(path.clone());
+                        floppy_paths[drive_idx] = Some(path);
+                    } else {
+                        eprintln!("API Error: Failed to read ADF path: {path}");
+                    }
+                }
+                ApiCommand::EjectFloppy { drive_idx } => {
+                    eprintln!("API: Ejecting floppy from DF{drive_idx}");
+                    let _ = emulator.extract_floppy(drive_idx);
+                    shared_state.lock().unwrap().floppy[drive_idx] = None;
+                    floppy_paths[drive_idx] = None;
+                }
+                ApiCommand::UpdateAudioSeparation { separation } => {
+                    eprintln!("API: Updating audio separation to {separation}%");
+                    emulator.audio.apply_separation(separation);
+                    let mut s = shared_state.lock().unwrap();
+                    s.stereo_separation = separation;
+                }
+                ApiCommand::UpdateFloppySpeed { percent } => {
+                    eprintln!("API: Updating floppy speed to {percent}%");
+                    emulator.set_floppy_speed_percent(percent);
+                    let mut s = shared_state.lock().unwrap();
+                    s.floppy_speed_percent = percent;
                 }
             }
         }
 
-        // Pass mouse events to emulator
-        {
-            let win = window_handle.borrow();
-            if let Some((mx, my)) = win.get_mouse_pos(minifb::MouseMode::Discard) {
-                if let Some((lmx, lmy)) = last_mouse {
-                    let dx_f = (mx - lmx) * launch_args.mouse_scale_x;
+        let is_running = {
+            let s = shared_state.lock().unwrap();
+            s.running
+        };
 
-                    let mut dy_f = my - lmy;
-                    if launch_args.vertical_stretch {
+        if is_running {
+            // Pass key events to emulator
+            {
+                let win = window_handle.borrow();
+                for key in win.get_keys_pressed(minifb::KeyRepeat::No) {
+                    if let Some(keycode) = map_key_to_amiga(key) {
+                        emulator.key_event(keycode, true);
+                    }
+                }
+                for key in win.get_keys_released() {
+                    if let Some(keycode) = map_key_to_amiga(key) {
+                        emulator.key_event(keycode, false);
+                    }
+                }
+            }
+
+            // Pass mouse events to emulator
+            {
+                let win = window_handle.borrow();
+                if let Some((mx, my)) = win.get_mouse_pos(minifb::MouseMode::Discard) {
+                    if let Some((lmx, lmy)) = last_mouse {
+                        let dx_f = (mx - lmx) * launch_args.mouse_scale_x;
+
+                        let mut dy_f = my - lmy;
                         #[allow(clippy::cast_precision_loss)]
-                        let active_height = (last_y_end - last_y_start) as f32;
+                        let active_height = (last_y_end - last_y_start).max(1) as f32;
                         #[allow(clippy::cast_precision_loss)]
-                        let p_height = presented_height as f32;
+                        let p_height = last_presented_height.max(1) as f32;
                         dy_f *= active_height / p_height;
+                        dy_f *= launch_args.mouse_scale_y;
+
+                        mouse_accum_x += dx_f;
+                        mouse_accum_y += dy_f;
+
+                        let dx = mouse_accum_x.trunc();
+                        let dy = mouse_accum_y.trunc();
+
+                        #[allow(clippy::cast_possible_truncation)]
+                        let dx_i = dx as i16;
+                        #[allow(clippy::cast_possible_truncation)]
+                        let dy_i = dy as i16;
+
+                        mouse_accum_x -= dx;
+                        mouse_accum_y -= dy;
+
+                        if dx_i != 0 || dy_i != 0 {
+                            emulator.mouse_move(dx_i, dy_i);
+                        }
                     }
-                    dy_f *= launch_args.mouse_scale_y;
-
-                    mouse_accum_x += dx_f;
-                    mouse_accum_y += dy_f;
-
-                    let dx = mouse_accum_x.trunc();
-                    let dy = mouse_accum_y.trunc();
-
-                    #[allow(clippy::cast_possible_truncation)]
-                    let dx_i = dx as i16;
-                    #[allow(clippy::cast_possible_truncation)]
-                    let dy_i = dy as i16;
-
-                    mouse_accum_x -= dx;
-                    mouse_accum_y -= dy;
-
-                    if dx_i != 0 || dy_i != 0 {
-                        emulator.mouse_move(dx_i, dy_i);
-                    }
+                    last_mouse = Some((mx, my));
+                } else {
+                    last_mouse = None;
                 }
-                last_mouse = Some((mx, my));
-            } else {
-                last_mouse = None;
+
+                let left = win.get_mouse_down(minifb::MouseButton::Left);
+                let right = win.get_mouse_down(minifb::MouseButton::Right);
+                emulator.mouse_button(left, right);
             }
 
-            let left = win.get_mouse_down(minifb::MouseButton::Left);
-            let right = win.get_mouse_down(minifb::MouseButton::Right);
-            emulator.mouse_button(left, right);
-        }
-
-        emulator.run_frame();
-        let framebuffer = emulator.framebuffer();
-        if launch_args.vertical_stretch {
-            let (y_start, y_end) = if launch_args.viewport_mode == ViewportMode::Auto {
-                auto_vertical_bounds(framebuffer, WIDTH, HEIGHT).unwrap_or((0, HEIGHT))
-            } else {
-                (0, HEIGHT)
+            emulator.run_frame();
+            let framebuffer = emulator.framebuffer();
+            let display_config = {
+                let s = shared_state.lock().unwrap();
+                s.display.clone()
             };
-            last_y_start = y_start;
-            last_y_end = y_end;
-            if !stretch_vertical_viewport(
+            let frame = match prepare_capture_frame(
                 framebuffer,
-                WIDTH,
-                HEIGHT,
-                y_start,
-                y_end,
-                presented_height,
-                &mut presented_framebuffer,
+                &display_config,
+                Some(&emulator.playfield),
             ) {
-                eprintln!("Failed to prepare video frame");
-                break;
+                Ok(frame) => frame,
+                Err(e) => {
+                    eprintln!("Failed to prepare video frame: {e}");
+                    break;
+                }
+            };
+            last_y_start = frame.source_y_start;
+            last_y_end = frame.source_y_end;
+            last_presented_height = frame.height;
+            video.present_frame(
+                &frame.pixels,
+                u32::try_from(frame.width).unwrap_or(u32::MAX),
+                u32::try_from(frame.height).unwrap_or(u32::MAX),
+            );
+
+            {
+                let mut s = shared_state.lock().unwrap();
+                s.screenshot.resize(frame.pixels.len(), 0);
+                s.screenshot_width = u32::try_from(frame.width).unwrap_or(u32::MAX);
+                s.screenshot_height = u32::try_from(frame.height).unwrap_or(u32::MAX);
+                for (i, &pixel) in frame.pixels.iter().enumerate() {
+                    s.screenshot[i] = rumiga_platform_desktop::rgb565_to_argb(pixel);
+                }
             }
-            video.present_frame(&presented_framebuffer, w, h);
+            emulator.clear_frame_ready();
         } else {
-            video.present_frame(framebuffer, w, h);
+            std::thread::sleep(std::time::Duration::from_millis(16));
         }
-        emulator.clear_frame_ready();
     }
 
     flush_dirty_media(&mut emulator, &launch_args, &floppy_paths);
@@ -497,6 +1128,7 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
     let mut capture_frames = DEFAULT_CAPTURE_FRAMES;
     let mut mouse_scale_x = 0.5f32;
     let mut mouse_scale_y = 1.0f32;
+    let mut audio_separation = 100u8;
     let mut positional = Vec::new();
     let mut index = 0;
 
@@ -671,6 +1303,18 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
                 }
                 index += 2;
             }
+            "--audio-separation" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--audio-separation requires a value".to_owned());
+                };
+                audio_separation = value
+                    .parse::<u8>()
+                    .map_err(|_| format!("Unsupported audio separation '{value}'"))?;
+                if audio_separation > 100 {
+                    return Err("audio-separation must be between 0 and 100".to_owned());
+                }
+                index += 2;
+            }
             "--help" | "-h" => return Err(String::new()),
             value if value.starts_with('-') => return Err(format!("Unknown option '{value}'")),
             value => {
@@ -793,6 +1437,7 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
         capture_frames,
         mouse_scale_x,
         mouse_scale_y,
+        audio_separation,
     })
 }
 
@@ -970,7 +1615,11 @@ fn capture_evidence(
         emulator.run_frame();
     }
 
-    let frame = prepare_capture_frame(emulator.framebuffer(), context.args)?;
+    let frame = prepare_capture_frame(
+        emulator.framebuffer(),
+        context.display,
+        Some(&emulator.playfield),
+    )?;
     let image_path = Path::new(context.capture_path);
     write_rgb565_png(image_path, &frame.pixels, frame.width, frame.height)?;
 
@@ -983,6 +1632,7 @@ fn capture_evidence(
         image_path,
         frame: &frame,
         args: context.args,
+        display: context.display,
         model: context.model,
         config: context.config,
         emulator,
@@ -1005,49 +1655,29 @@ fn capture_evidence(
 
 fn prepare_capture_frame(
     framebuffer: &[u16],
-    launch_args: &LaunchArgs,
+    display: &rumiga_api::DisplayConfig,
+    playfield: Option<&PlayfieldState>,
 ) -> Result<CaptureFrame, String> {
-    if launch_args.vertical_stretch {
-        let output_height = presented_height(true);
-        let (source_y_start, source_y_end) = if launch_args.viewport_mode == ViewportMode::Auto {
-            auto_vertical_bounds(framebuffer, WIDTH, HEIGHT).unwrap_or((0, HEIGHT))
-        } else {
-            (0, HEIGHT)
-        };
-        let mut pixels = vec![0u16; WIDTH * output_height];
-        if !stretch_vertical_viewport(
-            framebuffer,
-            WIDTH,
-            HEIGHT,
-            source_y_start,
-            source_y_end,
-            output_height,
-            &mut pixels,
-        ) {
-            return Err("Failed to prepare capture frame".to_owned());
-        }
-
-        Ok(CaptureFrame {
-            pixels,
-            width: WIDTH,
-            height: output_height,
-            source_y_start,
-            source_y_end,
-        })
-    } else {
-        let pixel_count = WIDTH * HEIGHT;
-        if framebuffer.len() < pixel_count {
-            return Err("Framebuffer is smaller than the visible display".to_owned());
-        }
-
-        Ok(CaptureFrame {
-            pixels: framebuffer[..pixel_count].to_vec(),
-            width: WIDTH,
-            height: HEIGHT,
-            source_y_start: 0,
-            source_y_end: HEIGHT,
-        })
+    let rect = resolve_viewport_rect(display, playfield);
+    let output_height = presented_height(rect, display.viewport.vertical_stretch);
+    let output_len = rect
+        .width
+        .checked_mul(output_height)
+        .ok_or_else(|| "Capture dimensions overflow".to_owned())?;
+    let mut pixels = vec![0u16; output_len];
+    if !copy_presented_viewport(framebuffer, WIDTH, HEIGHT, rect, output_height, &mut pixels) {
+        return Err("Failed to prepare capture frame".to_owned());
     }
+
+    Ok(CaptureFrame {
+        pixels,
+        width: rect.width,
+        height: output_height,
+        source_x_start: rect.x,
+        source_x_end: rect.x_end(),
+        source_y_start: rect.y,
+        source_y_end: rect.y_end(),
+    })
 }
 
 fn write_rgb565_png(
@@ -1131,11 +1761,13 @@ fn write_capture_manifest(path: &Path, context: &CaptureManifestContext<'_>) -> 
     );
     let _ = writeln!(
         json,
-        "  \"viewport\": {{ \"mode\": {}, \"vertical_stretch\": {}, \"source_width\": {}, \"source_height\": {}, \"source_y_start\": {}, \"source_y_end\": {}, \"output_width\": {}, \"output_height\": {} }},",
-        json_string(context.args.viewport_mode.name()),
-        context.args.vertical_stretch,
+        "  \"viewport\": {{ \"mode\": {}, \"vertical_stretch\": {}, \"source_width\": {}, \"source_height\": {}, \"source_x_start\": {}, \"source_x_end\": {}, \"source_y_start\": {}, \"source_y_end\": {}, \"output_width\": {}, \"output_height\": {} }},",
+        json_string(&format!("{:?}", &context.display.viewport.mode)),
+        context.display.viewport.vertical_stretch,
         WIDTH,
         HEIGHT,
+        context.frame.source_x_start,
+        context.frame.source_x_end,
         context.frame.source_y_start,
         context.frame.source_y_end,
         context.frame.width,
@@ -1183,8 +1815,7 @@ fn push_video_state_json(json: &mut String, emulator: &Emulator) {
     let _ = writeln!(json, "  \"video\": {{");
     let _ = writeln!(
         json,
-        "    \"display_window\": {{ \"hstart\": {}, \"hstop\": {}, \"vstart\": {}, \"vstop\": {} }},",
-        hstart, hstop, vstart, vstop
+        "    \"display_window\": {{ \"hstart\": {hstart}, \"hstop\": {hstop}, \"vstart\": {vstart}, \"vstop\": {vstop} }},"
     );
     let _ = writeln!(
         json,
@@ -1250,16 +1881,26 @@ fn push_video_state_json(json: &mut String, emulator: &Emulator) {
         json_string(&format!("0x{:04X}", playfield.fmode))
     );
     let _ = writeln!(json, "    \"num_planes\": {},", playfield.num_planes());
-    push_video_scanline_json(json, "first_scanline", emulator.first_video_scanline, true);
+    push_video_scanline_json(
+        json,
+        "first_scanline",
+        emulator.first_video_scanline.as_ref(),
+        true,
+    );
     push_early_video_scanlines_json(json, emulator);
-    push_video_scanline_json(json, "last_scanline", emulator.last_video_scanline, false);
+    push_video_scanline_json(
+        json,
+        "last_scanline",
+        emulator.last_video_scanline.as_ref(),
+        false,
+    );
     json.push_str("  },\n");
 }
 
 fn push_video_scanline_json(
     json: &mut String,
     key: &str,
-    scanline: Option<VideoScanlineSnapshot>,
+    scanline: Option<&VideoScanlineSnapshot>,
     trailing_comma: bool,
 ) {
     if let Some(scanline) = scanline {
@@ -1315,8 +1956,8 @@ fn push_video_scanline_json(
             "      \"bpl2mod\": {},",
             json_string(&format!("0x{:04X}", scanline.bpl2mod))
         );
-        push_scanline_bplpt_json(json, &scanline);
-        push_scanline_bitplane_words_json(json, &scanline);
+        push_scanline_bplpt_json(json, scanline);
+        push_scanline_bitplane_words_json(json, scanline);
         let _ = writeln!(json, "      \"num_planes\": {}", scanline.num_planes);
         if trailing_comma {
             json.push_str("    },\n");
@@ -1333,8 +1974,7 @@ fn push_video_scanline_json(
 fn push_early_video_scanlines_json(json: &mut String, emulator: &Emulator) {
     let _ = writeln!(
         json,
-        "    \"early_scanline_limit\": {},",
-        EARLY_VIDEO_SCANLINE_DUMP
+        "    \"early_scanline_limit\": {EARLY_VIDEO_SCANLINE_DUMP},"
     );
     json.push_str("    \"early_scanlines\": [\n");
     for (index, scanline) in emulator.early_video_scanlines.iter().enumerate() {
@@ -1690,122 +2330,104 @@ fn json_string(value: &str) -> String {
     escaped
 }
 
-const fn presented_height(vertical_stretch: bool) -> usize {
+fn display_config_from_launch_args(args: &LaunchArgs) -> rumiga_api::DisplayConfig {
+    let mut display = rumiga_api::DisplayConfig::default();
+    display.viewport.mode = match args.viewport_mode {
+        ViewportMode::Auto => rumiga_api::ViewportMode::Auto,
+        ViewportMode::Raw => rumiga_api::ViewportMode::Raw,
+    };
+    display.viewport.vertical_stretch = args.vertical_stretch;
+    display
+}
+
+const fn presented_height(rect: ViewportRect, vertical_stretch: bool) -> usize {
     if vertical_stretch {
-        HEIGHT * VERTICAL_STRETCH_FACTOR
+        rect.height * VERTICAL_STRETCH_FACTOR
     } else {
-        HEIGHT
+        rect.height
     }
 }
 
-fn auto_vertical_bounds(
-    framebuffer: &[u16],
-    width: usize,
-    height: usize,
-) -> Option<(usize, usize)> {
-    if width == 0 || height == 0 {
+fn resolve_viewport_rect(
+    display: &rumiga_api::DisplayConfig,
+    playfield: Option<&PlayfieldState>,
+) -> ViewportRect {
+    match &display.viewport.mode {
+        rumiga_api::ViewportMode::Raw => ViewportRect::full_frame(),
+        rumiga_api::ViewportMode::Auto => playfield
+            .and_then(chipset_display_window_rect)
+            .unwrap_or_else(ViewportRect::full_frame),
+        rumiga_api::ViewportMode::Manual => manual_viewport_rect(&display.viewport),
+    }
+}
+
+fn chipset_display_window_rect(playfield: &PlayfieldState) -> Option<ViewportRect> {
+    let (_, _, vstart, vstop) = playfield.display_window();
+    let y_height = usize::from(vstop.saturating_sub(vstart)).min(HEIGHT);
+    if y_height == 0 {
         return None;
     }
 
-    let pixel_count = width.checked_mul(height)?;
-    if framebuffer.len() < pixel_count {
-        return None;
-    }
-
-    let background = framebuffer[0];
-    let mut first_content_row = None;
-    let mut last_content_row = 0usize;
-
-    for y in 0..height {
-        let row_start = y * width;
-        let row = &framebuffer[row_start..row_start + width];
-        if row_has_video_content(row, background) {
-            first_content_row.get_or_insert(y);
-            last_content_row = y;
-        }
-    }
-
-    first_content_row.and_then(|first| {
-        let y_start = first.saturating_sub(1);
-        let y_end = (last_content_row + 2).min(height);
-        let minimum_crop_height = (height / 4).max(2);
-        if y_end.saturating_sub(y_start) < minimum_crop_height {
-            None
-        } else {
-            Some((y_start, y_end))
-        }
+    // Keep the native horizontal span by default. WinUAE treats side-border
+    // removal as a filter/viewport choice, while autoscale can keep aspect.
+    Some(ViewportRect {
+        x: 0,
+        y: 0,
+        width: WIDTH,
+        height: y_height,
     })
 }
 
-fn row_has_video_content(row: &[u16], background: u16) -> bool {
-    let Some((&first, rest)) = row.split_first() else {
-        return false;
-    };
-    let mut differs_from_first = false;
-    let mut differs_from_background = first != background;
-    let mut first_non_background = if first == background {
-        None
-    } else {
-        Some(0usize)
-    };
-    let mut last_non_background = first_non_background;
-
-    for (index, &pixel) in rest.iter().enumerate() {
-        differs_from_first |= pixel != first;
-        differs_from_background |= pixel != background;
-        if pixel != background {
-            let pixel_index = index + 1;
-            first_non_background.get_or_insert(pixel_index);
-            last_non_background = Some(pixel_index);
-        }
+fn manual_viewport_rect(viewport: &rumiga_api::ViewportConfig) -> ViewportRect {
+    let x = usize::try_from(viewport.x.max(0))
+        .unwrap_or(0)
+        .min(WIDTH - 1);
+    let y = usize::try_from(viewport.y.max(0))
+        .unwrap_or(0)
+        .min(HEIGHT - 1);
+    let width = usize::from(viewport.width).min(WIDTH - x).max(1);
+    let height = usize::from(viewport.height).min(HEIGHT - y).max(1);
+    ViewportRect {
+        x,
+        y,
+        width,
+        height,
     }
-
-    let Some(first_non_background) = first_non_background else {
-        return false;
-    };
-    let Some(last_non_background) = last_non_background else {
-        return false;
-    };
-
-    let minimum_screen_span = row.len() * 4 / 5;
-    differs_from_first
-        && differs_from_background
-        && last_non_background.saturating_sub(first_non_background) >= minimum_screen_span
 }
 
-fn stretch_vertical_viewport(
+fn copy_presented_viewport(
     framebuffer: &[u16],
     width: usize,
     height: usize,
-    y_start: usize,
-    y_end: usize,
+    rect: ViewportRect,
     output_height: usize,
     output: &mut [u16],
 ) -> bool {
     let Some(input_pixel_count) = width.checked_mul(height) else {
         return false;
     };
-    let Some(output_pixel_count) = width.checked_mul(output_height) else {
+    let Some(output_pixel_count) = rect.width.checked_mul(output_height) else {
         return false;
     };
     if width == 0
         || height == 0
         || output_height == 0
-        || y_start >= y_end
-        || y_end > height
+        || rect.width == 0
+        || rect.height == 0
+        || rect.x_end() > width
+        || rect.y_end() > height
         || framebuffer.len() < input_pixel_count
         || output.len() < output_pixel_count
     {
         return false;
     }
 
-    let viewport_height = y_end - y_start;
     for dest_y in 0..output_height {
-        let source_y = y_start + (dest_y * viewport_height / output_height);
-        let source_start = source_y * width;
-        let dest_start = dest_y * width;
-        output[dest_start..dest_start + width]
-            .copy_from_slice(&framebuffer[source_start..source_start + width]);
+        let source_y = rect.y + (dest_y * rect.height / output_height);
+        let source_start = source_y * width + rect.x;
+        let dest_start = dest_y * rect.width;
+        output[dest_start..dest_start + rect.width]
+            .copy_from_slice(&framebuffer[source_start..source_start + rect.width]);
     }
 
     true
@@ -1894,6 +2516,7 @@ mod tests {
             capture_frames: DEFAULT_CAPTURE_FRAMES,
             mouse_scale_x: 0.5,
             mouse_scale_y: 1.0,
+            audio_separation: 100,
         }
     }
 
@@ -2098,66 +2721,38 @@ mod tests {
 
     #[test]
     fn presented_height_line_doubles_when_vertical_stretch_is_enabled() {
-        assert_eq!(presented_height(true), HEIGHT * 2);
-        assert_eq!(presented_height(false), HEIGHT);
+        let rect = ViewportRect {
+            x: 0,
+            y: 0,
+            width: 320,
+            height: 256,
+        };
+        assert_eq!(presented_height(rect, true), 512);
+        assert_eq!(presented_height(rect, false), 256);
     }
 
     #[test]
-    fn auto_vertical_bounds_ignore_uniform_bottom_blank() {
-        let width = 4usize;
-        let height = 6usize;
-        let bg = 1u16;
-        let blue = 2u16;
-        let black = 0u16;
-        let framebuffer = [
-            bg, bg, bg, bg, //
-            blue, bg, bg, blue, //
-            blue, bg, bg, blue, //
-            bg, bg, bg, bg, //
-            black, black, black, black, //
-            black, black, black, black,
-        ];
+    fn auto_viewport_uses_chipset_display_window_not_pixel_content() {
+        let mut playfield = PlayfieldState::new();
+        playfield.diwstrt = 0x1D81;
+        playfield.diwstop = 0x38C1;
+        let display = rumiga_api::DisplayConfig::default();
+
+        let rect = resolve_viewport_rect(&display, Some(&playfield));
 
         assert_eq!(
-            auto_vertical_bounds(&framebuffer, width, height),
-            Some((0, 4))
+            rect,
+            ViewportRect {
+                x: 0,
+                y: 0,
+                width: WIDTH,
+                height: 283,
+            }
         );
     }
 
     #[test]
-    fn auto_vertical_bounds_ignore_centered_insert_disk_art() {
-        let width = 8usize;
-        let height = 4usize;
-        let bg = 1u16;
-        let fg = 2u16;
-        let framebuffer = [
-            bg, bg, bg, bg, bg, bg, bg, bg, //
-            bg, bg, bg, fg, fg, bg, bg, bg, //
-            bg, bg, bg, fg, fg, bg, bg, bg, //
-            bg, bg, bg, bg, bg, bg, bg, bg,
-        ];
-
-        assert_eq!(auto_vertical_bounds(&framebuffer, width, height), None);
-    }
-
-    #[test]
-    fn auto_vertical_bounds_ignore_thin_top_dialog() {
-        let width = 10usize;
-        let height = 24usize;
-        let bg = 1u16;
-        let fg = 2u16;
-        let mut framebuffer = vec![bg; width * height];
-        for y in 2..4 {
-            let row = &mut framebuffer[y * width..(y + 1) * width];
-            row[0] = fg;
-            row[width - 1] = fg;
-        }
-
-        assert_eq!(auto_vertical_bounds(&framebuffer, width, height), None);
-    }
-
-    #[test]
-    fn stretch_vertical_viewport_maps_crop_to_full_height() {
+    fn copy_presented_viewport_crops_and_doubles_lines() {
         let width = 2usize;
         let height = 4usize;
         let framebuffer = [
@@ -2168,12 +2763,16 @@ mod tests {
         ];
         let mut output = [0u16; 8];
 
-        assert!(stretch_vertical_viewport(
+        assert!(copy_presented_viewport(
             &framebuffer,
             width,
             height,
-            1,
-            3,
+            ViewportRect {
+                x: 0,
+                y: 1,
+                width,
+                height: 2,
+            },
             height,
             &mut output
         ));
@@ -2182,7 +2781,34 @@ mod tests {
     }
 
     #[test]
-    fn stretch_vertical_viewport_line_doubles_full_frame() {
+    fn copy_presented_viewport_crops_horizontally() {
+        let width = 4usize;
+        let height = 2usize;
+        let framebuffer = [
+            10u16, 11, 12, 13, //
+            20, 21, 22, 23,
+        ];
+        let mut output = [0u16; 4];
+
+        assert!(copy_presented_viewport(
+            &framebuffer,
+            width,
+            height,
+            ViewportRect {
+                x: 1,
+                y: 0,
+                width: 2,
+                height: 2,
+            },
+            height,
+            &mut output
+        ));
+
+        assert_eq!(output, [11, 12, 21, 22]);
+    }
+
+    #[test]
+    fn copy_presented_viewport_line_doubles_full_frame() {
         let width = 2usize;
         let height = 2usize;
         let framebuffer = [
@@ -2191,12 +2817,16 @@ mod tests {
         ];
         let mut output = [0u16; 8];
 
-        assert!(stretch_vertical_viewport(
+        assert!(copy_presented_viewport(
             &framebuffer,
             width,
             height,
-            0,
-            height,
+            ViewportRect {
+                x: 0,
+                y: 0,
+                width,
+                height,
+            },
             height * 2,
             &mut output
         ));
@@ -2207,8 +2837,9 @@ mod tests {
     #[test]
     fn prepare_capture_frame_uses_presented_height() {
         let framebuffer = vec![0xFFFFu16; WIDTH * HEIGHT];
+        let display = display_config_from_launch_args(&default_test_args());
         let frame =
-            prepare_capture_frame(&framebuffer, &default_test_args()).expect("valid frame buffer");
+            prepare_capture_frame(&framebuffer, &display, None).expect("valid frame buffer");
 
         assert_eq!(frame.width, WIDTH);
         assert_eq!(frame.height, HEIGHT * 2);
@@ -2386,5 +3017,30 @@ mod tests {
             "kick.rom".to_owned(),
         ];
         assert!(parse_args(&args3).is_err());
+    }
+
+    #[test]
+    fn parse_args_accepts_audio_separation() {
+        let args = vec![
+            "--audio-separation".to_owned(),
+            "70".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+
+        assert_eq!(
+            parse_args(&args),
+            Ok(LaunchArgs {
+                audio_separation: 70,
+                ..default_test_args()
+            })
+        );
+
+        // Reject > 100
+        let args2 = vec![
+            "--audio-separation".to_owned(),
+            "101".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+        assert!(parse_args(&args2).is_err());
     }
 }

@@ -272,9 +272,9 @@ export default function MachinePage() {
               }
               className="mt-1 block w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm"
             >
-              <option value="Auto">Auto</option>
-              <option value="Raw">Raw</option>
-              <option value="Manual">Manual</option>
+              <option value="Auto">Auto native</option>
+              <option value="Raw">Raw overscan</option>
+              <option value="Manual">Manual crop</option>
             </select>
           </label>
           <label className="flex items-center gap-2">
@@ -292,7 +292,7 @@ export default function MachinePage() {
               }
               className="rounded border-zinc-700"
             />
-            <span className="text-sm">Stretch viewport vertically</span>
+            <span className="text-sm">PAL line-double</span>
           </label>
           {viewport.mode === 'Manual' && (
             <div className="grid grid-cols-2 gap-3">
