@@ -502,6 +502,8 @@ const DEFAULT_CAPTURE_FRAMES: u64 = 300;
 const VERTICAL_STRETCH_FACTOR: usize = 2;
 const ROM_SIZE_256K: usize = 256 * 1024;
 const ROM_SIZE_512K: usize = 512 * 1024;
+const CAPTURE_MANIFEST_SCHEMA_ID: &str = "rumiga.capture.v1";
+const CAPTURE_MANIFEST_SCHEMA_VERSION: u16 = 1;
 
 /// Amiga ESC keycode.
 const AMIGA_KEY_ESC: u8 = 0x45;
@@ -1725,6 +1727,8 @@ fn write_capture_manifest(path: &Path, context: &CaptureManifestContext<'_>) -> 
 
     let mut json = String::new();
     let _ = writeln!(json, "{{");
+    push_manifest_schema_json(&mut json);
+    push_manifest_producer_json(&mut json);
     let _ = writeln!(
         json,
         "  \"image\": {},",
@@ -1773,6 +1777,7 @@ fn write_capture_manifest(path: &Path, context: &CaptureManifestContext<'_>) -> 
         context.frame.width,
         context.frame.height
     );
+    push_native_framebuffer_json(&mut json);
     let _ = writeln!(
         json,
         "  \"framebuffer\": {{ \"background_rgb565\": {}, \"pixels_different_from_background\": {}, \"non_zero_rgb565_pixels\": {}, \"distinct_colors\": {} }},",
@@ -1803,6 +1808,39 @@ fn write_capture_manifest(path: &Path, context: &CaptureManifestContext<'_>) -> 
     json.push_str("}\n");
 
     fs::write(path, json).map_err(|e| format!("Failed to write manifest '{}': {e}", path.display()))
+}
+
+fn push_manifest_schema_json(json: &mut String) {
+    let _ = writeln!(
+        json,
+        "  \"schema\": {{ \"id\": {}, \"version\": {} }},",
+        json_string(CAPTURE_MANIFEST_SCHEMA_ID),
+        CAPTURE_MANIFEST_SCHEMA_VERSION
+    );
+}
+
+fn push_manifest_producer_json(json: &mut String) {
+    let git = git_evidence();
+    let _ = writeln!(
+        json,
+        "  \"producer\": {{ \"name\": {}, \"version\": {}, \"git_sha\": {}, \"git_dirty\": {}, \"target_os\": {}, \"target_arch\": {} }},",
+        json_string("rumiga-desktop"),
+        json_string(env!("CARGO_PKG_VERSION")),
+        json_string(&git.sha),
+        git.dirty,
+        json_string(std::env::consts::OS),
+        json_string(std::env::consts::ARCH)
+    );
+}
+
+fn push_native_framebuffer_json(json: &mut String) {
+    let _ = writeln!(
+        json,
+        "  \"native_framebuffer\": {{ \"pixel_format\": {}, \"width\": {}, \"height\": {} }},",
+        json_string("rgb565"),
+        WIDTH,
+        HEIGHT
+    );
 }
 
 fn push_video_state_json(json: &mut String, emulator: &Emulator) {
@@ -2256,6 +2294,43 @@ fn file_evidence_from_bytes(path: &str, data: &[u8]) -> FileEvidence {
         bytes: data.len(),
         sha256: sha256_hex(data),
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct GitEvidence {
+    sha: String,
+    dirty: bool,
+}
+
+fn git_evidence() -> GitEvidence {
+    GitEvidence {
+        sha: git_output(&["rev-parse", "--short=12", "HEAD"]).unwrap_or_else(|| "unknown".into()),
+        dirty: git_dirty(),
+    }
+}
+
+fn git_dirty() -> bool {
+    std::process::Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .is_some_and(|output| !output.stdout.is_empty())
+}
+
+fn git_output(args: &[&str]) -> Option<String> {
+    let output = std::process::Command::new("git")
+        .args(args)
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let value = String::from_utf8(output.stdout).ok()?.trim().to_owned();
+    if value.is_empty() { None } else { Some(value) }
 }
 
 fn sha256_hex(data: &[u8]) -> String {
@@ -2844,6 +2919,69 @@ mod tests {
         assert_eq!(frame.width, WIDTH);
         assert_eq!(frame.height, HEIGHT * 2);
         assert_eq!(frame.pixels.len(), WIDTH * HEIGHT * 2);
+    }
+
+    #[test]
+    fn capture_manifest_contains_stable_schema_fields() {
+        let config = MemoryConfig::a500();
+        let emulator = Emulator::new(config.clone());
+        let args = LaunchArgs {
+            capture_frames: 42,
+            ..default_test_args()
+        };
+        let display = display_config_from_launch_args(&args);
+        let frame = CaptureFrame {
+            pixels: vec![0x0000, 0xFFFF, 0x07E0, 0xF800],
+            width: 2,
+            height: 2,
+            source_x_start: 0,
+            source_x_end: 2,
+            source_y_start: 0,
+            source_y_end: 2,
+        };
+        let rom = FileEvidence {
+            path: "kick.rom".to_owned(),
+            bytes: 512 * 1024,
+            sha256: "rom-hash".to_owned(),
+        };
+        let floppies: [Option<FileEvidence>; 4] = std::array::from_fn(|_| None);
+        let image_path = Path::new("rumiga.png");
+        let manifest_path =
+            std::env::temp_dir().join(format!("rumiga-manifest-test-{}.json", std::process::id()));
+        let context = CaptureManifestContext {
+            image_path,
+            frame: &frame,
+            args: &args,
+            display: &display,
+            model: MachineModel::A500,
+            config: &config,
+            emulator: &emulator,
+            rom: &rom,
+            floppies: &floppies,
+            hdf: None,
+        };
+
+        write_capture_manifest(&manifest_path, &context).expect("manifest should write");
+        let data = fs::read_to_string(&manifest_path).expect("manifest should be readable");
+        let manifest: serde_json::Value =
+            serde_json::from_str(&data).expect("manifest should be valid JSON");
+        let _ = fs::remove_file(&manifest_path);
+
+        assert_eq!(
+            manifest["schema"]["id"],
+            serde_json::Value::String(CAPTURE_MANIFEST_SCHEMA_ID.to_owned())
+        );
+        assert_eq!(
+            manifest["schema"]["version"],
+            serde_json::Value::from(CAPTURE_MANIFEST_SCHEMA_VERSION)
+        );
+        assert_eq!(manifest["producer"]["name"], "rumiga-desktop");
+        assert_eq!(manifest["native_framebuffer"]["width"], WIDTH);
+        assert_eq!(manifest["native_framebuffer"]["height"], HEIGHT);
+        assert_eq!(manifest["viewport"]["source_width"], WIDTH);
+        assert_eq!(manifest["viewport"]["output_width"], 2);
+        assert_eq!(manifest["run"]["frames"], 42);
+        assert!(manifest["media"]["rom"]["sha256"].is_string());
     }
 
     #[test]
