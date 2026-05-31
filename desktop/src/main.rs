@@ -16,8 +16,7 @@ use minifb::Key;
 use rumiga_core::cia::CiaState;
 use rumiga_core::custom;
 use rumiga_core::emulator::{
-    CiaTimerBootWorkaround, EARLY_VIDEO_SCANLINE_DUMP, Emulator, VIDEO_SCANLINE_WORD_DUMP,
-    VideoScanlineSnapshot,
+    EARLY_VIDEO_SCANLINE_DUMP, Emulator, VIDEO_SCANLINE_WORD_DUMP, VideoScanlineSnapshot,
 };
 use rumiga_core::floppy::{
     FLOPPY_SPEED_COMPATIBLE_PERCENT, FLOPPY_SPEED_TURBO_PERCENT, is_supported_floppy_speed_percent,
@@ -783,10 +782,6 @@ fn main() {
     eprintln!("------------------------------");
 
     let mut emulator = Emulator::new(config);
-    if std::env::var_os("RUMIGA_DISABLE_FORCE_CIA_TIMER_START").is_some() {
-        emulator.cia_timer_boot_workaround = CiaTimerBootWorkaround::Disabled;
-        eprintln!("  Diagnostic: forced CIA timer start workaround disabled");
-    }
     if let Some(ref trace_path) = launch_args.trace_cpu {
         if let Err(e) = emulator.enable_cpu_trace(trace_path, launch_args.trace_limit) {
             eprintln!("Failed to enable CPU tracing to '{trace_path}': {e}");
@@ -1897,10 +1892,7 @@ fn push_native_framebuffer_json(json: &mut String) {
 fn push_boot_workarounds_json(json: &mut String, emulator: &Emulator) {
     let _ = writeln!(
         json,
-        "  \"boot_workarounds\": {{ \"forced_cia_timer_start_enabled\": {}, \"forced_cia_timer_start\": {}, \"forced_cia_timer_start_count\": {}, \"rom_drive_step_patch\": {} }},",
-        emulator.cia_timer_boot_workaround.is_enabled(),
-        emulator.forced_cia_timer_start_count > 0,
-        emulator.forced_cia_timer_start_count,
+        "  \"boot_workarounds\": {{ \"forced_cia_timer_start\": false, \"forced_cia_timer_start_count\": 0, \"rom_drive_step_patch\": {} }},",
         emulator.memory.rom_drive_step_patch_applied
     );
 }
@@ -1925,27 +1917,53 @@ fn push_single_cia_json(json: &mut String, name: &str, cia: &CiaState, indent: &
     );
     let _ = writeln!(
         json,
-        "{indent}  \"timer_a\": {{ \"counter\": {}, \"latch\": {}, \"control\": {}, \"start_writes\": {}, \"stop_writes\": {}, \"force_load_writes\": {}, \"underflows\": {} }},",
+        "{indent}  \"timer_a\": {{ \"counter\": {}, \"latch\": {}, \"control\": {}, \"start_writes\": {}, \"stop_writes\": {}, \"force_load_writes\": {}, \"auto_start_writes\": {}, \"underflows\": {} }},",
         json_string(&format!("0x{:04X}", cia.timer_a)),
         json_string(&format!("0x{:04X}", cia.timer_a_latch)),
         json_string(&format!("0x{:02X}", cia.cra)),
         cia.timer_a_stats.start_writes,
         cia.timer_a_stats.stop_writes,
         cia.timer_a_stats.force_load_writes,
+        cia.timer_a_stats.auto_start_writes,
         cia.timer_a_stats.underflows
     );
     let _ = writeln!(
         json,
-        "{indent}  \"timer_b\": {{ \"counter\": {}, \"latch\": {}, \"control\": {}, \"start_writes\": {}, \"stop_writes\": {}, \"force_load_writes\": {}, \"underflows\": {} }}",
+        "{indent}  \"timer_b\": {{ \"counter\": {}, \"latch\": {}, \"control\": {}, \"start_writes\": {}, \"stop_writes\": {}, \"force_load_writes\": {}, \"auto_start_writes\": {}, \"underflows\": {} }},",
         json_string(&format!("0x{:04X}", cia.timer_b)),
         json_string(&format!("0x{:04X}", cia.timer_b_latch)),
         json_string(&format!("0x{:02X}", cia.crb)),
         cia.timer_b_stats.start_writes,
         cia.timer_b_stats.stop_writes,
         cia.timer_b_stats.force_load_writes,
+        cia.timer_b_stats.auto_start_writes,
         cia.timer_b_stats.underflows
     );
+    push_cia_register_writes_json(json, cia, indent);
     let _ = writeln!(json, "{indent}}}{suffix}");
+}
+
+fn push_cia_register_writes_json(json: &mut String, cia: &CiaState, indent: &str) {
+    const REGISTER_NAMES: [&str; 16] = [
+        "pra", "prb", "ddra", "ddrb", "talo", "tahi", "tblo", "tbhi", "tod_lo", "tod_mid",
+        "tod_hi", "unused_b", "sdr", "icr", "cra", "crb",
+    ];
+
+    let _ = writeln!(json, "{indent}  \"register_writes\": {{");
+    for (index, name) in REGISTER_NAMES.iter().enumerate() {
+        let comma = if index + 1 == REGISTER_NAMES.len() {
+            ""
+        } else {
+            ","
+        };
+        let _ = writeln!(
+            json,
+            "{indent}    \"{name}\": {{ \"count\": {}, \"last\": {} }}{comma}",
+            cia.register_write_counts[index],
+            json_string(&format!("0x{:02X}", cia.last_register_writes[index]))
+        );
+    }
+    let _ = writeln!(json, "{indent}  }}");
 }
 
 fn push_edge_integrity_json(json: &mut String, framebuffer: &[u16]) {
@@ -3240,10 +3258,6 @@ mod tests {
         assert_eq!(manifest["native_framebuffer"]["width"], WIDTH);
         assert_eq!(manifest["native_framebuffer"]["height"], HEIGHT);
         assert_eq!(
-            manifest["boot_workarounds"]["forced_cia_timer_start_enabled"],
-            true
-        );
-        assert_eq!(
             manifest["boot_workarounds"]["forced_cia_timer_start"],
             false
         );
@@ -3253,9 +3267,17 @@ mod tests {
         );
         assert_eq!(manifest["boot_workarounds"]["rom_drive_step_patch"], false);
         assert_eq!(manifest["cia"]["a"]["timer_a"]["start_writes"], 0);
+        assert_eq!(manifest["cia"]["a"]["timer_a"]["auto_start_writes"], 0);
         assert_eq!(manifest["cia"]["a"]["timer_a"]["underflows"], 0);
+        assert_eq!(manifest["cia"]["a"]["register_writes"]["cra"]["count"], 0);
+        assert_eq!(
+            manifest["cia"]["a"]["register_writes"]["cra"]["last"],
+            "0x00"
+        );
         assert_eq!(manifest["cia"]["b"]["timer_b"]["start_writes"], 0);
+        assert_eq!(manifest["cia"]["b"]["timer_b"]["auto_start_writes"], 0);
         assert_eq!(manifest["cia"]["b"]["timer_b"]["underflows"], 0);
+        assert_eq!(manifest["cia"]["b"]["register_writes"]["crb"]["count"], 0);
         assert_eq!(manifest["viewport"]["source_width"], WIDTH);
         assert_eq!(manifest["viewport"]["preset"], "AutoCenter");
         assert_eq!(manifest["viewport"]["output_width"], 2);

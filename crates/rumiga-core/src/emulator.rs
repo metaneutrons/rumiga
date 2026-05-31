@@ -51,39 +51,6 @@ pub const VIDEO_SCANLINE_WORD_DUMP: usize = 48;
 /// Number of early active scanlines retained for video capture diagnostics.
 pub const EARLY_VIDEO_SCANLINE_DUMP: usize = 24;
 
-/// Cycle threshold after which CIA timers are force-started if still stopped (~frame 160).
-///
-/// On Kickstart 1.3, timer.device should start the CIA timers during `InitCode`.
-/// Due to an unresolved emulation issue in the cia.resource `AddICRVector` path,
-/// the timers may remain stopped. This threshold triggers a one-time workaround
-/// that starts them, enabling timer-based boot timeouts.
-const FORCE_CIA_TIMER_THRESHOLD: u64 = 22_000_000;
-
-fn force_start_cia_timer(control: &mut u8) -> bool {
-    if *control & 0x01 != 0 {
-        return false;
-    }
-    *control |= 0x01;
-    true
-}
-
-/// Diagnostic policy for the temporary CIA Timer-A boot workaround.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CiaTimerBootWorkaround {
-    /// Keep the compatibility workaround enabled.
-    Enabled,
-    /// Disable the workaround for negative-control evidence runs.
-    Disabled,
-}
-
-impl CiaTimerBootWorkaround {
-    /// Whether the workaround should currently run.
-    #[must_use]
-    pub const fn is_enabled(self) -> bool {
-        matches!(self, Self::Enabled)
-    }
-}
-
 /// Video register snapshot from the most recent rendered bitplane scanline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VideoScanlineSnapshot {
@@ -182,10 +149,6 @@ pub struct Emulator {
     pub frame_ready: bool,
     /// Total CPU cycles executed since start.
     pub total_cycles: u64,
-    /// Diagnostic control for the temporary CIA timer boot compatibility workaround.
-    pub cia_timer_boot_workaround: CiaTimerBootWorkaround,
-    /// Number of frames where the CIA timer boot compatibility workaround started a timer.
-    pub forced_cia_timer_start_count: u64,
     /// First scanline in the current frame that rendered active bitplanes.
     pub first_video_scanline: Option<VideoScanlineSnapshot>,
     /// First active bitplane scanlines in the current frame.
@@ -273,8 +236,6 @@ impl Emulator {
             trace_count: 0,
             frame_ready: false,
             total_cycles: 0,
-            cia_timer_boot_workaround: CiaTimerBootWorkaround::Enabled,
-            forced_cia_timer_start_count: 0,
             first_video_scanline: None,
             early_video_scanlines: Vec::new(),
             last_video_scanline: None,
@@ -840,20 +801,6 @@ impl Emulator {
             // Reset mouse deltas at frame boundary
             self.mouse_dx = 0;
             self.mouse_dy = 0;
-
-            // Start CIA timers if timer.device hasn't started them yet.
-            // Only start the timer (CRA bit 0), don't enable ICR mask.
-            // timer.device manages the ICR mask itself.
-            if self.cia_timer_boot_workaround.is_enabled()
-                && self.total_cycles > FORCE_CIA_TIMER_THRESHOLD
-            {
-                let mut cia = self.memory.cia.borrow_mut();
-                let applied_a = force_start_cia_timer(&mut cia.cia_a.cra);
-                let applied_b = force_start_cia_timer(&mut cia.cia_b.cra);
-                if applied_a || applied_b {
-                    self.forced_cia_timer_start_count += 1;
-                }
-            }
 
             // Set unit+$126 = 1 (disk changed) once trackdisk's unit exists.
             // On real hardware, CIA-B FLAG fires on DSKCHANGE when no disk is

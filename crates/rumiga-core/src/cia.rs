@@ -60,6 +60,8 @@ pub struct CiaTimerStats {
     pub stop_writes: u64,
     /// Number of control writes that used the force-load bit.
     pub force_load_writes: u64,
+    /// Number of high-byte latch writes that auto-started a one-shot timer.
+    pub auto_start_writes: u64,
     /// Number of timer underflows observed by the emulator.
     pub underflows: u64,
 }
@@ -70,6 +72,7 @@ impl CiaTimerStats {
             start_writes: 0,
             stop_writes: 0,
             force_load_writes: 0,
+            auto_start_writes: 0,
             underflows: 0,
         }
     }
@@ -118,6 +121,10 @@ pub struct CiaState {
     pub tod_latch: [u8; 3],
     /// Serial Data Register.
     pub sdr: u8,
+    /// Number of guest writes observed per CIA register index.
+    pub register_write_counts: [u64; 16],
+    /// Last guest-written value per CIA register index.
+    pub last_register_writes: [u8; 16],
 }
 
 impl CiaState {
@@ -145,6 +152,8 @@ impl CiaState {
             tod_latched: false,
             tod_latch: [0; 3],
             sdr: 0,
+            register_write_counts: [0; 16],
+            last_register_writes: [0; 16],
         }
     }
 
@@ -199,6 +208,10 @@ impl CiaState {
 
     /// Write a CIA register by index (0x0–0xF).
     pub fn write(&mut self, reg: u8, value: u8) {
+        let reg_index = usize::from(reg & 0x0F);
+        self.register_write_counts[reg_index] += 1;
+        self.last_register_writes[reg_index] = value;
+
         match reg {
             REG_PRA => self.pra = value,
             REG_PRB => self.prb = value,
@@ -207,16 +220,29 @@ impl CiaState {
             REG_TALO => self.timer_a_latch = (self.timer_a_latch & 0xFF00) | u16::from(value),
             REG_TAHI => {
                 self.timer_a_latch = (self.timer_a_latch & 0x00FF) | (u16::from(value) << 8);
-                // Writing high byte loads counter if timer stopped
-                if self.cra & CR_START == 0 {
+                // Writing high byte loads counter if timer stopped. In one-shot
+                // mode, the high-byte write also starts the timer.
+                if self.cra & (CR_START | CR_ONESHOT) != CR_START {
                     self.timer_a = self.timer_a_latch;
+                }
+                if self.cra & CR_ONESHOT != 0 {
+                    if self.cra & CR_START == 0 {
+                        self.timer_a_stats.auto_start_writes += 1;
+                    }
+                    self.cra |= CR_START;
                 }
             }
             REG_TBLO => self.timer_b_latch = (self.timer_b_latch & 0xFF00) | u16::from(value),
             REG_TBHI => {
                 self.timer_b_latch = (self.timer_b_latch & 0x00FF) | (u16::from(value) << 8);
-                if self.crb & CR_START == 0 {
+                if self.crb & (CR_START | CR_ONESHOT) != CR_START {
                     self.timer_b = self.timer_b_latch;
+                }
+                if self.crb & CR_ONESHOT != 0 {
+                    if self.crb & CR_START == 0 {
+                        self.timer_b_stats.auto_start_writes += 1;
+                    }
+                    self.crb |= CR_START;
                 }
             }
             REG_TOD_LO => {
@@ -420,6 +446,19 @@ mod tests {
     }
 
     #[test]
+    fn one_shot_timer_a_high_byte_write_starts_timer() {
+        let mut cia = CiaState::new();
+        cia.write(REG_CRA, CR_ONESHOT);
+        cia.write(REG_TALO, 3);
+        cia.write(REG_TAHI, 0);
+
+        assert_eq!(cia.timer_a, 3);
+        assert_eq!(cia.cra & CR_START, CR_START);
+        assert_eq!(cia.timer_a_stats.start_writes, 0);
+        assert_eq!(cia.timer_a_stats.auto_start_writes, 1);
+    }
+
+    #[test]
     fn timer_control_write_stats_track_start_stop_and_load() {
         let mut cia = CiaState::new();
 
@@ -431,6 +470,20 @@ mod tests {
         assert_eq!(cia.timer_a_stats.force_load_writes, 2);
         assert_eq!(cia.timer_a_stats.start_writes, 1);
         assert_eq!(cia.timer_a_stats.stop_writes, 1);
+    }
+
+    #[test]
+    fn register_write_evidence_tracks_counts_and_last_values() {
+        let mut cia = CiaState::new();
+
+        cia.write(REG_TALO, 0x34);
+        cia.write(REG_TALO, 0x56);
+        cia.write(REG_CRA, CR_START);
+
+        assert_eq!(cia.register_write_counts[usize::from(REG_TALO)], 2);
+        assert_eq!(cia.last_register_writes[usize::from(REG_TALO)], 0x56);
+        assert_eq!(cia.register_write_counts[usize::from(REG_CRA)], 1);
+        assert_eq!(cia.last_register_writes[usize::from(REG_CRA)], CR_START);
     }
 
     #[test]
