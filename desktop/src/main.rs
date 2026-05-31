@@ -504,6 +504,8 @@ const ROM_SIZE_256K: usize = 256 * 1024;
 const ROM_SIZE_512K: usize = 512 * 1024;
 const CAPTURE_MANIFEST_SCHEMA_ID: &str = "rumiga.capture.v1";
 const CAPTURE_MANIFEST_SCHEMA_VERSION: u16 = 1;
+const EDGE_INSPECTION_LINES: usize = 20;
+const EDGE_INSPECTION_WIDTH: usize = 16;
 
 /// Amiga ESC keycode.
 const AMIGA_KEY_ESC: u8 = 0x45;
@@ -606,6 +608,17 @@ struct CaptureFrame {
     source_x_end: usize,
     source_y_start: usize,
     source_y_end: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct EdgeInspection {
+    first_lines: usize,
+    edge_width: usize,
+    sampled_lines: usize,
+    background_rgb565: u16,
+    left_non_background_pixels: usize,
+    right_non_background_pixels: usize,
+    mirrored_non_background_pixels: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1786,6 +1799,7 @@ fn write_capture_manifest(path: &Path, context: &CaptureManifestContext<'_>) -> 
         count_non_zero_pixels(&context.frame.pixels),
         count_distinct_colors(&context.frame.pixels)
     );
+    push_edge_integrity_json(&mut json, context.emulator.framebuffer());
     push_video_state_json(&mut json, context.emulator);
     push_floppy_state_json(&mut json, &context.emulator.floppy);
     push_gayle_ide_state_json(&mut json, context.emulator);
@@ -1841,6 +1855,30 @@ fn push_native_framebuffer_json(json: &mut String) {
         WIDTH,
         HEIGHT
     );
+}
+
+fn push_edge_integrity_json(json: &mut String, framebuffer: &[u16]) {
+    if let Some(edge) = inspect_frame_edges(
+        framebuffer,
+        WIDTH,
+        HEIGHT,
+        EDGE_INSPECTION_LINES,
+        EDGE_INSPECTION_WIDTH,
+    ) {
+        let _ = writeln!(
+            json,
+            "  \"edge_integrity\": {{ \"first_lines\": {}, \"edge_width\": {}, \"sampled_lines\": {}, \"background_rgb565\": {}, \"left_non_background_pixels\": {}, \"right_non_background_pixels\": {}, \"mirrored_non_background_pixels\": {} }},",
+            edge.first_lines,
+            edge.edge_width,
+            edge.sampled_lines,
+            json_string(&rgb565_hex(edge.background_rgb565)),
+            edge.left_non_background_pixels,
+            edge.right_non_background_pixels,
+            edge.mirrored_non_background_pixels
+        );
+    } else {
+        json.push_str("  \"edge_integrity\": null,\n");
+    }
 }
 
 fn push_video_state_json(json: &mut String, emulator: &Emulator) {
@@ -2362,6 +2400,17 @@ fn first_pixel(pixels: &[u16]) -> u16 {
     pixels.first().copied().unwrap_or_default()
 }
 
+fn dominant_pixel(pixels: &[u16]) -> u16 {
+    let mut counts = std::collections::HashMap::<u16, usize>::new();
+    for &pixel in pixels {
+        *counts.entry(pixel).or_default() += 1;
+    }
+    counts
+        .into_iter()
+        .max_by_key(|(_, count)| *count)
+        .map_or(0, |(pixel, _)| pixel)
+}
+
 fn rgb565_hex(pixel: u16) -> String {
     format!("0x{pixel:04X}")
 }
@@ -2383,6 +2432,58 @@ fn count_distinct_colors(pixels: &[u16]) -> usize {
         }
     }
     colors.len()
+}
+
+fn inspect_frame_edges(
+    framebuffer: &[u16],
+    width: usize,
+    height: usize,
+    first_lines: usize,
+    edge_width: usize,
+) -> Option<EdgeInspection> {
+    let pixel_count = width.checked_mul(height)?;
+    if width == 0 || height == 0 || first_lines == 0 || framebuffer.len() < pixel_count {
+        return None;
+    }
+
+    let sampled_lines = first_lines.min(height);
+    let edge_width = edge_width.min(width / 2);
+    if edge_width == 0 {
+        return None;
+    }
+
+    let background = dominant_pixel(&framebuffer[..pixel_count]);
+    let mut left_non_background = 0usize;
+    let mut right_non_background = 0usize;
+    let mut mirrored_non_background = 0usize;
+
+    for line in 0..sampled_lines {
+        let line_start = line * width;
+        let right_start = line_start + width - edge_width;
+        for x in 0..edge_width {
+            let left = framebuffer[line_start + x];
+            let right = framebuffer[right_start + x];
+            if left != background {
+                left_non_background += 1;
+            }
+            if right != background {
+                right_non_background += 1;
+            }
+            if left == right && left != background {
+                mirrored_non_background += 1;
+            }
+        }
+    }
+
+    Some(EdgeInspection {
+        first_lines,
+        edge_width,
+        sampled_lines,
+        background_rgb565: background,
+        left_non_background_pixels: left_non_background,
+        right_non_background_pixels: right_non_background,
+        mirrored_non_background_pixels: mirrored_non_background,
+    })
 }
 
 fn json_string(value: &str) -> String {
@@ -2980,8 +3081,57 @@ mod tests {
         assert_eq!(manifest["native_framebuffer"]["height"], HEIGHT);
         assert_eq!(manifest["viewport"]["source_width"], WIDTH);
         assert_eq!(manifest["viewport"]["output_width"], 2);
+        assert_eq!(
+            manifest["edge_integrity"]["first_lines"],
+            EDGE_INSPECTION_LINES
+        );
+        assert_eq!(
+            manifest["edge_integrity"]["edge_width"],
+            EDGE_INSPECTION_WIDTH
+        );
         assert_eq!(manifest["run"]["frames"], 42);
         assert!(manifest["media"]["rom"]["sha256"].is_string());
+    }
+
+    #[test]
+    fn edge_inspection_reports_clean_right_edge_without_left_mirror() {
+        let width = 8usize;
+        let height = 4usize;
+        let mut framebuffer = vec![0u16; width * height];
+        for line in 0..height {
+            let start = line * width;
+            framebuffer[start + 6] = 0x1234;
+            framebuffer[start + 7] = 0x5678;
+        }
+
+        let report =
+            inspect_frame_edges(&framebuffer, width, height, 20, 2).expect("valid edge report");
+
+        assert_eq!(report.sampled_lines, height);
+        assert_eq!(report.left_non_background_pixels, 0);
+        assert_eq!(report.right_non_background_pixels, height * 2);
+        assert_eq!(report.mirrored_non_background_pixels, 0);
+    }
+
+    #[test]
+    fn edge_inspection_detects_right_edge_pattern_mirrored_on_left() {
+        let width = 8usize;
+        let height = 4usize;
+        let mut framebuffer = vec![0u16; width * height];
+        for line in 0..3 {
+            let start = line * width;
+            framebuffer[start] = 0x1234;
+            framebuffer[start + 1] = 0x5678;
+            framebuffer[start + 6] = 0x1234;
+            framebuffer[start + 7] = 0x5678;
+        }
+
+        let report =
+            inspect_frame_edges(&framebuffer, width, height, 20, 2).expect("valid edge report");
+
+        assert_eq!(report.left_non_background_pixels, 6);
+        assert_eq!(report.right_non_background_pixels, 6);
+        assert_eq!(report.mirrored_non_background_pixels, 6);
     }
 
     #[test]
