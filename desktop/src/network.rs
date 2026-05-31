@@ -11,11 +11,13 @@
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::io;
+use std::fs::{self, File};
+use std::io::{self, Write};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::os::unix::io::RawFd;
+use std::path::Path;
 use std::rc::Rc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use libslirp::{Context, Handler, PollEvents};
 use mio::unix::UnixReady;
@@ -26,12 +28,30 @@ use rumiga_core::network::MacAddress;
 /// Host-network backend selected for a desktop emulator run.
 pub struct DesktopNetworkBackend {
     slirp: Option<SlirpBackend>,
+    pcap: Option<PcapWriter>,
 }
 
 impl DesktopNetworkBackend {
     /// Create a disabled desktop network backend.
     pub const fn new() -> Self {
-        Self { slirp: None }
+        Self {
+            slirp: None,
+            pcap: None,
+        }
+    }
+
+    /// Enable raw Ethernet packet capture for guest TX and host RX frames.
+    ///
+    /// # Errors
+    /// Returns an error when the capture file cannot be created.
+    pub fn enable_pcap(&mut self, path: &Path) -> Result<(), String> {
+        self.pcap = Some(PcapWriter::create(path).map_err(|e| {
+            format!(
+                "Failed to initialize network PCAP '{}': {e}",
+                path.display()
+            )
+        })?);
+        Ok(())
     }
 
     /// Apply the selected host-network backend to the emulator.
@@ -78,18 +98,27 @@ impl DesktopNetworkBackend {
     ///
     /// # Errors
     /// Returns an error if the backend poller fails.
-    pub fn pump(&self, emulator: &Emulator) -> Result<(), String> {
-        let Some(slirp) = self.slirp.as_ref() else {
+    pub fn pump(&mut self, emulator: &Emulator) -> Result<(), String> {
+        let Self { slirp, pcap } = self;
+        let Some(slirp) = slirp.as_ref() else {
             return Ok(());
         };
 
         while let Some(frame) = emulator.memory.a2065.borrow_mut().take_transmitted_frame() {
+            if let Some(pcap) = pcap.as_mut() {
+                pcap.write_frame(&frame)
+                    .map_err(|e| format!("Failed to write network TX packet: {e}"))?;
+            }
             slirp.input(&frame);
         }
 
         slirp.dispatch()?;
 
         for frame in slirp.drain_guest_frames() {
+            if let Some(pcap) = pcap.as_mut() {
+                pcap.write_frame(&frame)
+                    .map_err(|e| format!("Failed to write network RX packet: {e}"))?;
+            }
             emulator
                 .memory
                 .a2065
@@ -97,6 +126,47 @@ impl DesktopNetworkBackend {
                 .queue_receive_frame(frame);
         }
 
+        Ok(())
+    }
+}
+
+struct PcapWriter {
+    file: File,
+}
+
+impl PcapWriter {
+    fn create(path: &Path) -> io::Result<Self> {
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                fs::create_dir_all(parent)?;
+            }
+        }
+        let mut file = File::create(path)?;
+        file.write_all(&0xA1B2_C3D4u32.to_le_bytes())?;
+        file.write_all(&2u16.to_le_bytes())?;
+        file.write_all(&4u16.to_le_bytes())?;
+        file.write_all(&0i32.to_le_bytes())?;
+        file.write_all(&0u32.to_le_bytes())?;
+        file.write_all(&65_535u32.to_le_bytes())?;
+        file.write_all(&1u32.to_le_bytes())?;
+        Ok(Self { file })
+    }
+
+    fn write_frame(&mut self, frame: &[u8]) -> io::Result<()> {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
+        let ts_sec = u32::try_from(timestamp.as_secs()).unwrap_or(u32::MAX);
+        let incl_len = u32::try_from(frame.len().min(65_535)).unwrap_or(65_535);
+        let orig_len = u32::try_from(frame.len()).unwrap_or(u32::MAX);
+
+        self.file.write_all(&ts_sec.to_le_bytes())?;
+        self.file
+            .write_all(&timestamp.subsec_micros().to_le_bytes())?;
+        self.file.write_all(&incl_len.to_le_bytes())?;
+        self.file.write_all(&orig_len.to_le_bytes())?;
+        self.file
+            .write_all(&frame[..usize::try_from(incl_len).unwrap_or(frame.len())])?;
         Ok(())
     }
 }
@@ -354,6 +424,7 @@ mod tests {
         let backend = DesktopNetworkBackend::new();
 
         assert!(backend.slirp.is_none());
+        assert!(backend.pcap.is_none());
     }
 
     #[test]
@@ -403,5 +474,31 @@ mod tests {
 
         backend.dispatch().expect("empty dispatch should succeed");
         assert!(backend.drain_guest_frames().is_empty());
+    }
+
+    #[test]
+    fn pcap_writer_emits_global_and_packet_records() {
+        let path = std::env::temp_dir().join(format!(
+            "rumiga-network-{}-{}.pcap",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        let frame = [0xA5; 60];
+
+        {
+            let mut writer = PcapWriter::create(&path).expect("pcap should be created");
+            writer
+                .write_frame(&frame)
+                .expect("packet should be written");
+        }
+
+        let data = fs::read(&path).expect("pcap should be readable");
+        let _ = fs::remove_file(&path);
+        assert_eq!(&data[..4], &0xA1B2_C3D4u32.to_le_bytes());
+        assert_eq!(data.len(), 24 + 16 + frame.len());
+        assert_eq!(&data[40..], &frame);
     }
 }

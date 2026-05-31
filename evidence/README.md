@@ -57,6 +57,7 @@ The script defaults to:
 - MAC: `00:80:10:4d:49:47`
 - frames: `4000`
 - output directory: `target/evidence/a2065-slirp`
+- PCAP: `target/evidence/a2065-slirp/rumiga.pcap`
 
 Override local paths without editing the repo:
 
@@ -64,6 +65,7 @@ Override local paths without editing the repo:
 RUMIGA_NETWORK_ROM=/path/to/kick.a1200.47.102.rom \
 RUMIGA_NETWORK_HDF=/path/to/workbench-with-network-stack.hdf \
 RUMIGA_NETWORK_MAC=00:80:10:4d:49:47 \
+RUMIGA_NETWORK_PCAP=target/evidence/a2065-slirp/rumiga.pcap \
 RUMIGA_CAPTURE_FRAMES=8000 \
 RUMIGA_EVIDENCE_DIR=target/evidence/a2065-slirp \
 scripts/capture-a2065-slirp.sh
@@ -71,7 +73,9 @@ scripts/capture-a2065-slirp.sh
 
 The default `link` mode proves the emulator-side contract: A2065 is present,
 SLIRP is enabled, link state is up, and the manifest records packet counters.
-It does not require the supplied HDF to contain a TCP/IP stack.
+It does not require the supplied HDF to contain a TCP/IP stack. The scenario
+also writes a raw Ethernet PCAP for guest TX and SLIRP RX frames when packets
+exist.
 
 For guest-side TCP proof, provide an HDF that boots an A2065/SANA-II driver and
 network stack, then run strict mode:

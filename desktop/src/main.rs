@@ -630,6 +630,7 @@ struct LaunchArgs {
     hdf_path: Option<String>,
     hdf_write_policy: rumiga_api::HdfWritePolicy,
     network: rumiga_api::NetworkConfig,
+    network_pcap_path: Option<String>,
     cpu: Option<m68k::CpuType>,
     chip_ram: Option<u32>,
     slow_ram: Option<u32>,
@@ -801,6 +802,9 @@ fn main() {
         launch_args.network.backend.as_str(),
         launch_args.network.mac_address
     );
+    if let Some(ref pcap_path) = launch_args.network_pcap_path {
+        eprintln!("  Network PCAP:   {pcap_path}");
+    }
     let video_std = if launch_args.ntsc {
         "NTSC (60Hz)"
     } else {
@@ -822,6 +826,12 @@ fn main() {
 
     let mut emulator = Emulator::new(config);
     let mut network_backend = DesktopNetworkBackend::new();
+    if let Some(ref pcap_path) = launch_args.network_pcap_path {
+        if let Err(e) = network_backend.enable_pcap(Path::new(pcap_path)) {
+            eprintln!("{e}");
+            process::exit(1);
+        }
+    }
     if let Err(e) = network_backend.configure(&launch_args.network, &mut emulator) {
         eprintln!("Failed to initialize network backend: {e}");
         process::exit(1);
@@ -893,7 +903,7 @@ fn main() {
     if let Some(ref capture_path) = launch_args.capture_path {
         if let Err(e) = capture_evidence(
             &mut emulator,
-            &network_backend,
+            &mut network_backend,
             &CaptureEvidenceContext {
                 args: &launch_args,
                 model,
@@ -1262,6 +1272,7 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
     let mut hdf_path = None;
     let mut hdf_write_policy = rumiga_api::HdfWritePolicy::default();
     let mut network = rumiga_api::NetworkConfig::default();
+    let mut network_pcap_path = None;
     let mut cpu = None;
     let mut chip_ram = None;
     let mut slow_ram = None;
@@ -1359,6 +1370,13 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
                     return Err("--network-mac requires a value".to_owned());
                 };
                 network.mac_address = parse_network_mac_address(value)?;
+                index += 2;
+            }
+            "--network-pcap" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--network-pcap requires a value".to_owned());
+                };
+                network_pcap_path = Some(value.clone());
                 index += 2;
             }
             "--cpu" => {
@@ -1606,6 +1624,7 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
         hdf_path,
         hdf_write_policy,
         network,
+        network_pcap_path,
         cpu,
         chip_ram,
         slow_ram,
@@ -1813,6 +1832,7 @@ Options:
       --network <backend> Amiga network backend: disabled, slirp [default: disabled]
       --network-slirp     Enable A2065-compatible Ethernet via SLIRP/NAT
       --network-mac <mac> MAC for the emulated A2065 card
+      --network-pcap <file.pcap>  Capture raw A2065/SLIRP Ethernet frames
       --cpu <type>        Override CPU: 68000, 68010, 68020, 68030, 68040
       --chip-ram <size>   Override Chip RAM size: e.g. 512K, 1M, 2M
       --slow-ram <size>   Override Slow RAM size: e.g. 512K, 1M
@@ -1837,7 +1857,7 @@ Options:
 
 fn capture_evidence(
     emulator: &mut Emulator,
-    network_backend: &DesktopNetworkBackend,
+    network_backend: &mut DesktopNetworkBackend,
     context: &CaptureEvidenceContext<'_>,
 ) -> Result<(), String> {
     for _ in 0..context.args.capture_frames {
@@ -2021,7 +2041,12 @@ fn write_capture_manifest(path: &Path, context: &CaptureManifestContext<'_>) -> 
     push_video_state_json(&mut json, context.emulator);
     push_floppy_state_json(&mut json, &context.emulator.floppy);
     push_gayle_ide_state_json(&mut json, context.emulator, context.args.hdf_write_policy);
-    push_network_state_json(&mut json, &context.args.network, context.emulator);
+    push_network_state_json(
+        &mut json,
+        &context.args.network,
+        context.emulator,
+        context.args.network_pcap_path.as_deref(),
+    );
     json.push_str("  \"media\": {\n");
     push_file_evidence_json(&mut json, "rom", context.rom, "    ", true);
     for drive in 0..4 {
@@ -2587,6 +2612,7 @@ fn push_network_state_json(
     json: &mut String,
     network: &rumiga_api::NetworkConfig,
     emulator: &Emulator,
+    pcap_path: Option<&str>,
 ) {
     let status = network_status_from_emulator(network, emulator);
     let _ = writeln!(json, "  \"network\": {{");
@@ -2606,6 +2632,11 @@ fn push_network_state_json(
         "    \"mac_address\": {},",
         json_string(&status.mac_address)
     );
+    if let Some(pcap_path) = pcap_path {
+        let _ = writeln!(json, "    \"pcap\": {},", json_string(pcap_path));
+    } else {
+        let _ = writeln!(json, "    \"pcap\": null,");
+    }
     let _ = writeln!(json, "    \"a2065_present\": {},", status.a2065_present);
     let _ = writeln!(
         json,
@@ -3137,6 +3168,7 @@ mod tests {
             hdf_path: None,
             hdf_write_policy: rumiga_api::HdfWritePolicy::ReadOnly,
             network: rumiga_api::NetworkConfig::default(),
+            network_pcap_path: None,
             cpu: None,
             chip_ram: None,
             slow_ram: None,
@@ -3409,6 +3441,28 @@ mod tests {
                     mac_address: "02:52:55:4d:49:48".to_owned(),
                     ..rumiga_api::NetworkConfig::default()
                 },
+                ..default_test_args()
+            })
+        );
+    }
+
+    #[test]
+    fn parse_args_accepts_network_pcap_path() {
+        let args = vec![
+            "--network-slirp".to_owned(),
+            "--network-pcap".to_owned(),
+            "target/evidence/net/rumiga.pcap".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+
+        assert_eq!(
+            parse_args(&args),
+            Ok(LaunchArgs {
+                network: rumiga_api::NetworkConfig {
+                    backend: rumiga_api::NetworkBackend::Slirp,
+                    ..rumiga_api::NetworkConfig::default()
+                },
+                network_pcap_path: Some("target/evidence/net/rumiga.pcap".to_owned()),
                 ..default_test_args()
             })
         );

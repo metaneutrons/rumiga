@@ -17,6 +17,7 @@ out_dir="${RUMIGA_EVIDENCE_DIR:-target/evidence/a2065-slirp}"
 png="$out_dir/rumiga.png"
 manifest="$out_dir/rumiga.json"
 notes="$out_dir/notes.md"
+pcap="${RUMIGA_NETWORK_PCAP:-$out_dir/rumiga.pcap}"
 
 if [[ ! -f "$rom" ]]; then
   echo "Missing A1200 ROM: $rom" >&2
@@ -37,6 +38,7 @@ cargo run --release -p rumiga-desktop --bin rumiga-desktop -- \
   --cpu "$cpu" \
   --network-slirp \
   --network-mac "$mac" \
+  --network-pcap "$pcap" \
   --hdf "$hdf" \
   --capture "$png" \
   --capture-manifest "$manifest" \
@@ -61,6 +63,7 @@ producer = data.get("producer", {})
 run = data.get("run", {})
 network = data.get("network", {})
 hdf = data.get("gayle_ide", {})
+pcap = network.get("pcap")
 
 enabled = bool(network.get("enabled"))
 backend = network.get("backend")
@@ -117,6 +120,7 @@ print(
     f" tx={tx_packets}"
     f" rx={rx_packets}"
     f" dropped={dropped_packets}"
+    f" pcap={pcap}"
 )
 print(
     "hdf_geometry="
@@ -131,6 +135,7 @@ notes = [
     "",
     f"- Manifest: `{manifest_path.name}`",
     "- Screenshot: `rumiga.png`",
+    f"- PCAP: `{Path(pcap).name if pcap else None}`",
     f"- Schema: `{schema.get('id')}@{schema.get('version')}`",
     f"- Git: `{producer.get('git_sha')}` dirty=`{producer.get('git_dirty')}`",
     f"- Frames: `{run.get('frames')}` stopped=`{run.get('stopped')}`",
@@ -143,7 +148,8 @@ notes = [
         f"link_up=`{link_up}` "
         f"present=`{present}` "
         f"configured=`{configured}` "
-        f"base=`{base_address}`"
+        f"base=`{base_address}` "
+        f"pcap=`{pcap}`"
     ),
     (
         "- Packet counters: "
