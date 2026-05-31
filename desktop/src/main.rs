@@ -16,7 +16,8 @@ use minifb::Key;
 use rumiga_core::cia::CiaState;
 use rumiga_core::custom;
 use rumiga_core::emulator::{
-    EARLY_VIDEO_SCANLINE_DUMP, Emulator, VIDEO_SCANLINE_WORD_DUMP, VideoScanlineSnapshot,
+    CiaTimerBootWorkaround, EARLY_VIDEO_SCANLINE_DUMP, Emulator, VIDEO_SCANLINE_WORD_DUMP,
+    VideoScanlineSnapshot,
 };
 use rumiga_core::floppy::{
     FLOPPY_SPEED_COMPATIBLE_PERCENT, FLOPPY_SPEED_TURBO_PERCENT, is_supported_floppy_speed_percent,
@@ -781,6 +782,10 @@ fn main() {
     eprintln!("------------------------------");
 
     let mut emulator = Emulator::new(config);
+    if std::env::var_os("RUMIGA_DISABLE_FORCE_CIA_TIMER_START").is_some() {
+        emulator.cia_timer_boot_workaround = CiaTimerBootWorkaround::Disabled;
+        eprintln!("  Diagnostic: forced CIA timer start workaround disabled");
+    }
     if let Some(ref trace_path) = launch_args.trace_cpu {
         if let Err(e) = emulator.enable_cpu_trace(trace_path, launch_args.trace_limit) {
             eprintln!("Failed to enable CPU tracing to '{trace_path}': {e}");
@@ -1891,7 +1896,8 @@ fn push_native_framebuffer_json(json: &mut String) {
 fn push_boot_workarounds_json(json: &mut String, emulator: &Emulator) {
     let _ = writeln!(
         json,
-        "  \"boot_workarounds\": {{ \"forced_cia_timer_start\": {}, \"forced_cia_timer_start_count\": {}, \"rom_drive_step_patch\": {} }},",
+        "  \"boot_workarounds\": {{ \"forced_cia_timer_start_enabled\": {}, \"forced_cia_timer_start\": {}, \"forced_cia_timer_start_count\": {}, \"rom_drive_step_patch\": {} }},",
+        emulator.cia_timer_boot_workaround.is_enabled(),
         emulator.forced_cia_timer_start_count > 0,
         emulator.forced_cia_timer_start_count,
         emulator.memory.rom_drive_step_patch_applied
@@ -3232,6 +3238,10 @@ mod tests {
         assert_eq!(manifest["producer"]["name"], "rumiga-desktop");
         assert_eq!(manifest["native_framebuffer"]["width"], WIDTH);
         assert_eq!(manifest["native_framebuffer"]["height"], HEIGHT);
+        assert_eq!(
+            manifest["boot_workarounds"]["forced_cia_timer_start_enabled"],
+            true
+        );
         assert_eq!(
             manifest["boot_workarounds"]["forced_cia_timer_start"],
             false

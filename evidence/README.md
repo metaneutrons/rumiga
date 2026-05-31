@@ -34,6 +34,13 @@ RUMIGA_EVIDENCE_DIR=target/evidence/a1200-hdf \
 scripts/capture-a1200-hdf.sh
 ```
 
+For a negative-control boot run without the temporary CIA Timer-A start
+workaround:
+
+```sh
+RUMIGA_DISABLE_FORCE_CIA_TIMER_START=1 scripts/capture-a1200-hdf.sh
+```
+
 The scenario writes:
 
 - `rumiga.png`: native framebuffer evidence after Rumiga viewport processing.

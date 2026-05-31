@@ -83,7 +83,8 @@ print(
 )
 print(
     "boot_workarounds="
-    f"forced_cia_timer_start={boot_workarounds.get('forced_cia_timer_start')}"
+    f"forced_cia_timer_start_enabled={boot_workarounds.get('forced_cia_timer_start_enabled')}"
+    f" forced_cia_timer_start={boot_workarounds.get('forced_cia_timer_start')}"
     f" forced_cia_timer_start_count={boot_workarounds.get('forced_cia_timer_start_count')}"
     f" rom_drive_step_patch={boot_workarounds.get('rom_drive_step_patch')}"
 )
@@ -131,6 +132,7 @@ notes_path.write_text(
             ),
             (
                 "- Boot workarounds: "
+                f"forced_cia_timer_start_enabled=`{boot_workarounds.get('forced_cia_timer_start_enabled')}` "
                 f"forced_cia_timer_start=`{boot_workarounds.get('forced_cia_timer_start')}` "
                 f"forced_cia_timer_start_count=`{boot_workarounds.get('forced_cia_timer_start_count')}` "
                 f"rom_drive_step_patch=`{boot_workarounds.get('rom_drive_step_patch')}`"
