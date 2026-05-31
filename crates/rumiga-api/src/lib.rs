@@ -299,7 +299,7 @@ impl Default for HdfWritePolicy {
     }
 }
 
-pub const DEFAULT_NETWORK_MAC_ADDRESS: &str = "02:52:55:4d:49:47";
+pub const DEFAULT_NETWORK_MAC_ADDRESS: &str = "00:80:10:4d:49:47";
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NetworkDevice {

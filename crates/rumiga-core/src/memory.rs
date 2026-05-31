@@ -19,10 +19,12 @@ use std::cell::{Cell, RefCell};
 
 use m68k::AddressBus;
 
+use crate::a2065::A2065;
 use crate::blitter::BlitterState;
 use crate::cia::CiaPair;
 use crate::custom;
 use crate::ide::AtaController;
+use crate::network::MacAddress;
 
 /// Custom chip register address range.
 const CUSTOM_BASE: u32 = 0x00DF_F000;
@@ -179,6 +181,8 @@ pub struct AmigaMemory {
     pub gayle_id_cnt: Cell<u8>,
     /// Gayle IDE controller.
     pub ide: RefCell<AtaController>,
+    /// Optional A2065-compatible Zorro II Ethernet card.
+    pub a2065: RefCell<A2065>,
     /// Active blitter execution thread.
     pub blit_thread: Option<std::thread::JoinHandle<(Vec<u8>, BlitterState)>>,
     /// Set when the blitter thread finishes and RAM is restored.
@@ -222,10 +226,16 @@ impl AmigaMemory {
             gayle_status: 0,
             gayle_id_cnt: Cell::new(0),
             ide: RefCell::new(AtaController::new()),
+            a2065: RefCell::new(A2065::new_disabled()),
             blit_thread: None,
             blitter_completed: false,
             completed_blitter: None,
         }
+    }
+
+    /// Enable an A2065-compatible Ethernet card in the Zorro II autoconfig chain.
+    pub fn enable_a2065(&self, mac_address: MacAddress) {
+        self.a2065.borrow_mut().enable(mac_address);
     }
 
     /// Load ROM data.
@@ -617,6 +627,10 @@ impl AmigaMemory {
             return self.rom[offset as usize];
         }
 
+        if let Some(value) = self.a2065.borrow().read_byte(addr) {
+            return value;
+        }
+
         // ROM: 0xF80000/0xFC0000–0x1000000
         if (self.rom_base()..ROM_END).contains(&addr) {
             let offset = addr - self.rom_base();
@@ -742,6 +756,8 @@ impl AmigaMemory {
             }
         }
 
+        let _ = self.a2065.borrow_mut().write_byte(addr, value);
+
         // ROM writes and unmapped — ignored
     }
 }
@@ -766,6 +782,8 @@ impl AmigaMemory {
         self.gayle_config = other.gayle_config;
         self.gayle_status = other.gayle_status;
         self.gayle_id_cnt.set(other.gayle_id_cnt.get());
+        *self.ide.borrow_mut() = other.ide.borrow().clone();
+        *self.a2065.borrow_mut() = other.a2065.borrow().clone();
     }
 }
 
@@ -797,6 +815,9 @@ impl AddressBus for AmigaMemory {
             return self.ide.borrow_mut().read_data_word();
         }
         if let Some(value) = self.read_cia_word(masked) {
+            return value;
+        }
+        if let Some(value) = self.a2065.borrow().read_word(masked) {
             return value;
         }
         // Custom chip registers: atomic word read
@@ -855,6 +876,9 @@ impl AddressBus for AmigaMemory {
             return;
         }
         if self.write_cia_word(masked, value) {
+            return;
+        }
+        if self.a2065.borrow_mut().write_word(masked, value) {
             return;
         }
         // Custom chip registers: handle as atomic word write

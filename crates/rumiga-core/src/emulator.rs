@@ -21,6 +21,7 @@ use crate::custom;
 use crate::events::{EventScheduler, EventType, SCANLINES_PAL};
 use crate::floppy::FloppyController;
 use crate::memory::{AmigaMemory, MemoryConfig};
+use crate::network::MacAddress;
 use crate::playfield::{self, PlayfieldState};
 use crate::sprites::SpriteEngine;
 
@@ -257,6 +258,11 @@ impl Emulator {
     pub fn load_rom(&mut self, data: &[u8]) {
         self.memory.load_rom(data);
         self.cpu.reset(&mut self.memory);
+    }
+
+    /// Enable an A2065-compatible Zorro II Ethernet card.
+    pub fn enable_a2065(&mut self, mac_address: MacAddress) {
+        self.memory.enable_a2065(mac_address);
     }
 
     /// Insert an ADF disk image into the specified floppy drive (0–3).

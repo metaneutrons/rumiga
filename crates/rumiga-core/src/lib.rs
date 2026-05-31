@@ -6,6 +6,7 @@
 //! This crate implements the Amiga custom chipset, memory subsystem, and
 //! timing engine.
 
+pub mod a2065;
 pub mod audio;
 pub mod blitter;
 pub mod chipset;
@@ -17,5 +18,6 @@ pub mod events;
 pub mod floppy;
 pub mod ide;
 pub mod memory;
+pub mod network;
 pub mod playfield;
 pub mod sprites;

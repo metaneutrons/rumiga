@@ -810,6 +810,18 @@ fn main() {
     eprintln!("------------------------------");
 
     let mut emulator = Emulator::new(config);
+    if launch_args.network.enabled() {
+        let mac_address =
+            rumiga_core::network::MacAddress::from_unicast_str(&launch_args.network.mac_address)
+                .unwrap_or_else(|e| {
+                    eprintln!(
+                        "Invalid A2065 MAC address '{}': {e}",
+                        launch_args.network.mac_address
+                    );
+                    process::exit(2);
+                });
+        emulator.enable_a2065(mac_address);
+    }
     if let Some(ref trace_path) = launch_args.trace_cpu {
         if let Err(e) = emulator.enable_cpu_trace(trace_path, launch_args.trace_limit) {
             eprintln!("Failed to enable CPU tracing to '{trace_path}': {e}");
@@ -1655,7 +1667,7 @@ fn parse_network_mac_address(value: &str) -> Result<String, String> {
         Ok(normalized)
     } else {
         Err(format!(
-            "Invalid network MAC address '{value}'. Expected a unicast address like 02:52:55:4d:49:47"
+            "Invalid network MAC address '{value}'. Expected a unicast address like 00:80:10:4d:49:47"
         ))
     }
 }
@@ -1979,7 +1991,7 @@ fn write_capture_manifest(path: &Path, context: &CaptureManifestContext<'_>) -> 
     push_video_state_json(&mut json, context.emulator);
     push_floppy_state_json(&mut json, &context.emulator.floppy);
     push_gayle_ide_state_json(&mut json, context.emulator, context.args.hdf_write_policy);
-    push_network_state_json(&mut json, &context.args.network);
+    push_network_state_json(&mut json, &context.args.network, context.emulator);
     json.push_str("  \"media\": {\n");
     push_file_evidence_json(&mut json, "rom", context.rom, "    ", true);
     for drive in 0..4 {
@@ -2515,7 +2527,12 @@ fn push_rdb_geometry_json(json: &mut String, rdb: &rumiga_core::ide::RdbGeometry
     let _ = writeln!(json, "    }},");
 }
 
-fn push_network_state_json(json: &mut String, network: &rumiga_api::NetworkConfig) {
+fn push_network_state_json(
+    json: &mut String,
+    network: &rumiga_api::NetworkConfig,
+    emulator: &Emulator,
+) {
+    let a2065 = emulator.memory.a2065.borrow().status();
     let _ = writeln!(json, "  \"network\": {{");
     let _ = writeln!(json, "    \"enabled\": {},", network.enabled());
     let _ = writeln!(
@@ -2533,10 +2550,31 @@ fn push_network_state_json(json: &mut String, network: &rumiga_api::NetworkConfi
         "    \"mac_address\": {},",
         json_string(&network.mac_address)
     );
-    let _ = writeln!(json, "    \"link_up\": false,");
-    let _ = writeln!(json, "    \"tx_packets\": 0,");
-    let _ = writeln!(json, "    \"rx_packets\": 0,");
-    let _ = writeln!(json, "    \"dropped_packets\": 0");
+    let _ = writeln!(json, "    \"a2065_present\": {},", a2065.enabled);
+    let _ = writeln!(json, "    \"a2065_configured\": {},", a2065.configured);
+    let _ = writeln!(json, "    \"a2065_shut_up\": {},", a2065.shut_up);
+    if let Some(base_address) = a2065.base_address {
+        let _ = writeln!(
+            json,
+            "    \"a2065_base_address\": {},",
+            json_string(&format!("0x{base_address:06X}"))
+        );
+    } else {
+        let _ = writeln!(json, "    \"a2065_base_address\": null,");
+    }
+    let _ = writeln!(
+        json,
+        "    \"a2065_card_mac_address\": {},",
+        json_string(&a2065.mac_address.to_colon_string())
+    );
+    let _ = writeln!(json, "    \"link_up\": {},", a2065.link_up);
+    let _ = writeln!(json, "    \"tx_packets\": {},", a2065.counters.tx_packets);
+    let _ = writeln!(json, "    \"rx_packets\": {},", a2065.counters.rx_packets);
+    let _ = writeln!(
+        json,
+        "    \"dropped_packets\": {}",
+        a2065.counters.dropped_packets
+    );
     json.push_str("  },\n");
 }
 

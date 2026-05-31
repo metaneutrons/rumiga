@@ -40,7 +40,7 @@ const NETWORK_BACKENDS: Array<{ value: NetworkBackend; label: string }> = [
 const DEFAULT_NETWORK: MachineConfig['network'] = {
   device: 'A2065',
   backend: 'Disabled',
-  mac_address: '02:52:55:4d:49:47',
+  mac_address: '00:80:10:4d:49:47',
 };
 type ViewportChoice = ViewportPreset | 'Manual';
 const VIEWPORT_CHOICES: Array<{ value: ViewportChoice; label: string }> = [
