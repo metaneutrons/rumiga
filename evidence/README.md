@@ -41,6 +41,60 @@ The scenario writes:
   model, CPU, viewport, display-window, and edge-integrity diagnostics.
 - `notes.md`: generated local classification notes for the capture.
 
+## A2065 SLIRP Network
+
+Run the A2065 + SLIRP evidence scenario with:
+
+```sh
+scripts/capture-a2065-slirp.sh
+```
+
+The script defaults to:
+
+- ROM: `assets/kick.a1200.47.102.rom`
+- HDF: `assets/workbench-39.hdf`
+- CPU: `68020`
+- MAC: `00:80:10:4d:49:47`
+- frames: `4000`
+- output directory: `target/evidence/a2065-slirp`
+
+Override local paths without editing the repo:
+
+```sh
+RUMIGA_NETWORK_ROM=/path/to/kick.a1200.47.102.rom \
+RUMIGA_NETWORK_HDF=/path/to/workbench-with-network-stack.hdf \
+RUMIGA_NETWORK_MAC=00:80:10:4d:49:47 \
+RUMIGA_CAPTURE_FRAMES=8000 \
+RUMIGA_EVIDENCE_DIR=target/evidence/a2065-slirp \
+scripts/capture-a2065-slirp.sh
+```
+
+The default `link` mode proves the emulator-side contract: A2065 is present,
+SLIRP is enabled, link state is up, and the manifest records packet counters.
+It does not require the supplied HDF to contain a TCP/IP stack.
+
+For guest-side TCP proof, provide an HDF that boots an A2065/SANA-II driver and
+network stack, then run strict mode:
+
+```sh
+RUMIGA_NETWORK_EVIDENCE_MODE=guest-tcp \
+RUMIGA_NETWORK_EXPECT_A2065_CONFIGURED=1 \
+RUMIGA_NETWORK_EXPECT_TX_MIN=1 \
+RUMIGA_NETWORK_EXPECT_RX_MIN=1 \
+scripts/capture-a2065-slirp.sh
+```
+
+Static SLIRP settings matching the WinUAE/FS-UAE user-mode NAT default are:
+
+- IP: `10.0.2.15`
+- Gateway: `10.0.2.2`
+- DNS: `10.0.2.3`
+- Netmask: `255.255.255.0`
+
+The guest proof workload should include gateway ping, DNS lookup, HTTP fetch,
+and checksum validation. Packet captures must be local-fixture only or redacted
+before sharing.
+
 ## Current Classification Rules
 
 - `edge_integrity.mirrored_non_background_pixels == 0` means the first visible
@@ -50,6 +104,11 @@ The scenario writes:
   scaling behavior.
 - A requester asking for `LIBS/workbench.library` is classified as a media or
   install-state result for the supplied HDF, not as a Gayle/IDE boot failure.
+- `a2065-link-ready-awaiting-guest-driver` means SLIRP and A2065 are enabled,
+  but the current HDF did not autoconfigure/use the card within the frame
+  budget.
+- `guest-tcp-evidence` requires a guest network stack to configure A2065 and
+  meet the packet-counter thresholds set by the scenario.
 - Host-window screenshots are useful for presentation bugs, but native
   framebuffer captures are the release gate for chipset viewport correctness.
 
