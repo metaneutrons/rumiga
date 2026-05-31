@@ -52,6 +52,7 @@ run = data.get("run", {})
 schema = data.get("schema", {})
 boot_workarounds = data.get("boot_workarounds", {})
 cia = data.get("cia", {})
+gayle = data.get("gayle_ide", {})
 classification = (
     "viewport-edge-clean"
     if edge.get("mirrored_non_background_pixels", 1) == 0
@@ -86,6 +87,12 @@ print(
     f"forced_cia_timer_start={boot_workarounds.get('forced_cia_timer_start')}"
     f" forced_cia_timer_start_count={boot_workarounds.get('forced_cia_timer_start_count')}"
     f" rom_drive_step_patch={boot_workarounds.get('rom_drive_step_patch')}"
+)
+print(
+    "hdf_policy="
+    f"{gayle.get('hdf_write_policy')}"
+    f" host_writeback={gayle.get('host_writeback_enabled')}"
+    f" dirty={gayle.get('hdf_dirty')}"
 )
 for cia_name in ("a", "b"):
     timer_a = cia.get(cia_name, {}).get("timer_a", {})
@@ -146,6 +153,12 @@ notes_path.write_text(
                 f"forced_cia_timer_start=`{boot_workarounds.get('forced_cia_timer_start')}` "
                 f"forced_cia_timer_start_count=`{boot_workarounds.get('forced_cia_timer_start_count')}` "
                 f"rom_drive_step_patch=`{boot_workarounds.get('rom_drive_step_patch')}`"
+            ),
+            (
+                "- HDF policy: "
+                f"policy=`{gayle.get('hdf_write_policy')}` "
+                f"host_writeback=`{gayle.get('host_writeback_enabled')}` "
+                f"dirty=`{gayle.get('hdf_dirty')}`"
             ),
             (
                 "- CIA-A timers: "

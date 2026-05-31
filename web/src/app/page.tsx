@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element -- live emulator screenshots are served by the local REST endpoint. */
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
@@ -9,6 +10,10 @@ import {
   startMachine,
   stopMachine,
 } from '@/lib/api';
+
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
 
 export default function DashboardPage() {
   const [status, setStatus] = useState<MachineStatus | null>(null);
@@ -68,8 +73,8 @@ export default function DashboardPage() {
         await startMachine(); // POST /api/machine/start maps to resuming
       }
       loadData();
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e: unknown) {
+      setError(errorMessage(e, 'Machine control failed'));
     }
   };
 
@@ -77,8 +82,8 @@ export default function DashboardPage() {
     try {
       await fetch('/api/machine/reset', { method: 'POST' });
       loadData();
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e: unknown) {
+      setError(errorMessage(e, 'Reset failed'));
     }
   };
 
@@ -90,8 +95,8 @@ export default function DashboardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ separation: val }),
       });
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e: unknown) {
+      setError(errorMessage(e, 'Audio update failed'));
     }
   };
 
@@ -245,6 +250,18 @@ export default function DashboardPage() {
                   <span className="text-zinc-400 font-medium">ROM Image</span>
                   <span className="font-mono text-zinc-200 text-xs truncate max-w-[200px]" title={config.rom_file}>
                     {config.rom_file.split('/').pop() || 'None Loaded'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-sm py-1.5 border-b border-zinc-800/40">
+                  <span className="text-zinc-400 font-medium">Gayle HDF</span>
+                  <span className="font-mono text-zinc-200 text-xs truncate max-w-[200px]" title={config.hdf_path ?? ''}>
+                    {config.hdf_path?.split('/').pop() || 'None Mounted'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-sm py-1.5 border-b border-zinc-800/40">
+                  <span className="text-zinc-400 font-medium">HDF Policy</span>
+                  <span className="font-bold text-zinc-200">
+                    {config.hdf_write_policy === 'Writeback' ? 'Writeback' : 'Read-only session'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-sm py-1.5 border-b border-zinc-800/40">

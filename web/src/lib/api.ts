@@ -46,6 +46,7 @@ export type ScalingMode = 'Integer' | 'AspectFit' | 'Stretch';
 export type ViewportMode = 'Raw' | 'Auto' | 'Manual';
 export type ViewportPreset = 'NativeFullBorder' | 'VisibleArea' | 'Overscan' | 'AutoCenter';
 export type FloppySpeedPercent = 0 | 100 | 200 | 400 | 800;
+export type HdfWritePolicy = 'ReadOnly' | 'Writeback';
 
 export interface ViewportConfig {
   mode: ViewportMode;
@@ -71,6 +72,8 @@ export interface MachineConfig {
   rom_file: string;
   floppy: [string | null, string | null, string | null, string | null];
   floppy_speed_percent: FloppySpeedPercent;
+  hdf_path: string | null;
+  hdf_write_policy: HdfWritePolicy;
   audio: AudioConfig;
   display: DisplayConfig;
 }

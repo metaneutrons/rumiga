@@ -53,6 +53,8 @@ struct SharedState {
     pub rom_file: String,
     pub floppy: [Option<String>; 4],
     pub floppy_speed_percent: u16,
+    pub hdf_path: Option<String>,
+    pub hdf_write_policy: rumiga_api::HdfWritePolicy,
     pub stereo_separation: u8,
     pub display: rumiga_api::DisplayConfig,
     pub screenshot: Vec<u32>,
@@ -160,6 +162,8 @@ async fn get_config(
             rom_file: s.rom_file.clone(),
             floppy: s.floppy.clone(),
             floppy_speed_percent: s.floppy_speed_percent,
+            hdf_path: s.hdf_path.clone(),
+            hdf_write_policy: s.hdf_write_policy,
             audio: rumiga_api::AudioConfig {
                 channel_mix: [
                     rumiga_api::ChannelMixConfig {
@@ -225,6 +229,8 @@ async fn put_config(
     s.rom_file = payload.rom_file;
     s.floppy = payload.floppy;
     s.floppy_speed_percent = payload.floppy_speed_percent;
+    s.hdf_path = payload.hdf_path;
+    s.hdf_write_policy = payload.hdf_write_policy;
     s.stereo_separation = payload.audio.stereo_separation;
     s.display = payload.display;
     drop(s);
@@ -601,6 +607,7 @@ struct LaunchArgs {
     rom_path: String,
     adf_paths: Vec<String>,
     hdf_path: Option<String>,
+    hdf_write_policy: rumiga_api::HdfWritePolicy,
     cpu: Option<m68k::CpuType>,
     chip_ram: Option<u32>,
     slow_ram: Option<u32>,
@@ -839,8 +846,9 @@ fn main() {
         });
         hdf_evidence = Some(file_evidence_from_bytes(hdf_path, &hdf_data));
         eprintln!(
-            "Mounted Gayle IDE HDF: {hdf_path} ({} bytes)",
-            hdf_data.len()
+            "Mounted Gayle IDE HDF: {hdf_path} ({} bytes, {} policy)",
+            hdf_data.len(),
+            launch_args.hdf_write_policy.as_str()
         );
         emulator.insert_hdf(hdf_data);
     }
@@ -878,6 +886,8 @@ fn main() {
         rom_file: launch_args.rom_path.clone(),
         floppy: floppy_paths.clone(),
         floppy_speed_percent: launch_args.floppy_speed_percent,
+        hdf_path: launch_args.hdf_path.clone(),
+        hdf_write_policy: launch_args.hdf_write_policy,
         stereo_separation: launch_args.audio_separation,
         display: display_config.clone(),
         screenshot: vec![0; initial_rect.width * initial_height],
@@ -1118,12 +1128,22 @@ fn flush_dirty_media(
     // Write back dirty HDF sectors before exiting
     if let Some(ref hdf_path) = launch_args.hdf_path {
         if emulator.hdf_dirty() {
-            if let Some(data) = emulator.extract_hdf() {
-                eprintln!("Writing dirty HDF sectors back to {hdf_path}...");
-                if let Err(e) = fs::write(hdf_path, data) {
-                    eprintln!("Failed to write HDF file '{hdf_path}': {e}");
-                } else {
+            match launch_args.hdf_write_policy {
+                rumiga_api::HdfWritePolicy::ReadOnly => {
+                    eprintln!(
+                        "Discarding dirty HDF session buffer for {hdf_path}; source file is protected by read-only policy."
+                    );
                     emulator.clear_hdf_dirty();
+                }
+                rumiga_api::HdfWritePolicy::Writeback => {
+                    if let Some(data) = emulator.extract_hdf() {
+                        eprintln!("Writing dirty HDF sectors back to {hdf_path}...");
+                        if let Err(e) = atomic_write_file(Path::new(hdf_path), &data) {
+                            eprintln!("{e}");
+                        } else {
+                            emulator.clear_hdf_dirty();
+                        }
+                    }
                 }
             }
         }
@@ -1146,6 +1166,30 @@ fn flush_dirty_media(
     }
 }
 
+fn atomic_write_file(path: &Path, data: &[u8]) -> Result<(), String> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| format!("Invalid output path '{}'", path.display()))?;
+    let tmp_path = parent.join(format!(".{file_name}.rumiga-tmp-{}", process::id()));
+
+    fs::write(&tmp_path, data).map_err(|e| {
+        format!(
+            "Failed to write temporary file '{}': {e}",
+            tmp_path.display()
+        )
+    })?;
+    if let Err(e) = fs::rename(&tmp_path, path) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(format!(
+            "Failed to replace HDF file '{}': {e}",
+            path.display()
+        ));
+    }
+    Ok(())
+}
+
 #[allow(clippy::cognitive_complexity, clippy::too_many_lines)]
 fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
     let mut model = None;
@@ -1154,6 +1198,7 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
     let mut vertical_stretch = true;
     let mut floppy_speed_percent = FLOPPY_SPEED_COMPATIBLE_PERCENT;
     let mut hdf_path = None;
+    let mut hdf_write_policy = rumiga_api::HdfWritePolicy::default();
     let mut cpu = None;
     let mut chip_ram = None;
     let mut slow_ram = None;
@@ -1218,6 +1263,17 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
                     return Err("--hdf requires a value".to_owned());
                 };
                 hdf_path = Some(value.clone());
+                index += 2;
+            }
+            "--hdf-writeback" => {
+                hdf_write_policy = rumiga_api::HdfWritePolicy::Writeback;
+                index += 1;
+            }
+            "--hdf-write-policy" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--hdf-write-policy requires a value".to_owned());
+                };
+                hdf_write_policy = parse_hdf_write_policy(value)?;
                 index += 2;
             }
             "--cpu" => {
@@ -1463,6 +1519,7 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
         rom_path: rom_path.clone(),
         adf_paths: positional.iter().skip(1).cloned().collect(),
         hdf_path,
+        hdf_write_policy,
         cpu,
         chip_ram,
         slow_ram,
@@ -1519,6 +1576,20 @@ fn parse_capture_frames(value: &str) -> Result<u64, String> {
         Err("Capture frame count must be greater than zero".to_owned())
     } else {
         Ok(frames)
+    }
+}
+
+fn parse_hdf_write_policy(value: &str) -> Result<rumiga_api::HdfWritePolicy, String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "read-only" | "readonly" | "snapshot" | "discard" | "discard-writes" => {
+            Ok(rumiga_api::HdfWritePolicy::ReadOnly)
+        }
+        "writeback" | "write-back" | "rw" | "read-write" => {
+            Ok(rumiga_api::HdfWritePolicy::Writeback)
+        }
+        _ => Err(format!(
+            "Unsupported HDF write policy '{value}'. Supported: read-only, writeback"
+        )),
     }
 }
 
@@ -1629,6 +1700,9 @@ Options:
       --mouse-scale-y <f> Scaling factor for vertical mouse [default: 1.0]
       --floppy-speed <%>  Floppy read speed: 100%, 200%, 400%, 800%, turbo
       --hdf <file.hdf>    Mount Gayle IDE virtual hardfile (.hdf)
+      --hdf-write-policy <policy>
+                          HDF persistence: read-only, writeback [default: read-only]
+      --hdf-writeback     Persist dirty HDF sectors back to the source file on exit
       --cpu <type>        Override CPU: 68000, 68010, 68020, 68030, 68040
       --chip-ram <size>   Override Chip RAM size: e.g. 512K, 1M, 2M
       --slow-ram <size>   Override Slow RAM size: e.g. 512K, 1M
@@ -1834,7 +1908,7 @@ fn write_capture_manifest(path: &Path, context: &CaptureManifestContext<'_>) -> 
     push_edge_integrity_json(&mut json, context.emulator.framebuffer());
     push_video_state_json(&mut json, context.emulator);
     push_floppy_state_json(&mut json, &context.emulator.floppy);
-    push_gayle_ide_state_json(&mut json, context.emulator);
+    push_gayle_ide_state_json(&mut json, context.emulator, context.args.hdf_write_policy);
     json.push_str("  \"media\": {\n");
     push_file_evidence_json(&mut json, "rom", context.rom, "    ", true);
     for drive in 0..4 {
@@ -2237,7 +2311,11 @@ fn active_x_for_hpos(hpos: u16) -> usize {
     usize::from(hpos.saturating_sub(DISPLAY_LEFT_HPOS)).saturating_mul(2)
 }
 
-fn push_gayle_ide_state_json(json: &mut String, emulator: &Emulator) {
+fn push_gayle_ide_state_json(
+    json: &mut String,
+    emulator: &Emulator,
+    hdf_write_policy: rumiga_api::HdfWritePolicy,
+) {
     let ide = emulator.memory.ide.borrow();
     let disk_bytes = ide.disk_data.as_ref().map_or(0, Vec::len);
     let _ = writeln!(json, "  \"gayle_ide\": {{");
@@ -2263,6 +2341,16 @@ fn push_gayle_ide_state_json(json: &mut String, emulator: &Emulator) {
     );
     let _ = writeln!(json, "    \"disk_inserted\": {},", ide.disk_data.is_some());
     let _ = writeln!(json, "    \"disk_bytes\": {disk_bytes},");
+    let _ = writeln!(
+        json,
+        "    \"hdf_write_policy\": {},",
+        json_string(hdf_write_policy.as_str())
+    );
+    let _ = writeln!(
+        json,
+        "    \"host_writeback_enabled\": {},",
+        hdf_write_policy == rumiga_api::HdfWritePolicy::Writeback
+    );
     let _ = writeln!(json, "    \"hdf_dirty\": {},", ide.hdf_dirty);
     let _ = writeln!(json, "    \"pending_irq\": {},", ide.pending_irq);
     let _ = writeln!(
@@ -2304,6 +2392,12 @@ fn push_gayle_ide_state_json(json: &mut String, emulator: &Emulator) {
     let _ = writeln!(json, "    \"hcyl\": {},", ide.hcyl);
     let _ = writeln!(json, "    \"current_lba\": {},", ide.current_lba());
     let _ = writeln!(json, "    \"total_sectors\": {},", ide.total_sectors());
+    let _ = writeln!(json, "    \"sector_size\": 512,");
+    let _ = writeln!(
+        json,
+        "    \"geometry_source\": {},",
+        json_string("chs-fallback")
+    );
     let _ = writeln!(json, "    \"cylinders\": {},", ide.cylinders);
     let _ = writeln!(json, "    \"heads\": {},", ide.heads);
     let _ = writeln!(
@@ -2804,6 +2898,10 @@ const fn map_key_to_amiga(key: Key) -> Option<u8> {
 mod tests {
     use super::*;
 
+    fn unique_temp_path(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("rumiga-{label}-{}.hdf", std::process::id()))
+    }
+
     fn default_test_args() -> LaunchArgs {
         LaunchArgs {
             model: None,
@@ -2814,6 +2912,7 @@ mod tests {
             rom_path: "kick.rom".to_owned(),
             adf_paths: Vec::new(),
             hdf_path: None,
+            hdf_write_policy: rumiga_api::HdfWritePolicy::ReadOnly,
             cpu: None,
             chip_ram: None,
             slow_ram: None,
@@ -3001,6 +3100,55 @@ mod tests {
             parse_args(&args),
             Ok(LaunchArgs {
                 hdf_path: Some("system.hdf".to_owned()),
+                ..default_test_args()
+            })
+        );
+    }
+
+    #[test]
+    fn parse_args_defaults_hdf_to_read_only_policy() {
+        let args = vec!["kick.rom".to_owned()];
+
+        assert_eq!(
+            parse_args(&args),
+            Ok(LaunchArgs {
+                hdf_write_policy: rumiga_api::HdfWritePolicy::ReadOnly,
+                ..default_test_args()
+            })
+        );
+    }
+
+    #[test]
+    fn parse_args_accepts_hdf_writeback_shortcut() {
+        let args = vec![
+            "--hdf".to_owned(),
+            "system.hdf".to_owned(),
+            "--hdf-writeback".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+
+        assert_eq!(
+            parse_args(&args),
+            Ok(LaunchArgs {
+                hdf_path: Some("system.hdf".to_owned()),
+                hdf_write_policy: rumiga_api::HdfWritePolicy::Writeback,
+                ..default_test_args()
+            })
+        );
+    }
+
+    #[test]
+    fn parse_args_accepts_hdf_write_policy() {
+        let args = vec![
+            "--hdf-write-policy".to_owned(),
+            "snapshot".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+
+        assert_eq!(
+            parse_args(&args),
+            Ok(LaunchArgs {
+                hdf_write_policy: rumiga_api::HdfWritePolicy::ReadOnly,
                 ..default_test_args()
             })
         );
@@ -3201,6 +3349,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cognitive_complexity)]
     fn capture_manifest_contains_stable_schema_fields() {
         let config = MemoryConfig::a500();
         let emulator = Emulator::new(config.clone());
@@ -3278,6 +3427,10 @@ mod tests {
         assert_eq!(manifest["cia"]["b"]["timer_b"]["auto_start_writes"], 0);
         assert_eq!(manifest["cia"]["b"]["timer_b"]["underflows"], 0);
         assert_eq!(manifest["cia"]["b"]["register_writes"]["crb"]["count"], 0);
+        assert_eq!(manifest["gayle_ide"]["hdf_write_policy"], "read-only");
+        assert_eq!(manifest["gayle_ide"]["host_writeback_enabled"], false);
+        assert_eq!(manifest["gayle_ide"]["geometry_source"], "chs-fallback");
+        assert_eq!(manifest["gayle_ide"]["sector_size"], 512);
         assert_eq!(manifest["viewport"]["source_width"], WIDTH);
         assert_eq!(manifest["viewport"]["preset"], "AutoCenter");
         assert_eq!(manifest["viewport"]["output_width"], 2);
@@ -3291,6 +3444,56 @@ mod tests {
         );
         assert_eq!(manifest["run"]["frames"], 42);
         assert!(manifest["media"]["rom"]["sha256"].is_string());
+    }
+
+    #[test]
+    fn flush_dirty_hdf_keeps_source_file_read_only_by_default() {
+        let path = unique_temp_path("hdf-readonly");
+        fs::write(&path, [0x11u8; 512]).expect("temp HDF should be writable");
+
+        let mut emulator = Emulator::new(MemoryConfig::a1200());
+        emulator.insert_hdf(vec![0x22u8; 512]);
+        emulator.memory.ide.borrow_mut().hdf_dirty = true;
+        let args = LaunchArgs {
+            hdf_path: Some(path.display().to_string()),
+            hdf_write_policy: rumiga_api::HdfWritePolicy::ReadOnly,
+            ..default_test_args()
+        };
+        let floppies = [None, None, None, None];
+
+        flush_dirty_media(&mut emulator, &args, &floppies);
+
+        assert_eq!(
+            fs::read(&path).expect("temp HDF should remain"),
+            [0x11u8; 512]
+        );
+        assert!(!emulator.hdf_dirty());
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn flush_dirty_hdf_persists_when_writeback_is_explicit() {
+        let path = unique_temp_path("hdf-writeback");
+        fs::write(&path, [0x11u8; 512]).expect("temp HDF should be writable");
+
+        let mut emulator = Emulator::new(MemoryConfig::a1200());
+        emulator.insert_hdf(vec![0x22u8; 512]);
+        emulator.memory.ide.borrow_mut().hdf_dirty = true;
+        let args = LaunchArgs {
+            hdf_path: Some(path.display().to_string()),
+            hdf_write_policy: rumiga_api::HdfWritePolicy::Writeback,
+            ..default_test_args()
+        };
+        let floppies = [None, None, None, None];
+
+        flush_dirty_media(&mut emulator, &args, &floppies);
+
+        assert_eq!(
+            fs::read(&path).expect("temp HDF should remain"),
+            [0x22u8; 512]
+        );
+        assert!(!emulator.hdf_dirty());
+        let _ = fs::remove_file(path);
     }
 
     #[test]

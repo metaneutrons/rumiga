@@ -237,6 +237,10 @@ pub struct MachineConfig {
     pub floppy: [Option<String>; 4],
     #[serde(default = "default_floppy_speed_percent")]
     pub floppy_speed_percent: u16,
+    #[serde(default)]
+    pub hdf_path: Option<String>,
+    #[serde(default)]
+    pub hdf_write_policy: HdfWritePolicy,
     pub audio: AudioConfig,
     pub display: DisplayConfig,
 }
@@ -251,6 +255,8 @@ impl Default for MachineConfig {
             rom_file: String::new(),
             floppy: [None, None, None, None],
             floppy_speed_percent: default_floppy_speed_percent(),
+            hdf_path: None,
+            hdf_write_policy: HdfWritePolicy::ReadOnly,
             audio: AudioConfig::default(),
             display: DisplayConfig::default(),
         }
@@ -264,6 +270,30 @@ const fn default_floppy_speed_percent() -> u16 {
 #[must_use]
 pub const fn is_supported_floppy_speed_percent(percent: u16) -> bool {
     matches!(percent, 0 | 100 | 200 | 400 | 800)
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HdfWritePolicy {
+    /// Keep guest writes in the session buffer and protect the source file.
+    ReadOnly,
+    /// Persist dirty sectors back to the source HDF on exit.
+    Writeback,
+}
+
+impl HdfWritePolicy {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ReadOnly => "read-only",
+            Self::Writeback => "writeback",
+        }
+    }
+}
+
+impl Default for HdfWritePolicy {
+    fn default() -> Self {
+        Self::ReadOnly
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
