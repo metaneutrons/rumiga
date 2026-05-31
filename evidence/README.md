@@ -154,6 +154,21 @@ list them under "Filtered Manifests", and classify catalog entries with no
 current manifest as skipped. Use `--git-sha <sha-or-prefix>` to reproduce the
 same filtering for a specific build.
 
+## REST/Web Control-Plane Evidence
+
+Generate the no-media API/Web contract scenario with:
+
+```sh
+scripts/check-api-dto-parity.py \
+  --evidence-output target/evidence/rest-web-control-roundtrip/rumiga.json \
+  --notes-output target/evidence/rest-web-control-roundtrip/notes.md
+```
+
+This scenario compares Rust DTO structs, Rust enums, TypeScript interfaces,
+TypeScript unions, and endpoint contracts. The emitted manifest is intentionally
+asset-free and lets the compatibility report promote
+`rest-web-control-roundtrip` from a placeholder to a release-gate result.
+
 ## Current Classification Rules
 
 - `edge_integrity.mirrored_non_background_pixels == 0` means the first visible
@@ -177,6 +192,8 @@ same filtering for a specific build.
   exchange is promoted through the separate `a2065-guest-tcp` scenario.
 - `guest-tcp-evidence` requires a guest network stack to configure A2065 and
   meet the packet-counter thresholds set by the scenario.
+- `rest-web-control-roundtrip` requires the generated control-plane evidence
+  manifest to report DTO and endpoint parity.
 - Compatibility reports classify a scenario as `fail` for schema drift,
   mirrored viewport edges, active boot workarounds, unusable RDB geometry, or an
   incomplete required A2065/SLIRP contract.

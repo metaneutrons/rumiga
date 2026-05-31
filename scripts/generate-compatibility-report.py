@@ -292,6 +292,7 @@ def classify_manifest(
     hdf = data.get("gayle_ide", {})
     network = data.get("network", {})
     media = data.get("media", {})
+    control_plane = data.get("control_plane", {})
 
     notes: list[str] = []
     hard_fail = False
@@ -336,6 +337,18 @@ def classify_manifest(
     if bool_value(boot.get("rom_drive_step_patch")):
         partial = True
         notes.append("ROM drive step patch is active")
+
+    if scenario == "rest-web-control-roundtrip":
+        if not isinstance(control_plane, dict) or not bool_value(control_plane.get("parity_ok")):
+            hard_fail = True
+            notes.append("REST/Web control-plane parity check did not pass")
+        else:
+            notes.append(
+                "REST/Web control-plane parity passed: "
+                f"{scalar(control_plane.get('struct_count'))} structs, "
+                f"{scalar(control_plane.get('enum_count'))} enums, "
+                f"{scalar(control_plane.get('endpoint_count'))} endpoints"
+            )
 
     has_hdf = media.get("hdf") is not None or bool_value(hdf.get("disk_inserted"))
     if has_hdf:

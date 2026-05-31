@@ -4,7 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
+import platform
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -64,6 +68,16 @@ def parse_args() -> argparse.Namespace:
         "--typescript",
         default="web/src/lib/api.ts",
         help="TypeScript API source file.",
+    )
+    parser.add_argument(
+        "--evidence-output",
+        default=None,
+        help="Optional rumiga.json path for REST/Web control-plane evidence.",
+    )
+    parser.add_argument(
+        "--notes-output",
+        default=None,
+        help="Optional notes.md path for REST/Web control-plane evidence.",
     )
     return parser.parse_args()
 
@@ -159,6 +173,37 @@ def ts_api_endpoints(source: str) -> list[str]:
     ]
 
 
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def git_output(*args: str) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return result.stdout.strip()
+
+
+def git_sha() -> str:
+    return git_output("rev-parse", "HEAD") or "unknown"
+
+
+def git_dirty() -> bool:
+    status = git_output("status", "--short")
+    return bool(status)
+
+
 def compare_lists(kind: str, name: str, rust_values: list[str], ts_values: list[str]) -> list[str]:
     if rust_values == ts_values:
         return []
@@ -169,6 +214,77 @@ def compare_lists(kind: str, name: str, rust_values: list[str], ts_values: list[
     ]
 
 
+def write_control_plane_evidence(
+    manifest_path: Path,
+    notes_path: Path | None,
+    rust_path: Path,
+    ts_path: Path,
+    endpoint_contracts: list[str],
+    failures: list[str],
+) -> None:
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    parity_ok = not failures
+    manifest = {
+        "schema": {"id": "rumiga.capture.v1", "version": 1},
+        "producer": {
+            "name": "check-api-dto-parity",
+            "version": "1",
+            "git_sha": git_sha(),
+            "git_dirty": git_dirty(),
+            "target_os": platform.system().lower() or "unknown",
+            "target_arch": platform.machine() or "unknown",
+        },
+        "model": "desktop",
+        "cpu": "host",
+        "video_standard": "n/a",
+        "run": {"frames": 0, "stopped": True},
+        "control_plane": {
+            "scenario": "rest-web-control-roundtrip",
+            "parity_ok": parity_ok,
+            "struct_count": len(STRUCTS),
+            "enum_count": len(ENUMS),
+            "endpoint_count": len(endpoint_contracts),
+            "structs": list(STRUCTS),
+            "enums": list(ENUMS),
+            "endpoints": endpoint_contracts,
+            "failures": failures,
+            "sources": {
+                "rust": {
+                    "path": str(rust_path),
+                    "sha256": file_sha256(rust_path),
+                },
+                "typescript": {
+                    "path": str(ts_path),
+                    "sha256": file_sha256(ts_path),
+                },
+            },
+        },
+    }
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+
+    if notes_path is None:
+        return
+
+    notes_path.parent.mkdir(parents=True, exist_ok=True)
+    result = "pass" if parity_ok else "fail"
+    notes = [
+        "# REST/Web Control-Plane Evidence",
+        "",
+        f"- Result: `{result}`",
+        f"- Rust DTO source: `{rust_path}`",
+        f"- TypeScript DTO source: `{ts_path}`",
+        f"- Structs compared: `{len(STRUCTS)}`",
+        f"- Enums compared: `{len(ENUMS)}`",
+        f"- Endpoint contracts compared: `{len(endpoint_contracts)}`",
+    ]
+    if failures:
+        notes.append("- Failures:")
+        notes.extend(f"  - {failure}" for failure in failures)
+    else:
+        notes.append("- DTO structs, enums, and endpoint contracts match.")
+    notes_path.write_text("\n".join(notes) + "\n")
+
+
 def main() -> int:
     args = parse_args()
     rust_path = Path(args.rust)
@@ -176,6 +292,7 @@ def main() -> int:
     rust_source = rust_path.read_text()
     ts_source = ts_path.read_text()
     failures: list[str] = []
+    endpoint_contracts: list[str] = []
 
     for name in STRUCTS:
         failures.extend(
@@ -197,14 +314,25 @@ def main() -> int:
             )
         )
 
+    endpoint_contracts = rust_api_endpoints(rust_source)
     failures.extend(
         compare_lists(
             "contract",
             "API_ENDPOINTS",
-            rust_api_endpoints(rust_source),
+            endpoint_contracts,
             ts_api_endpoints(ts_source),
         )
     )
+
+    if args.evidence_output:
+        write_control_plane_evidence(
+            Path(args.evidence_output),
+            Path(args.notes_output) if args.notes_output else None,
+            rust_path,
+            ts_path,
+            endpoint_contracts,
+            failures,
+        )
 
     if failures:
         print("API DTO parity check failed:", file=sys.stderr)
@@ -213,7 +341,7 @@ def main() -> int:
 
     print(
         f"API DTO parity ok: {len(STRUCTS)} structs, {len(ENUMS)} enums, and "
-        f"{len(rust_api_endpoints(rust_source))} endpoints match "
+        f"{len(endpoint_contracts)} endpoints match "
         f"{rust_path} <-> {ts_path}"
     )
     return 0

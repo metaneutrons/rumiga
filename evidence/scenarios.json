@@ -202,7 +202,7 @@
       "cpu": "host",
       "video_standard": "n/a",
       "milestone": "CLI, REST API, and web UI expose the same completed controls for machine, viewport, storage, audio, screenshot, and network.",
-      "command": "scripts/check-api-dto-parity.py",
+      "command": "scripts/check-api-dto-parity.py --evidence-output target/evidence/rest-web-control-roundtrip/rumiga.json --notes-output target/evidence/rest-web-control-roundtrip/notes.md",
       "required_assets": [],
       "status_when_missing": "skipped-missing-assets",
       "notes": [
