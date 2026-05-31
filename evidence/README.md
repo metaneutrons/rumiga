@@ -183,6 +183,8 @@ same filtering for a specific build.
 - Compatibility reports classify a scenario as `partial` when the emulator path
   is usable but not fully proven, for example A2065 configured with link up but
   zero guest packet counters.
+- A guest CPU still running at the capture frame budget is normal for fixed-frame
+  visual evidence and is reported as a note, not a partial result.
 - Host-window screenshots are useful for presentation bugs, but native
   framebuffer captures are the release gate for chipset viewport correctness.
 - CLI capture defaults to `--capture-kind viewport-presentation`; use

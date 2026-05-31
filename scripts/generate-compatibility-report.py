@@ -307,8 +307,7 @@ def classify_manifest(
         )
 
     if not bool_value(run.get("stopped")):
-        partial = True
-        notes.append("capture did not stop cleanly")
+        notes.append("capture reached the fixed frame budget with the guest CPU still running")
 
     mirrored = int_value(edge.get("mirrored_non_background_pixels"))
     right_to_left = int_value(edge.get("right_edge_wrapped_to_left_pixels"))
