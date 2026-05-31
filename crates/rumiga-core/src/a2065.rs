@@ -200,6 +200,11 @@ impl A2065 {
         self.link_up = enabled;
     }
 
+    /// Update host-link state reported for diagnostics.
+    pub fn set_link_up(&mut self, link_up: bool) {
+        self.link_up = link_up;
+    }
+
     /// Queue a host-supplied Ethernet frame for guest receive-ring delivery.
     pub fn queue_receive_frame(&mut self, frame: Vec<u8>) {
         self.pending_receive_frames.push_back(frame);

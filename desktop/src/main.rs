@@ -3,6 +3,8 @@
 
 //! Rumiga desktop binary — development and debugging target.
 
+mod network;
+
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -13,6 +15,7 @@ use axum::{
     routing::{delete, get, post},
 };
 use minifb::Key;
+use network::DesktopNetworkBackend;
 use rumiga_core::cia::CiaState;
 use rumiga_core::custom;
 use rumiga_core::emulator::{
@@ -822,6 +825,8 @@ fn main() {
                 });
         emulator.enable_a2065(mac_address);
     }
+    let network_backend = DesktopNetworkBackend::new(&launch_args.network);
+    network_backend.apply_link_state(&emulator);
     if let Some(ref trace_path) = launch_args.trace_cpu {
         if let Err(e) = emulator.enable_cpu_trace(trace_path, launch_args.trace_limit) {
             eprintln!("Failed to enable CPU tracing to '{trace_path}': {e}");
@@ -889,6 +894,7 @@ fn main() {
     if let Some(ref capture_path) = launch_args.capture_path {
         if let Err(e) = capture_evidence(
             &mut emulator,
+            &network_backend,
             &CaptureEvidenceContext {
                 args: &launch_args,
                 model,
@@ -1111,6 +1117,9 @@ fn main() {
             }
 
             emulator.run_frame();
+            if let Err(e) = network_backend.pump(&emulator) {
+                eprintln!("Network backend error: {e}");
+            }
             let framebuffer = emulator.framebuffer();
             let display_config = {
                 let s = shared_state.lock().unwrap();
@@ -1809,10 +1818,12 @@ Options:
 
 fn capture_evidence(
     emulator: &mut Emulator,
+    network_backend: &DesktopNetworkBackend,
     context: &CaptureEvidenceContext<'_>,
 ) -> Result<(), String> {
     for _ in 0..context.args.capture_frames {
         emulator.run_frame();
+        network_backend.pump(emulator)?;
     }
 
     let frame = prepare_capture_frame(
