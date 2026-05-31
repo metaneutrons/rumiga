@@ -59,6 +59,22 @@ pub struct FormatRequest {
     pub confirm_token: String,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct FloppyInsertRequest {
+    pub drive_idx: usize,
+    pub path: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct FloppyEjectRequest {
+    pub drive_idx: usize,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct AudioSeparationRequest {
+    pub separation: u8,
+}
+
 // ─── WiFi ────────────────────────────────────────────────────────────────────
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

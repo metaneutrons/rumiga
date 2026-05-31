@@ -8,6 +8,8 @@ import {
   stopMachine,
   getMachineStatus,
   getSupportBundle,
+  insertFloppy,
+  ejectFloppy,
   type MachineConfig,
   type MachineStatus,
   type AmigaModel,
@@ -117,6 +119,19 @@ export default function MachinePage() {
       .catch(() => {});
   }, []);
 
+  async function refreshConfigAndStatus() {
+    const [configResponse, statusResponse] = await Promise.all([
+      getMachineConfig(),
+      getMachineStatus(),
+    ]);
+    if (configResponse.success && configResponse.data) {
+      setConfig(normalizeConfig(configResponse.data));
+    }
+    if (statusResponse.success && statusResponse.data) {
+      setStatus(statusResponse.data);
+    }
+  }
+
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     if (!config) return;
@@ -125,6 +140,7 @@ export default function MachinePage() {
     try {
       const r = await updateMachineConfig(config);
       if (!r.success) setError(r.error ?? 'Save failed');
+      else await refreshConfigAndStatus();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Save failed');
     } finally {
@@ -136,10 +152,7 @@ export default function MachinePage() {
     try {
       const r = await startMachine();
       if (!r.success) setError(r.error ?? 'Start failed');
-      else {
-        const s = await getMachineStatus();
-        if (s.success && s.data) setStatus(s.data);
-      }
+      else await refreshConfigAndStatus();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Start failed');
     }
@@ -149,10 +162,7 @@ export default function MachinePage() {
     try {
       const r = await stopMachine();
       if (!r.success) setError(r.error ?? 'Stop failed');
-      else {
-        const s = await getMachineStatus();
-        if (s.success && s.data) setStatus(s.data);
-      }
+      else await refreshConfigAndStatus();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Stop failed');
     }
@@ -180,6 +190,30 @@ export default function MachinePage() {
       setError(err instanceof Error ? err.message : 'Support bundle failed');
     } finally {
       setSupportBusy(false);
+    }
+  }
+
+  async function handleInsertFloppy(driveIdx: number) {
+    const path = config?.floppy[driveIdx];
+    if (!path) return;
+    setError(null);
+    try {
+      const r = await insertFloppy({ drive_idx: driveIdx, path });
+      if (!r.success) setError(r.error ?? `Insert DF${driveIdx} failed`);
+      else await refreshConfigAndStatus();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : `Insert DF${driveIdx} failed`);
+    }
+  }
+
+  async function handleEjectFloppy(driveIdx: number) {
+    setError(null);
+    try {
+      const r = await ejectFloppy({ drive_idx: driveIdx });
+      if (!r.success) setError(r.error ?? `Eject DF${driveIdx} failed`);
+      else await refreshConfigAndStatus();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : `Eject DF${driveIdx} failed`);
     }
   }
 
@@ -302,20 +336,37 @@ export default function MachinePage() {
             </select>
           </label>
           {config.floppy.map((disk, i) => (
-            <label key={i} className="block">
+            <div key={i} className="block">
               <span className="text-sm text-zinc-400">DF{i}:</span>
-              <input
-                type="text"
-                value={disk ?? ''}
-                onChange={(e) => {
-                  const floppy = [...config.floppy] as MachineConfig['floppy'];
-                  floppy[i] = e.target.value || null;
-                  setConfig({ ...config, floppy });
-                }}
-                placeholder="(empty)"
-                className="mt-1 block w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm"
-              />
-            </label>
+              <div className="mt-1 flex gap-2">
+                <input
+                  type="text"
+                  value={disk ?? ''}
+                  onChange={(e) => {
+                    const floppy = [...config.floppy] as MachineConfig['floppy'];
+                    floppy[i] = e.target.value || null;
+                    setConfig({ ...config, floppy });
+                  }}
+                  placeholder="(empty)"
+                  className="block min-w-0 flex-1 rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm"
+                />
+                <button
+                  type="button"
+                  disabled={!disk}
+                  onClick={() => handleInsertFloppy(i)}
+                  className="rounded bg-zinc-800 px-3 py-2 text-sm font-medium text-zinc-100 hover:bg-zinc-700 disabled:opacity-50"
+                >
+                  Insert
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleEjectFloppy(i)}
+                  className="rounded bg-zinc-900 px-3 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-800"
+                >
+                  Eject
+                </button>
+              </div>
+            </div>
           ))}
         </fieldset>
 

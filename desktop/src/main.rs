@@ -376,15 +376,9 @@ async fn post_resume(
     axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::ok(())))
 }
 
-#[derive(serde::Deserialize)]
-struct FloppyInsertRequest {
-    drive_idx: usize,
-    path: String,
-}
-
 async fn post_floppy_insert(
     axum::extract::State(state): axum::extract::State<Arc<Mutex<SharedState>>>,
-    axum::Json(payload): axum::Json<FloppyInsertRequest>,
+    axum::Json(payload): axum::Json<rumiga_api::FloppyInsertRequest>,
 ) -> axum::response::Json<serde_json::Value> {
     if payload.drive_idx >= 4 {
         return axum::response::Json(serde_json::json!(
@@ -405,14 +399,9 @@ async fn post_floppy_insert(
     axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::ok(())))
 }
 
-#[derive(serde::Deserialize)]
-struct FloppyEjectRequest {
-    drive_idx: usize,
-}
-
 async fn post_floppy_eject(
     axum::extract::State(state): axum::extract::State<Arc<Mutex<SharedState>>>,
-    axum::Json(payload): axum::Json<FloppyEjectRequest>,
+    axum::Json(payload): axum::Json<rumiga_api::FloppyEjectRequest>,
 ) -> axum::response::Json<serde_json::Value> {
     if payload.drive_idx >= 4 {
         return axum::response::Json(serde_json::json!(
@@ -432,14 +421,9 @@ async fn post_floppy_eject(
     axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::ok(())))
 }
 
-#[derive(serde::Deserialize)]
-struct AudioSeparationRequest {
-    separation: u8,
-}
-
 async fn post_audio_separation(
     axum::extract::State(state): axum::extract::State<Arc<Mutex<SharedState>>>,
-    axum::Json(payload): axum::Json<AudioSeparationRequest>,
+    axum::Json(payload): axum::Json<rumiga_api::AudioSeparationRequest>,
 ) -> axum::response::Json<serde_json::Value> {
     if payload.separation > 100 {
         return axum::response::Json(serde_json::json!(

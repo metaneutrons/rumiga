@@ -7,8 +7,11 @@ import {
   getMachineConfig,
   type MachineStatus,
   type MachineConfig,
-  startMachine,
-  stopMachine,
+  machineScreenshotUrl,
+  pauseMachine,
+  resetMachine,
+  resumeMachine,
+  updateAudioSeparation,
 } from '@/lib/api';
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -29,7 +32,7 @@ export default function DashboardPage() {
   const [config, setConfig] = useState<MachineConfig | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [audioSeparation, setAudioSeparation] = useState<number>(100);
-  const [screenshotUrl, setScreenshotUrl] = useState<string>('/api/machine/screenshot?t=0');
+  const [screenshotUrl, setScreenshotUrl] = useState<string>(machineScreenshotUrl(0));
   const [autoRefresh, setAutoRefresh] = useState<boolean>(true);
   const refreshInterval = useRef<NodeJS.Timeout | null>(null);
 
@@ -61,7 +64,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (autoRefresh) {
       refreshInterval.current = setInterval(() => {
-        setScreenshotUrl(`/api/machine/screenshot?t=${Date.now()}`);
+        setScreenshotUrl(machineScreenshotUrl(Date.now()));
       }, 200);
     } else {
       if (refreshInterval.current) {
@@ -77,9 +80,11 @@ export default function DashboardPage() {
     if (!status) return;
     try {
       if (status.running) {
-        await stopMachine(); // POST /api/machine/stop maps to pausing
+        const r = await pauseMachine();
+        if (!r.success) throw new Error(r.error ?? 'Pause failed');
       } else {
-        await startMachine(); // POST /api/machine/start maps to resuming
+        const r = await resumeMachine();
+        if (!r.success) throw new Error(r.error ?? 'Resume failed');
       }
       loadData();
     } catch (e: unknown) {
@@ -89,7 +94,8 @@ export default function DashboardPage() {
 
   const handleReset = async () => {
     try {
-      await fetch('/api/machine/reset', { method: 'POST' });
+      const r = await resetMachine();
+      if (!r.success) throw new Error(r.error ?? 'Reset failed');
       loadData();
     } catch (e: unknown) {
       setError(errorMessage(e, 'Reset failed'));
@@ -99,11 +105,8 @@ export default function DashboardPage() {
   const handleSeparationChange = async (val: number) => {
     setAudioSeparation(val);
     try {
-      await fetch('/api/machine/audio/separation', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ separation: val }),
-      });
+      const r = await updateAudioSeparation({ separation: val });
+      if (!r.success) throw new Error(r.error ?? 'Audio update failed');
     } catch (e: unknown) {
       setError(errorMessage(e, 'Audio update failed'));
     }

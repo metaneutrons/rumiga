@@ -42,6 +42,19 @@ export interface FormatRequest {
   confirm_token: string;
 }
 
+export interface FloppyInsertRequest {
+  drive_idx: number;
+  path: string;
+}
+
+export interface FloppyEjectRequest {
+  drive_idx: number;
+}
+
+export interface AudioSeparationRequest {
+  separation: number;
+}
+
 export interface WifiNetwork {
   ssid: string;
   rssi: number;
@@ -295,6 +308,36 @@ export function startMachine(): Promise<ApiResponse<null>> {
 
 export function stopMachine(): Promise<ApiResponse<null>> {
   return request(API_PATHS.machineStop, { method: 'POST' });
+}
+
+export function resetMachine(): Promise<ApiResponse<null>> {
+  return request(API_PATHS.machineReset, { method: 'POST' });
+}
+
+export function pauseMachine(): Promise<ApiResponse<null>> {
+  return request(API_PATHS.machinePause, { method: 'POST' });
+}
+
+export function resumeMachine(): Promise<ApiResponse<null>> {
+  return request(API_PATHS.machineResume, { method: 'POST' });
+}
+
+export function insertFloppy(requestBody: FloppyInsertRequest): Promise<ApiResponse<null>> {
+  return request(API_PATHS.machineFloppyInsert, json(requestBody));
+}
+
+export function ejectFloppy(requestBody: FloppyEjectRequest): Promise<ApiResponse<null>> {
+  return request(API_PATHS.machineFloppyEject, json(requestBody));
+}
+
+export function updateAudioSeparation(
+  requestBody: AudioSeparationRequest,
+): Promise<ApiResponse<null>> {
+  return request(API_PATHS.machineAudioSeparation, json(requestBody));
+}
+
+export function machineScreenshotUrl(cacheBust: string | number = Date.now()): string {
+  return `${API_PATHS.machineScreenshot}?t=${encodeURIComponent(String(cacheBust))}`;
 }
 
 export function getMachineStatus(): Promise<ApiResponse<MachineStatus>> {
