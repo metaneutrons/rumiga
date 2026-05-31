@@ -136,11 +136,7 @@ async fn get_status(
     axum::extract::State(state): axum::extract::State<Arc<Mutex<SharedState>>>,
 ) -> axum::response::Json<serde_json::Value> {
     let s = state.lock().unwrap();
-    let model_enum = match s.model.as_str() {
-        "a1200" => rumiga_api::AmigaModel::A1200,
-        "a500-plus" | "a600" => rumiga_api::AmigaModel::A500Plus,
-        _ => rumiga_api::AmigaModel::A500,
-    };
+    let model_enum = api_model_from_name(&s.model);
     axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::ok(
         rumiga_api::MachineStatus {
             running: s.running,
@@ -156,11 +152,7 @@ async fn get_config(
 ) -> axum::response::Json<serde_json::Value> {
     let config = {
         let s = state.lock().unwrap();
-        let model_enum = match s.model.as_str() {
-            "a1200" => rumiga_api::AmigaModel::A1200,
-            "a500-plus" | "a600" => rumiga_api::AmigaModel::A500Plus,
-            _ => rumiga_api::AmigaModel::A500,
-        };
+        let model_enum = api_model_from_name(&s.model);
         rumiga_api::MachineConfig {
             model: model_enum,
             chip_ram_kb: s.chip_ram_kb,
@@ -197,6 +189,86 @@ async fn get_config(
         }
     };
     axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::ok(config)))
+}
+
+async fn get_support_bundle(
+    axum::extract::State(state): axum::extract::State<Arc<Mutex<SharedState>>>,
+) -> axum::response::Json<serde_json::Value> {
+    let bundle = {
+        let s = state.lock().unwrap();
+        support_bundle_from_state(&s)
+    };
+    axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::ok(bundle)))
+}
+
+fn api_model_from_name(model: &str) -> rumiga_api::AmigaModel {
+    match model {
+        "a1200" => rumiga_api::AmigaModel::A1200,
+        "a500-plus" | "a600" => rumiga_api::AmigaModel::A500Plus,
+        _ => rumiga_api::AmigaModel::A500,
+    }
+}
+
+fn support_bundle_from_state(s: &SharedState) -> rumiga_api::SupportBundle {
+    let model = api_model_from_name(&s.model);
+    let screenshot_available =
+        !s.screenshot.is_empty() && s.screenshot_width > 0 && s.screenshot_height > 0;
+    let status = rumiga_api::MachineStatus {
+        running: s.running,
+        fps: s.fps,
+        model: model.clone(),
+        network: s.network_status.clone(),
+    };
+
+    rumiga_api::SupportBundle {
+        schema: SUPPORT_BUNDLE_SCHEMA_ID.to_string(),
+        machine: rumiga_api::SupportMachineSummary {
+            model,
+            chip_ram_kb: s.chip_ram_kb,
+            slow_ram_kb: s.slow_ram_kb,
+            fast_ram_kb: s.fast_ram_kb,
+            floppy_speed_percent: s.floppy_speed_percent,
+            hdf_write_policy: s.hdf_write_policy,
+        },
+        status,
+        display: s.display.clone(),
+        media: rumiga_api::SupportMediaSummary {
+            rom_name: support_file_name(&s.rom_file),
+            hdf_name: s.hdf_path.as_deref().and_then(support_file_name),
+            floppies: std::array::from_fn(|index| {
+                s.floppy[index].as_deref().and_then(support_file_name)
+            }),
+        },
+        screenshot: rumiga_api::SupportScreenshotSummary {
+            available: screenshot_available,
+            width: if screenshot_available {
+                s.screenshot_width
+            } else {
+                0
+            },
+            height: if screenshot_available {
+                s.screenshot_height
+            } else {
+                0
+            },
+            endpoint: "/api/machine/screenshot".to_string(),
+            pixel_format: "rgba8888-png".to_string(),
+        },
+        notes: vec![
+            "Media paths are redacted to file names; ROM/HDF/ADF bytes are not included."
+                .to_string(),
+            "Use the screenshot endpoint separately when a visual artifact is needed.".to_string(),
+        ],
+    }
+}
+
+fn support_file_name(path: &str) -> Option<String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let name = trimmed.rsplit(['/', '\\']).find(|part| !part.is_empty())?;
+    Some(name.to_string())
 }
 
 async fn put_config(
@@ -534,6 +606,7 @@ const CAPTURE_MANIFEST_SCHEMA_ID: &str = "rumiga.capture.v1";
 const CAPTURE_MANIFEST_SCHEMA_VERSION: u16 = 1;
 const EDGE_INSPECTION_LINES: usize = 20;
 const EDGE_INSPECTION_WIDTH: usize = 16;
+const SUPPORT_BUNDLE_SCHEMA_ID: &str = "rumiga.support.v1";
 
 /// Amiga ESC keycode.
 const AMIGA_KEY_ESC: u8 = 0x45;
@@ -958,6 +1031,7 @@ fn main() {
             let app = Router::new()
                 .route("/api/machine/status", get(get_status))
                 .route("/api/machine/config", get(get_config).put(put_config))
+                .route("/api/machine/support-bundle", get(get_support_bundle))
                 .route("/api/machine/reset", post(post_reset))
                 .route("/api/machine/pause", post(post_pause))
                 .route("/api/machine/resume", post(post_resume))
@@ -3188,6 +3262,66 @@ mod tests {
             mouse_scale_y: 1.0,
             audio_separation: 100,
         }
+    }
+
+    fn default_shared_state() -> SharedState {
+        SharedState {
+            running: true,
+            fps: 50.0,
+            model: "a1200".to_owned(),
+            chip_ram_kb: 2048,
+            slow_ram_kb: 0,
+            fast_ram_kb: 0,
+            rom_file: "kick.rom".to_owned(),
+            floppy: [None, None, None, None],
+            floppy_speed_percent: FLOPPY_SPEED_COMPATIBLE_PERCENT,
+            hdf_path: None,
+            hdf_write_policy: rumiga_api::HdfWritePolicy::ReadOnly,
+            network: rumiga_api::NetworkConfig::default(),
+            network_status: rumiga_api::NetworkStatus::default(),
+            stereo_separation: 100,
+            display: rumiga_api::DisplayConfig::default(),
+            screenshot: vec![0xFF00_0000; 4],
+            screenshot_width: 2,
+            screenshot_height: 2,
+            pending_commands: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn support_file_name_redacts_parent_paths() {
+        assert_eq!(
+            support_file_name("/Users/fabian/roms/kick.rom"),
+            Some("kick.rom".to_owned())
+        );
+        assert_eq!(
+            support_file_name("C:\\Amiga\\Workbench.adf"),
+            Some("Workbench.adf".to_owned())
+        );
+        assert_eq!(support_file_name(""), None);
+    }
+
+    #[test]
+    fn support_bundle_redacts_media_paths() {
+        let mut state = default_shared_state();
+        state.rom_file = "/Users/fabian/roms/kick.a1200.rom".to_owned();
+        state.hdf_path = Some("/Users/fabian/disks/workbench.hdf".to_owned());
+        state.floppy[0] = Some("/Users/fabian/disks/install.adf".to_owned());
+        state.network_status = rumiga_api::NetworkStatus::from_config(&rumiga_api::NetworkConfig {
+            backend: rumiga_api::NetworkBackend::Slirp,
+            ..rumiga_api::NetworkConfig::default()
+        });
+
+        let bundle = support_bundle_from_state(&state);
+        let json = serde_json::to_string(&bundle).expect("support bundle should serialize");
+
+        assert_eq!(bundle.schema, SUPPORT_BUNDLE_SCHEMA_ID);
+        assert_eq!(bundle.media.rom_name, Some("kick.a1200.rom".to_owned()));
+        assert_eq!(bundle.media.hdf_name, Some("workbench.hdf".to_owned()));
+        assert_eq!(bundle.media.floppies[0], Some("install.adf".to_owned()));
+        assert!(bundle.screenshot.available);
+        assert_eq!(bundle.screenshot.width, 2);
+        assert!(!json.contains("/Users/fabian"));
     }
 
     #[test]

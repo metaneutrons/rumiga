@@ -488,6 +488,45 @@ pub struct MachineStatus {
     pub network: NetworkStatus,
 }
 
+// ─── Support Bundle ─────────────────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SupportBundle {
+    pub schema: String,
+    pub machine: SupportMachineSummary,
+    pub status: MachineStatus,
+    pub display: DisplayConfig,
+    pub media: SupportMediaSummary,
+    pub screenshot: SupportScreenshotSummary,
+    pub notes: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SupportMachineSummary {
+    pub model: AmigaModel,
+    pub chip_ram_kb: u32,
+    pub slow_ram_kb: u32,
+    pub fast_ram_kb: u32,
+    pub floppy_speed_percent: u16,
+    pub hdf_write_policy: HdfWritePolicy,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SupportMediaSummary {
+    pub rom_name: Option<String>,
+    pub hdf_name: Option<String>,
+    pub floppies: [Option<String>; 4],
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SupportScreenshotSummary {
+    pub available: bool,
+    pub width: u32,
+    pub height: u32,
+    pub endpoint: String,
+    pub pixel_format: String,
+}
+
 // ─── Generic API Response ────────────────────────────────────────────────────
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

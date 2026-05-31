@@ -106,6 +106,11 @@ scripts/generate-compatibility-report.py \
   --output target/evidence/compatibility-report.md
 ```
 
+The desktop REST API also exposes `GET /api/machine/support-bundle` for a
+redacted JSON support snapshot. It includes current status, display settings,
+network counters, screenshot metadata, and media file names, but not ROM, HDF,
+ADF, screenshot, or packet-capture bytes.
+
 ### ESP-IDF Target
 
 Prerequisites:

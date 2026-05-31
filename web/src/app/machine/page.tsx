@@ -7,6 +7,7 @@ import {
   startMachine,
   stopMachine,
   getMachineStatus,
+  getSupportBundle,
   type MachineConfig,
   type MachineStatus,
   type AmigaModel,
@@ -100,6 +101,7 @@ export default function MachinePage() {
   const [status, setStatus] = useState<MachineStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [supportBusy, setSupportBusy] = useState(false);
 
   useEffect(() => {
     getMachineConfig()
@@ -156,6 +158,31 @@ export default function MachinePage() {
     }
   }
 
+  async function handleSupportBundle() {
+    setSupportBusy(true);
+    setError(null);
+    try {
+      const r = await getSupportBundle();
+      if (!r.success || !r.data) {
+        setError(r.error ?? 'Support bundle failed');
+        return;
+      }
+      const blob = new Blob([JSON.stringify(r.data, null, 2)], {
+        type: 'application/json',
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `rumiga-support-${Date.now()}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Support bundle failed');
+    } finally {
+      setSupportBusy(false);
+    }
+  }
+
   if (!config) {
     return <p className="text-zinc-400">{error ?? 'Loading…'}</p>;
   }
@@ -168,6 +195,13 @@ export default function MachinePage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Machine</h1>
         <div className="flex gap-2">
+          <button
+            onClick={handleSupportBundle}
+            disabled={supportBusy}
+            className="rounded bg-zinc-800 px-3 py-1.5 text-sm font-medium text-zinc-100 hover:bg-zinc-700 disabled:opacity-50"
+          >
+            {supportBusy ? 'Bundling' : 'Support JSON'}
+          </button>
           {status?.running ? (
             <button
               onClick={handleStop}

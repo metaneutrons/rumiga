@@ -114,6 +114,39 @@ export interface MachineStatus {
   network: NetworkStatus;
 }
 
+export interface SupportMachineSummary {
+  model: AmigaModel;
+  chip_ram_kb: number;
+  slow_ram_kb: number;
+  fast_ram_kb: number;
+  floppy_speed_percent: FloppySpeedPercent;
+  hdf_write_policy: HdfWritePolicy;
+}
+
+export interface SupportMediaSummary {
+  rom_name: string | null;
+  hdf_name: string | null;
+  floppies: [string | null, string | null, string | null, string | null];
+}
+
+export interface SupportScreenshotSummary {
+  available: boolean;
+  width: number;
+  height: number;
+  endpoint: string;
+  pixel_format: string;
+}
+
+export interface SupportBundle {
+  schema: string;
+  machine: SupportMachineSummary;
+  status: MachineStatus;
+  display: DisplayConfig;
+  media: SupportMediaSummary;
+  screenshot: SupportScreenshotSummary;
+  notes: string[];
+}
+
 export interface ApiResponse<T> {
   success: boolean;
   data: T | null;
@@ -195,4 +228,8 @@ export function stopMachine(): Promise<ApiResponse<null>> {
 
 export function getMachineStatus(): Promise<ApiResponse<MachineStatus>> {
   return request('/api/machine/status');
+}
+
+export function getSupportBundle(): Promise<ApiResponse<SupportBundle>> {
+  return request('/api/machine/support-bundle');
 }
