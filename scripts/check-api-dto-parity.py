@@ -30,6 +30,8 @@ STRUCTS = (
     "SupportMachineSummary",
     "SupportMediaSummary",
     "SupportScreenshotSummary",
+    "ApiEndpoint",
+    "ApiResponse",
 )
 
 ENUMS = (
@@ -41,6 +43,7 @@ ENUMS = (
     "HdfWritePolicy",
     "NetworkDevice",
     "NetworkBackend",
+    "ApiResponseFormat",
 )
 
 
@@ -123,6 +126,35 @@ def ts_union_variants(source: str, name: str) -> list[str]:
     return re.findall(r"'([^']+)'", match.group(1))
 
 
+def rust_api_endpoints(source: str) -> list[str]:
+    path_constants = dict(
+        re.findall(r'pub\s+const\s+([A-Z0-9_]+_PATH)\s*:\s*&str\s*=\s*"([^"]+)";', source)
+    )
+    endpoints: list[str] = []
+    for method, path_symbol, response_format in re.findall(
+        r'ApiEndpoint::new\(\s*"([^"]+)",\s*([A-Z0-9_]+_PATH),\s*ApiResponseFormat::([A-Za-z]+)\s*,?\s*\)',
+        source,
+    ):
+        path = path_constants.get(path_symbol)
+        if path is None:
+            raise ValueError(f"missing path constant {path_symbol}")
+        endpoints.append(f"{method} {path} {response_format}")
+    return endpoints
+
+
+def ts_api_endpoints(source: str) -> list[str]:
+    match = re.search(r"export\s+const\s+API_ENDPOINTS\s*=\s*\[(.*?)\]\s+as\s+const", source, flags=re.S)
+    if not match:
+        raise ValueError("missing TypeScript API_ENDPOINTS")
+    return [
+        f"{method} {path} {response_format}"
+        for method, path, response_format in re.findall(
+            r"\{\s*method:\s*'([^']+)',\s*path:\s*'([^']+)',\s*response_format:\s*'([^']+)'\s*\}",
+            match.group(1),
+        )
+    ]
+
+
 def compare_lists(kind: str, name: str, rust_values: list[str], ts_values: list[str]) -> list[str]:
     if rust_values == ts_values:
         return []
@@ -161,13 +193,23 @@ def main() -> int:
             )
         )
 
+    failures.extend(
+        compare_lists(
+            "contract",
+            "API_ENDPOINTS",
+            rust_api_endpoints(rust_source),
+            ts_api_endpoints(ts_source),
+        )
+    )
+
     if failures:
         print("API DTO parity check failed:", file=sys.stderr)
         print("\n".join(failures), file=sys.stderr)
         return 3
 
     print(
-        f"API DTO parity ok: {len(STRUCTS)} structs and {len(ENUMS)} enums match "
+        f"API DTO parity ok: {len(STRUCTS)} structs, {len(ENUMS)} enums, and "
+        f"{len(rust_api_endpoints(rust_source))} endpoints match "
         f"{rust_path} <-> {ts_path}"
     )
     return 0

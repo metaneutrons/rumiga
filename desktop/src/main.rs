@@ -276,26 +276,38 @@ async fn put_config(
     axum::Json(payload): axum::Json<rumiga_api::MachineConfig>,
 ) -> axum::response::Json<serde_json::Value> {
     if !is_supported_floppy_speed_percent(payload.floppy_speed_percent) {
-        return axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::err(
-            "Unsupported floppy speed".to_string()
-        )));
+        return axum::response::Json(serde_json::json!(
+            rumiga_api::ApiResponse::<()>::err_with_code(
+                "invalid_floppy_speed",
+                "Unsupported floppy speed".to_string()
+            )
+        ));
     }
     if payload.audio.stereo_separation > 100 {
-        return axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::err(
-            "Stereo separation must be 0-100".to_string()
-        )));
+        return axum::response::Json(serde_json::json!(
+            rumiga_api::ApiResponse::<()>::err_with_code(
+                "invalid_audio_separation",
+                "Stereo separation must be 0-100".to_string()
+            )
+        ));
     }
     if payload.display.viewport.width == 0 || payload.display.viewport.height == 0 {
-        return axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::err(
-            "Viewport width and height must be greater than zero".to_string()
-        )));
+        return axum::response::Json(serde_json::json!(
+            rumiga_api::ApiResponse::<()>::err_with_code(
+                "invalid_viewport",
+                "Viewport width and height must be greater than zero".to_string()
+            )
+        ));
     }
     if payload.network.backend != rumiga_api::NetworkBackend::Disabled
         && !rumiga_api::is_valid_unicast_mac_address(&payload.network.mac_address)
     {
-        return axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::err(
-            "Network MAC address must be a unicast address like 02:52:55:4d:49:47".to_string()
-        )));
+        return axum::response::Json(serde_json::json!(
+            rumiga_api::ApiResponse::<()>::err_with_code(
+                "invalid_network_mac",
+                "Network MAC address must be a unicast address like 02:52:55:4d:49:47".to_string()
+            )
+        ));
     }
 
     let mut s = state.lock().unwrap();
@@ -375,9 +387,12 @@ async fn post_floppy_insert(
     axum::Json(payload): axum::Json<FloppyInsertRequest>,
 ) -> axum::response::Json<serde_json::Value> {
     if payload.drive_idx >= 4 {
-        return axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::err(
-            "Invalid drive index".to_string()
-        )));
+        return axum::response::Json(serde_json::json!(
+            rumiga_api::ApiResponse::<()>::err_with_code(
+                "invalid_drive_index",
+                "Invalid drive index".to_string()
+            )
+        ));
     }
     state
         .lock()
@@ -400,9 +415,12 @@ async fn post_floppy_eject(
     axum::Json(payload): axum::Json<FloppyEjectRequest>,
 ) -> axum::response::Json<serde_json::Value> {
     if payload.drive_idx >= 4 {
-        return axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::err(
-            "Invalid drive index".to_string()
-        )));
+        return axum::response::Json(serde_json::json!(
+            rumiga_api::ApiResponse::<()>::err_with_code(
+                "invalid_drive_index",
+                "Invalid drive index".to_string()
+            )
+        ));
     }
     state
         .lock()
@@ -424,9 +442,12 @@ async fn post_audio_separation(
     axum::Json(payload): axum::Json<AudioSeparationRequest>,
 ) -> axum::response::Json<serde_json::Value> {
     if payload.separation > 100 {
-        return axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::err(
-            "Separation must be 0-100".to_string()
-        )));
+        return axum::response::Json(serde_json::json!(
+            rumiga_api::ApiResponse::<()>::err_with_code(
+                "invalid_audio_separation",
+                "Separation must be 0-100".to_string()
+            )
+        ));
     }
     state
         .lock()
@@ -503,9 +524,12 @@ async fn get_files(
     };
 
     if !target_dir.starts_with(base_dir) {
-        return axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::err(
-            "Access denied".to_string()
-        )));
+        return axum::response::Json(serde_json::json!(
+            rumiga_api::ApiResponse::<()>::err_with_code(
+                "access_denied",
+                "Access denied".to_string()
+            )
+        ));
     }
 
     let mut files = Vec::new();
@@ -547,6 +571,26 @@ async fn post_upload(
         }
     }
     axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::ok(())))
+}
+
+async fn post_format(
+    axum::Json(payload): axum::Json<rumiga_api::FormatRequest>,
+) -> axum::response::Json<serde_json::Value> {
+    if payload.confirm_token != "CONFIRM" {
+        return axum::response::Json(serde_json::json!(
+            rumiga_api::ApiResponse::<()>::err_with_code(
+                "invalid_confirm_token",
+                "Format confirmation token must be CONFIRM".to_string()
+            )
+        ));
+    }
+
+    axum::response::Json(serde_json::json!(
+        rumiga_api::ApiResponse::<()>::err_with_code(
+            "unsupported_on_desktop",
+            "Formatting removable media is not available on the desktop target".to_string()
+        )
+    ))
 }
 
 async fn delete_file_handler(
@@ -607,6 +651,109 @@ const CAPTURE_MANIFEST_SCHEMA_VERSION: u16 = 1;
 const EDGE_INSPECTION_LINES: usize = 20;
 const EDGE_INSPECTION_WIDTH: usize = 16;
 const SUPPORT_BUNDLE_SCHEMA_ID: &str = "rumiga.support.v1";
+#[cfg(test)]
+const DESKTOP_API_ENDPOINTS: &[rumiga_api::ApiEndpoint] = &[
+    rumiga_api::ApiEndpoint::new(
+        "GET",
+        rumiga_api::MACHINE_STATUS_PATH,
+        rumiga_api::ApiResponseFormat::Json,
+    ),
+    rumiga_api::ApiEndpoint::new(
+        "GET",
+        rumiga_api::MACHINE_CONFIG_PATH,
+        rumiga_api::ApiResponseFormat::Json,
+    ),
+    rumiga_api::ApiEndpoint::new(
+        "PUT",
+        rumiga_api::MACHINE_CONFIG_PATH,
+        rumiga_api::ApiResponseFormat::Json,
+    ),
+    rumiga_api::ApiEndpoint::new(
+        "GET",
+        rumiga_api::MACHINE_SUPPORT_BUNDLE_PATH,
+        rumiga_api::ApiResponseFormat::Json,
+    ),
+    rumiga_api::ApiEndpoint::new(
+        "POST",
+        rumiga_api::MACHINE_RESET_PATH,
+        rumiga_api::ApiResponseFormat::Json,
+    ),
+    rumiga_api::ApiEndpoint::new(
+        "POST",
+        rumiga_api::MACHINE_PAUSE_PATH,
+        rumiga_api::ApiResponseFormat::Json,
+    ),
+    rumiga_api::ApiEndpoint::new(
+        "POST",
+        rumiga_api::MACHINE_RESUME_PATH,
+        rumiga_api::ApiResponseFormat::Json,
+    ),
+    rumiga_api::ApiEndpoint::new(
+        "POST",
+        rumiga_api::MACHINE_START_PATH,
+        rumiga_api::ApiResponseFormat::Json,
+    ),
+    rumiga_api::ApiEndpoint::new(
+        "POST",
+        rumiga_api::MACHINE_STOP_PATH,
+        rumiga_api::ApiResponseFormat::Json,
+    ),
+    rumiga_api::ApiEndpoint::new(
+        "POST",
+        rumiga_api::MACHINE_FLOPPY_INSERT_PATH,
+        rumiga_api::ApiResponseFormat::Json,
+    ),
+    rumiga_api::ApiEndpoint::new(
+        "POST",
+        rumiga_api::MACHINE_FLOPPY_EJECT_PATH,
+        rumiga_api::ApiResponseFormat::Json,
+    ),
+    rumiga_api::ApiEndpoint::new(
+        "POST",
+        rumiga_api::MACHINE_AUDIO_SEPARATION_PATH,
+        rumiga_api::ApiResponseFormat::Json,
+    ),
+    rumiga_api::ApiEndpoint::new(
+        "GET",
+        rumiga_api::MACHINE_SCREENSHOT_PATH,
+        rumiga_api::ApiResponseFormat::Png,
+    ),
+    rumiga_api::ApiEndpoint::new(
+        "GET",
+        rumiga_api::FILES_PATH,
+        rumiga_api::ApiResponseFormat::Json,
+    ),
+    rumiga_api::ApiEndpoint::new(
+        "POST",
+        rumiga_api::FILES_UPLOAD_PATH,
+        rumiga_api::ApiResponseFormat::Json,
+    ),
+    rumiga_api::ApiEndpoint::new(
+        "DELETE",
+        rumiga_api::FILES_DELETE_PATH,
+        rumiga_api::ApiResponseFormat::Json,
+    ),
+    rumiga_api::ApiEndpoint::new(
+        "POST",
+        rumiga_api::FILES_FORMAT_PATH,
+        rumiga_api::ApiResponseFormat::Json,
+    ),
+    rumiga_api::ApiEndpoint::new(
+        "GET",
+        rumiga_api::WIFI_STATUS_PATH,
+        rumiga_api::ApiResponseFormat::Json,
+    ),
+    rumiga_api::ApiEndpoint::new(
+        "POST",
+        rumiga_api::WIFI_SCAN_PATH,
+        rumiga_api::ApiResponseFormat::Json,
+    ),
+    rumiga_api::ApiEndpoint::new(
+        "POST",
+        rumiga_api::WIFI_CONNECT_PATH,
+        rumiga_api::ApiResponseFormat::Json,
+    ),
+];
 
 /// Amiga ESC keycode.
 const AMIGA_KEY_ESC: u8 = 0x45;
@@ -1050,24 +1197,40 @@ fn main() {
 
         rt.block_on(async {
             let app = Router::new()
-                .route("/api/machine/status", get(get_status))
-                .route("/api/machine/config", get(get_config).put(put_config))
-                .route("/api/machine/support-bundle", get(get_support_bundle))
-                .route("/api/machine/reset", post(post_reset))
-                .route("/api/machine/pause", post(post_pause))
-                .route("/api/machine/resume", post(post_resume))
-                .route("/api/machine/start", post(post_resume))
-                .route("/api/machine/stop", post(post_pause))
-                .route("/api/machine/floppy/insert", post(post_floppy_insert))
-                .route("/api/machine/floppy/eject", post(post_floppy_eject))
-                .route("/api/machine/audio/separation", post(post_audio_separation))
-                .route("/api/machine/screenshot", get(get_screenshot))
-                .route("/api/files", get(get_files))
-                .route("/api/files/upload", post(post_upload))
-                .route("/api/files/:name", delete(delete_file_handler))
-                .route("/api/wifi/status", get(get_wifi_status))
-                .route("/api/wifi/scan", post(post_wifi_scan))
-                .route("/api/wifi/connect", post(post_wifi_connect))
+                .route(rumiga_api::MACHINE_STATUS_PATH, get(get_status))
+                .route(
+                    rumiga_api::MACHINE_CONFIG_PATH,
+                    get(get_config).put(put_config),
+                )
+                .route(
+                    rumiga_api::MACHINE_SUPPORT_BUNDLE_PATH,
+                    get(get_support_bundle),
+                )
+                .route(rumiga_api::MACHINE_RESET_PATH, post(post_reset))
+                .route(rumiga_api::MACHINE_PAUSE_PATH, post(post_pause))
+                .route(rumiga_api::MACHINE_RESUME_PATH, post(post_resume))
+                .route(rumiga_api::MACHINE_START_PATH, post(post_resume))
+                .route(rumiga_api::MACHINE_STOP_PATH, post(post_pause))
+                .route(
+                    rumiga_api::MACHINE_FLOPPY_INSERT_PATH,
+                    post(post_floppy_insert),
+                )
+                .route(
+                    rumiga_api::MACHINE_FLOPPY_EJECT_PATH,
+                    post(post_floppy_eject),
+                )
+                .route(
+                    rumiga_api::MACHINE_AUDIO_SEPARATION_PATH,
+                    post(post_audio_separation),
+                )
+                .route(rumiga_api::MACHINE_SCREENSHOT_PATH, get(get_screenshot))
+                .route(rumiga_api::FILES_PATH, get(get_files))
+                .route(rumiga_api::FILES_UPLOAD_PATH, post(post_upload))
+                .route(rumiga_api::FILES_FORMAT_PATH, post(post_format))
+                .route(rumiga_api::FILES_DELETE_PATH, delete(delete_file_handler))
+                .route(rumiga_api::WIFI_STATUS_PATH, get(get_wifi_status))
+                .route(rumiga_api::WIFI_SCAN_PATH, post(post_wifi_scan))
+                .route(rumiga_api::WIFI_CONNECT_PATH, post(post_wifi_connect))
                 .fallback(static_handler)
                 .with_state(server_state);
 
@@ -3479,6 +3642,30 @@ mod tests {
         assert!(bundle.screenshot.available);
         assert_eq!(bundle.screenshot.width, 2);
         assert!(!json.contains("/Users/fabian"));
+    }
+
+    #[test]
+    fn desktop_api_endpoint_contract_matches_shared_contract() {
+        assert_eq!(DESKTOP_API_ENDPOINTS, rumiga_api::API_ENDPOINTS);
+    }
+
+    #[tokio::test]
+    async fn post_format_returns_versioned_unsupported_error_on_desktop() {
+        let response = post_format(axum::Json(rumiga_api::FormatRequest {
+            confirm_token: "CONFIRM".to_owned(),
+        }))
+        .await;
+
+        assert_eq!(
+            response.0["schema"],
+            serde_json::Value::String(rumiga_api::API_RESPONSE_SCHEMA_ID.to_owned())
+        );
+        assert_eq!(
+            response.0["version"],
+            serde_json::Value::from(rumiga_api::API_RESPONSE_SCHEMA_VERSION)
+        );
+        assert_eq!(response.0["success"], false);
+        assert_eq!(response.0["error_code"], "unsupported_on_desktop");
     }
 
     #[test]

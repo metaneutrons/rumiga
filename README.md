@@ -113,7 +113,8 @@ scripts/generate-compatibility-report.py \
   --output target/evidence/compatibility-report.md
 ```
 
-Check that Rust REST DTOs still match the web UI TypeScript contract:
+Check that Rust REST DTOs and public endpoint contracts still match the web UI
+TypeScript contract:
 
 ```bash
 scripts/check-api-dto-parity.py

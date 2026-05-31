@@ -14,6 +14,29 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
+pub const API_RESPONSE_SCHEMA_ID: &str = "rumiga.api.response.v1";
+pub const API_RESPONSE_SCHEMA_VERSION: u16 = 1;
+
+pub const MACHINE_STATUS_PATH: &str = "/api/machine/status";
+pub const MACHINE_CONFIG_PATH: &str = "/api/machine/config";
+pub const MACHINE_SUPPORT_BUNDLE_PATH: &str = "/api/machine/support-bundle";
+pub const MACHINE_RESET_PATH: &str = "/api/machine/reset";
+pub const MACHINE_PAUSE_PATH: &str = "/api/machine/pause";
+pub const MACHINE_RESUME_PATH: &str = "/api/machine/resume";
+pub const MACHINE_START_PATH: &str = "/api/machine/start";
+pub const MACHINE_STOP_PATH: &str = "/api/machine/stop";
+pub const MACHINE_FLOPPY_INSERT_PATH: &str = "/api/machine/floppy/insert";
+pub const MACHINE_FLOPPY_EJECT_PATH: &str = "/api/machine/floppy/eject";
+pub const MACHINE_AUDIO_SEPARATION_PATH: &str = "/api/machine/audio/separation";
+pub const MACHINE_SCREENSHOT_PATH: &str = "/api/machine/screenshot";
+pub const FILES_PATH: &str = "/api/files";
+pub const FILES_UPLOAD_PATH: &str = "/api/files/upload";
+pub const FILES_DELETE_PATH: &str = "/api/files/:name";
+pub const FILES_FORMAT_PATH: &str = "/api/files/format";
+pub const WIFI_STATUS_PATH: &str = "/api/wifi/status";
+pub const WIFI_SCAN_PATH: &str = "/api/wifi/scan";
+pub const WIFI_CONNECT_PATH: &str = "/api/wifi/connect";
+
 // ─── File Management ─────────────────────────────────────────────────────────
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -529,29 +552,98 @@ pub struct SupportScreenshotSummary {
 
 // ─── Generic API Response ────────────────────────────────────────────────────
 
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ApiResponseFormat {
+    Json,
+    Png,
+}
+
+#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ApiEndpoint {
+    pub method: &'static str,
+    pub path: &'static str,
+    pub response_format: ApiResponseFormat,
+}
+
+impl ApiEndpoint {
+    #[must_use]
+    pub const fn new(
+        method: &'static str,
+        path: &'static str,
+        response_format: ApiResponseFormat,
+    ) -> Self {
+        Self {
+            method,
+            path,
+            response_format,
+        }
+    }
+}
+
+pub const API_ENDPOINTS: &[ApiEndpoint] = &[
+    ApiEndpoint::new("GET", MACHINE_STATUS_PATH, ApiResponseFormat::Json),
+    ApiEndpoint::new("GET", MACHINE_CONFIG_PATH, ApiResponseFormat::Json),
+    ApiEndpoint::new("PUT", MACHINE_CONFIG_PATH, ApiResponseFormat::Json),
+    ApiEndpoint::new("GET", MACHINE_SUPPORT_BUNDLE_PATH, ApiResponseFormat::Json),
+    ApiEndpoint::new("POST", MACHINE_RESET_PATH, ApiResponseFormat::Json),
+    ApiEndpoint::new("POST", MACHINE_PAUSE_PATH, ApiResponseFormat::Json),
+    ApiEndpoint::new("POST", MACHINE_RESUME_PATH, ApiResponseFormat::Json),
+    ApiEndpoint::new("POST", MACHINE_START_PATH, ApiResponseFormat::Json),
+    ApiEndpoint::new("POST", MACHINE_STOP_PATH, ApiResponseFormat::Json),
+    ApiEndpoint::new("POST", MACHINE_FLOPPY_INSERT_PATH, ApiResponseFormat::Json),
+    ApiEndpoint::new("POST", MACHINE_FLOPPY_EJECT_PATH, ApiResponseFormat::Json),
+    ApiEndpoint::new(
+        "POST",
+        MACHINE_AUDIO_SEPARATION_PATH,
+        ApiResponseFormat::Json,
+    ),
+    ApiEndpoint::new("GET", MACHINE_SCREENSHOT_PATH, ApiResponseFormat::Png),
+    ApiEndpoint::new("GET", FILES_PATH, ApiResponseFormat::Json),
+    ApiEndpoint::new("POST", FILES_UPLOAD_PATH, ApiResponseFormat::Json),
+    ApiEndpoint::new("DELETE", FILES_DELETE_PATH, ApiResponseFormat::Json),
+    ApiEndpoint::new("POST", FILES_FORMAT_PATH, ApiResponseFormat::Json),
+    ApiEndpoint::new("GET", WIFI_STATUS_PATH, ApiResponseFormat::Json),
+    ApiEndpoint::new("POST", WIFI_SCAN_PATH, ApiResponseFormat::Json),
+    ApiEndpoint::new("POST", WIFI_CONNECT_PATH, ApiResponseFormat::Json),
+];
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ApiResponse<T> {
+    pub schema: String,
+    pub version: u16,
     pub success: bool,
     pub data: Option<T>,
     pub error: Option<String>,
+    pub error_code: Option<String>,
 }
 
 impl<T> ApiResponse<T> {
     #[must_use]
-    pub const fn ok(data: T) -> Self {
+    pub fn ok(data: T) -> Self {
         Self {
+            schema: String::from(API_RESPONSE_SCHEMA_ID),
+            version: API_RESPONSE_SCHEMA_VERSION,
             success: true,
             data: Some(data),
             error: None,
+            error_code: None,
         }
     }
 
     #[must_use]
-    pub const fn err(message: String) -> Self {
+    pub fn err(message: String) -> Self {
+        Self::err_with_code("request_failed", message)
+    }
+
+    #[must_use]
+    pub fn err_with_code(code: &'static str, message: String) -> Self {
         Self {
+            schema: String::from(API_RESPONSE_SCHEMA_ID),
+            version: API_RESPONSE_SCHEMA_VERSION,
             success: false,
             data: None,
             error: Some(message),
+            error_code: Some(String::from(code)),
         }
     }
 }
@@ -590,5 +682,32 @@ mod tests {
         assert_eq!(status.mac_address, DEFAULT_NETWORK_MAC_ADDRESS);
         assert_eq!(status.a2065_card_mac_address, DEFAULT_NETWORK_MAC_ADDRESS);
         assert_eq!(status.counters, NetworkPacketCounters::default());
+    }
+
+    #[test]
+    fn api_response_is_schema_versioned() {
+        let ok = ApiResponse::ok(());
+        let err = ApiResponse::<()>::err_with_code("invalid_request", String::from("bad input"));
+
+        assert_eq!(ok.schema, API_RESPONSE_SCHEMA_ID);
+        assert_eq!(ok.version, API_RESPONSE_SCHEMA_VERSION);
+        assert!(ok.success);
+        assert!(ok.error_code.is_none());
+        assert_eq!(err.schema, API_RESPONSE_SCHEMA_ID);
+        assert_eq!(err.version, API_RESPONSE_SCHEMA_VERSION);
+        assert!(!err.success);
+        assert_eq!(err.error_code, Some(String::from("invalid_request")));
+    }
+
+    #[test]
+    fn api_endpoint_contract_lists_public_paths() {
+        assert!(API_ENDPOINTS.iter().any(|endpoint| {
+            endpoint.method == "GET" && endpoint.path == MACHINE_SCREENSHOT_PATH
+        }));
+        assert!(
+            API_ENDPOINTS.iter().any(|endpoint| {
+                endpoint.method == "POST" && endpoint.path == FILES_FORMAT_PATH
+            })
+        );
     }
 }
