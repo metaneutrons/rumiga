@@ -10,8 +10,11 @@ hdf_snapshot="${RUMIGA_HDF_SNAPSHOT:-}"
 cpu="${RUMIGA_A1200_CPU:-68020}"
 frames="${RUMIGA_CAPTURE_FRAMES:-4000}"
 out_dir="${RUMIGA_EVIDENCE_DIR:-target/evidence/a1200-hdf}"
-png="$out_dir/rumiga.png"
-manifest="$out_dir/rumiga.json"
+capture_native="${RUMIGA_CAPTURE_NATIVE:-1}"
+presentation_png="$out_dir/rumiga.png"
+presentation_manifest="$out_dir/rumiga.json"
+native_png="$out_dir/rumiga-native.png"
+native_manifest="$out_dir/rumiga-native.json"
 notes="$out_dir/notes.md"
 
 if [[ ! -f "$rom" ]]; then
@@ -28,33 +31,63 @@ fi
 
 mkdir -p "$out_dir"
 
-cmd=(
-  cargo run --release -p rumiga-desktop --bin rumiga-desktop --
-  --model a1200
-  --cpu "$cpu"
-  --hdf "$hdf"
-  --capture "$png"
-  --capture-manifest "$manifest"
-  --capture-frames "$frames"
-)
-if [[ -n "$hdf_snapshot" ]]; then
-  cmd+=(--hdf-snapshot "$hdf_snapshot")
-fi
-cmd+=("$rom")
-"${cmd[@]}"
+run_capture() {
+  local kind="$1"
+  local png_path="$2"
+  local manifest_path="$3"
+  local include_hdf_snapshot="$4"
 
-python3 - "$manifest" "$notes" <<'PY'
+  local cmd=(
+    cargo run --release -p rumiga-desktop --bin rumiga-desktop --
+    --model a1200
+    --cpu "$cpu"
+    --hdf "$hdf"
+    --capture "$png_path"
+    --capture-manifest "$manifest_path"
+    --capture-frames "$frames"
+    --capture-kind "$kind"
+  )
+  if [[ "$include_hdf_snapshot" == "1" && -n "$hdf_snapshot" ]]; then
+    cmd+=(--hdf-snapshot "$hdf_snapshot")
+  fi
+  cmd+=("$rom")
+  "${cmd[@]}"
+}
+
+run_capture viewport-presentation "$presentation_png" "$presentation_manifest" 1
+
+native_manifest_arg=""
+capture_native_normalized="$(printf '%s' "$capture_native" | tr '[:upper:]' '[:lower:]')"
+case "$capture_native_normalized" in
+  0|false|no|off)
+    ;;
+  *)
+    run_capture native-framebuffer "$native_png" "$native_manifest" 0
+    native_manifest_arg="$native_manifest"
+    ;;
+esac
+
+python3 - "$presentation_manifest" "$notes" "$native_manifest_arg" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 manifest_path = Path(sys.argv[1])
 notes_path = Path(sys.argv[2])
+native_manifest_path = Path(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3] else None
 data = json.loads(manifest_path.read_text())
+native_data = (
+    json.loads(native_manifest_path.read_text())
+    if native_manifest_path is not None and native_manifest_path.exists()
+    else None
+)
 edge = data.get("edge_integrity", {})
 viewport = data.get("viewport", {})
 presentation = data.get("presentation", {})
 framebuffer = data.get("framebuffer", {})
+native_viewport = native_data.get("viewport", {}) if isinstance(native_data, dict) else {}
+native_presentation = native_data.get("presentation", {}) if isinstance(native_data, dict) else {}
+native_framebuffer = native_data.get("framebuffer", {}) if isinstance(native_data, dict) else {}
 producer = data.get("producer", {})
 run = data.get("run", {})
 schema = data.get("schema", {})
@@ -78,6 +111,8 @@ classification = (
 )
 
 print(f"manifest={manifest_path}")
+if native_manifest_path is not None:
+    print(f"native_manifest={native_manifest_path}")
 print(f"notes={notes_path}")
 print(f"schema={schema.get('id')}@{schema.get('version')}")
 print(f"git={producer.get('git_sha')} dirty={producer.get('git_dirty')}")
@@ -91,6 +126,16 @@ print(
     f" scaling={presentation.get('scaling')}"
     f" kind={presentation.get('capture_kind')}"
 )
+if isinstance(native_data, dict):
+    print(
+        "native_capture="
+        f"{native_viewport.get('output_width')}x{native_viewport.get('output_height')}"
+        f" kind={native_presentation.get('capture_kind')}"
+        f" colors={native_framebuffer.get('distinct_colors')}"
+        f" changed={native_framebuffer.get('pixels_different_from_background')}"
+    )
+else:
+    print("native_capture=disabled")
 print(
     "framebuffer="
     f"colors={framebuffer.get('distinct_colors')}"
@@ -171,8 +216,18 @@ notes_path.write_text(
         [
             "# A1200 Workbench HDF Evidence",
             "",
-            f"- Manifest: `{manifest_path.name}`",
-            "- Screenshot: `rumiga.png`",
+            f"- Presentation manifest: `{manifest_path.name}`",
+            "- Presentation screenshot: `rumiga.png`",
+            (
+                f"- Native manifest: `{native_manifest_path.name}`"
+                if native_manifest_path is not None
+                else "- Native manifest: `disabled`"
+            ),
+            (
+                "- Native screenshot: `rumiga-native.png`"
+                if native_manifest_path is not None
+                else "- Native screenshot: `disabled`"
+            ),
             f"- Schema: `{schema.get('id')}@{schema.get('version')}`",
             f"- Git: `{producer.get('git_sha')}` dirty=`{producer.get('git_dirty')}`",
             f"- Frames: `{run.get('frames')}` stopped=`{run.get('stopped')}`",
@@ -184,6 +239,15 @@ notes_path.write_text(
                 f" stretch=`{viewport.get('vertical_stretch')}`"
                 f" scaling=`{presentation.get('scaling')}`"
                 f" kind=`{presentation.get('capture_kind')}`"
+            ),
+            (
+                "- Native capture: "
+                f"`{native_viewport.get('output_width')}x{native_viewport.get('output_height')}` "
+                f"kind=`{native_presentation.get('capture_kind')}` "
+                f"colors=`{native_framebuffer.get('distinct_colors')}` "
+                f"changed=`{native_framebuffer.get('pixels_different_from_background')}`"
+                if isinstance(native_data, dict)
+                else "- Native capture: `disabled`"
             ),
             (
                 "- Framebuffer: "

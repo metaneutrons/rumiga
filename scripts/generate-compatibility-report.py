@@ -509,10 +509,16 @@ def media_status(media: dict[str, Any]) -> str:
 def evidence_links(manifest: Path) -> str:
     links = ["rumiga.json"]
     png = manifest.with_name("rumiga.png")
+    native_manifest = manifest.with_name("rumiga-native.json")
+    native_png = manifest.with_name("rumiga-native.png")
     notes = manifest.with_name("notes.md")
     pcap = manifest.with_name("rumiga.pcap")
     if png.exists():
         links.append("rumiga.png")
+    if native_manifest.exists():
+        links.append("rumiga-native.json")
+    if native_png.exists():
+        links.append("rumiga-native.png")
     if notes.exists():
         links.append("notes.md")
     if pcap.exists():

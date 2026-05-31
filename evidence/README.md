@@ -51,10 +51,17 @@ scripts/capture-a1200-hdf.sh
 
 The scenario writes:
 
-- `rumiga.png`: native framebuffer evidence after Rumiga viewport processing.
-- `rumiga.json`: stable capture manifest with schema, producer, ROM/HDF hashes,
-  model, CPU, viewport, display-window, and edge-integrity diagnostics.
+- `rumiga.png`: host presentation capture after Rumiga viewport crop/stretch.
+- `rumiga.json`: stable presentation manifest with schema, producer, ROM/HDF
+  hashes, model, CPU, viewport, display-window, and edge-integrity diagnostics.
+- `rumiga-native.png`: native RGB565 chipset framebuffer capture before viewport
+  crop, vertical stretch, or host scale.
+- `rumiga-native.json`: native capture manifest for comparing chipset output to
+  the presentation artifact.
 - `notes.md`: generated local classification notes for the capture.
+
+Set `RUMIGA_CAPTURE_NATIVE=0` to skip the companion native capture during quick
+local smoke runs.
 
 ## A2065 SLIRP Network
 

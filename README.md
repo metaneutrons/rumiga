@@ -86,12 +86,14 @@ cargo run -p rumiga-desktop -- \
   <kickstart.rom>
 ```
 
-`--capture` runs without opening a window, saves the same RGB565 framebuffer
-presentation used by the desktop viewport path, and writes a sibling JSON
-manifest by default. The manifest records model, CPU, RAM, frame count, PC/SR,
-viewport crop/stretch settings, framebuffer statistics, floppy controller state,
-and SHA-256 hashes for the ROM and mounted media. Capture mode does not write
-dirty floppy or HDF buffers back to the source files.
+`--capture` runs without opening a window, saves an RGB565 screenshot, and
+writes a sibling JSON manifest by default. It captures the desktop viewport
+presentation unless `--capture-kind native-framebuffer` is supplied. The manifest
+records model, CPU, RAM, frame count, PC/SR, native framebuffer dimensions,
+viewport crop/stretch settings, presentation policy, framebuffer statistics,
+floppy controller state, and SHA-256 hashes for the ROM and mounted media.
+Capture mode does not write dirty floppy or HDF buffers back to the source
+files.
 
 For HDF evidence runs that need to preserve the exact post-run disk buffer
 without mutating the source image, add `--hdf-snapshot <file.hdf>`. The snapshot

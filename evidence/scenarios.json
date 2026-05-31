@@ -138,6 +138,7 @@
       "status_when_missing": "skipped-missing-assets",
       "notes": [
         "Near-term release evidence pack for A1200, Gayle IDE, HDF, viewport, and manifest integrity.",
+        "The script emits both rumiga.png/json for presentation and rumiga-native.png/json for native chipset evidence.",
         "Use RUMIGA_HDF_SNAPSHOT for write-path evidence without mutating the source image."
       ]
     },
