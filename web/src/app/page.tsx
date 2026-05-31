@@ -13,6 +13,7 @@ import {
   resetMachine,
   resumeMachine,
   updateAudioSeparation,
+  updateMachineConfig,
 } from '@/lib/api';
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -36,7 +37,10 @@ export default function DashboardPage() {
   const [screenshotUrl, setScreenshotUrl] = useState<string>(machineScreenshotUrl(0));
   const [screenshotKind, setScreenshotKind] = useState<ScreenshotKind>('ViewportPresentation');
   const [autoRefresh, setAutoRefresh] = useState<boolean>(true);
+  const [networkMacDraft, setNetworkMacDraft] = useState<string>('');
+  const [networkSaving, setNetworkSaving] = useState<boolean>(false);
   const refreshInterval = useRef<NodeJS.Timeout | null>(null);
+  const networkMacDirty = useRef<boolean>(false);
 
   // Poll status & config on load
   const loadData = () => {
@@ -51,6 +55,9 @@ export default function DashboardPage() {
         if (r.success && r.data) {
           setConfig(r.data);
           setAudioSeparation(r.data.audio.stereo_separation);
+          if (!networkMacDirty.current) {
+            setNetworkMacDraft(r.data.network.mac_address);
+          }
         }
       })
       .catch((e: Error) => setError(e.message));
@@ -117,6 +124,48 @@ export default function DashboardPage() {
   const handleScreenshotKindChange = (kind: ScreenshotKind) => {
     setScreenshotKind(kind);
     setScreenshotUrl(machineScreenshotUrl(Date.now(), kind));
+  };
+
+  const saveMachineConfig = async (nextConfig: MachineConfig) => {
+    setNetworkSaving(true);
+    try {
+      const r = await updateMachineConfig(nextConfig);
+      if (!r.success) throw new Error(r.error ?? 'Config update failed');
+      networkMacDirty.current = false;
+      setNetworkMacDraft(nextConfig.network.mac_address);
+      loadData();
+    } catch (e: unknown) {
+      setError(errorMessage(e, 'Config update failed'));
+    } finally {
+      setNetworkSaving(false);
+    }
+  };
+
+  const handleNetworkBackendChange = async (backend: MachineConfig['network']['backend']) => {
+    if (!config || config.network.backend === backend) return;
+    const nextConfig = {
+      ...config,
+      network: {
+        ...config.network,
+        backend,
+        mac_address: networkMacDraft.trim() || config.network.mac_address,
+      },
+    };
+    setConfig(nextConfig);
+    await saveMachineConfig(nextConfig);
+  };
+
+  const handleNetworkMacSave = async () => {
+    if (!config) return;
+    const nextConfig = {
+      ...config,
+      network: {
+        ...config.network,
+        mac_address: networkMacDraft.trim(),
+      },
+    };
+    setConfig(nextConfig);
+    await saveMachineConfig(nextConfig);
   };
 
   return (
@@ -306,6 +355,51 @@ export default function DashboardPage() {
                   <span className="font-bold text-zinc-200">
                     {networkSummary(status, config)}
                   </span>
+                </div>
+                <div className="space-y-3 py-2 border-b border-zinc-800/40">
+                  <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/70 text-xs font-semibold">
+                    <button
+                      type="button"
+                      disabled={networkSaving}
+                      onClick={() => handleNetworkBackendChange('Disabled')}
+                      className={`px-3 py-2 transition-colors ${config.network.backend === 'Disabled' ? 'bg-zinc-100 text-zinc-950' : 'text-zinc-400 hover:text-zinc-100'}`}
+                    >
+                      Disabled
+                    </button>
+                    <button
+                      type="button"
+                      disabled={networkSaving}
+                      onClick={() => handleNetworkBackendChange('Slirp')}
+                      className={`px-3 py-2 transition-colors ${config.network.backend === 'Slirp' ? 'bg-zinc-100 text-zinc-950' : 'text-zinc-400 hover:text-zinc-100'}`}
+                    >
+                      SLIRP
+                    </button>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={networkMacDraft}
+                      onChange={(e) => {
+                        networkMacDirty.current = true;
+                        setNetworkMacDraft(e.target.value);
+                      }}
+                      className="min-w-0 flex-1 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 font-mono text-xs text-zinc-200 outline-none focus:border-amber-500"
+                    />
+                    <button
+                      type="button"
+                      disabled={networkSaving}
+                      onClick={handleNetworkMacSave}
+                      className="rounded-lg border border-zinc-700 px-3 py-2 text-xs font-bold text-zinc-200 transition-colors hover:border-amber-500 hover:text-amber-300 disabled:opacity-50"
+                    >
+                      Save
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-zinc-400">
+                    <span>Configured: {status?.network.a2065_configured ? 'yes' : 'no'}</span>
+                    <span>Base: {status?.network.a2065_base_address ?? 'none'}</span>
+                    <span>TX: {status?.network.counters.tx_packets ?? 0}</span>
+                    <span>RX: {status?.network.counters.rx_packets ?? 0}</span>
+                  </div>
                 </div>
                 <div className="flex items-center justify-between text-sm py-1.5 border-b border-zinc-800/40">
                   <span className="text-zinc-400 font-medium">Chip RAM (Graphics)</span>

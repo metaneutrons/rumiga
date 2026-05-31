@@ -255,9 +255,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-function json(body: unknown): RequestInit {
+function json(body: unknown, method = 'POST'): RequestInit {
   return {
-    method: 'POST',
+    method,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   };
@@ -306,7 +306,7 @@ export function getMachineConfig(): Promise<ApiResponse<MachineConfig>> {
 }
 
 export function updateMachineConfig(config: MachineConfig): Promise<ApiResponse<null>> {
-  return request(API_PATHS.machineConfig, { method: 'PUT', ...json(config) });
+  return request(API_PATHS.machineConfig, json(config, 'PUT'));
 }
 
 export function startMachine(): Promise<ApiResponse<null>> {
