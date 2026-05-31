@@ -265,6 +265,11 @@ impl Emulator {
         self.memory.enable_a2065(mac_address);
     }
 
+    /// Disable the emulated A2065-compatible Zorro II Ethernet card.
+    pub fn disable_a2065(&mut self) {
+        self.memory.disable_a2065();
+    }
+
     /// Insert an ADF disk image into the specified floppy drive (0–3).
     pub fn insert_floppy(&mut self, drive: usize, data: Vec<u8>) {
         self.floppy.insert_disk(drive, data);

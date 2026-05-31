@@ -21,6 +21,7 @@ use libslirp::{Context, Handler, PollEvents};
 use mio::unix::UnixReady;
 use mio::{Events, Poll, PollOpt, Ready, Token};
 use rumiga_core::emulator::Emulator;
+use rumiga_core::network::MacAddress;
 
 /// Host-network backend selected for a desktop emulator run.
 pub struct DesktopNetworkBackend {
@@ -28,13 +29,39 @@ pub struct DesktopNetworkBackend {
 }
 
 impl DesktopNetworkBackend {
-    /// Create the configured desktop network backend.
-    pub fn new(config: &rumiga_api::NetworkConfig) -> Self {
+    /// Create a disabled desktop network backend.
+    pub const fn new() -> Self {
+        Self { slirp: None }
+    }
+
+    /// Apply the selected host-network backend to the emulator.
+    ///
+    /// # Errors
+    /// Returns an error when the requested backend or MAC address is invalid.
+    pub fn configure(
+        &mut self,
+        config: &rumiga_api::NetworkConfig,
+        emulator: &mut Emulator,
+    ) -> Result<(), String> {
         match config.backend {
-            rumiga_api::NetworkBackend::Disabled => Self { slirp: None },
-            rumiga_api::NetworkBackend::Slirp => Self {
-                slirp: Some(SlirpBackend::new()),
-            },
+            rumiga_api::NetworkBackend::Disabled => {
+                self.slirp = None;
+                emulator.disable_a2065();
+                Ok(())
+            }
+            rumiga_api::NetworkBackend::Slirp => {
+                if config.device != rumiga_api::NetworkDevice::A2065 {
+                    return Err("Only A2065 networking is supported".to_owned());
+                }
+                let mac_address = MacAddress::from_unicast_str(&config.mac_address)
+                    .map_err(|e| format!("Invalid network MAC address: {e}"))?;
+                if self.slirp.is_none() {
+                    self.slirp = Some(SlirpBackend::new());
+                }
+                emulator.enable_a2065(mac_address);
+                self.apply_link_state(emulator);
+                Ok(())
+            }
         }
     }
 
@@ -324,9 +351,50 @@ mod tests {
 
     #[test]
     fn backend_is_absent_when_disabled() {
-        let backend = DesktopNetworkBackend::new(&rumiga_api::NetworkConfig::default());
+        let backend = DesktopNetworkBackend::new();
 
         assert!(backend.slirp.is_none());
+    }
+
+    #[test]
+    fn configure_slirp_enables_a2065_link() {
+        let mut backend = DesktopNetworkBackend::new();
+        let mut emulator = Emulator::new(rumiga_core::memory::MemoryConfig::a1200());
+        let config = rumiga_api::NetworkConfig {
+            backend: rumiga_api::NetworkBackend::Slirp,
+            ..rumiga_api::NetworkConfig::default()
+        };
+
+        backend
+            .configure(&config, &mut emulator)
+            .expect("slirp should configure");
+
+        let status = emulator.memory.a2065.borrow().status();
+        assert!(backend.slirp.is_some());
+        assert!(status.enabled);
+        assert!(status.link_up);
+    }
+
+    #[test]
+    fn configure_disabled_removes_a2065_link() {
+        let mut backend = DesktopNetworkBackend::new();
+        let mut emulator = Emulator::new(rumiga_core::memory::MemoryConfig::a1200());
+        let enabled_config = rumiga_api::NetworkConfig {
+            backend: rumiga_api::NetworkBackend::Slirp,
+            ..rumiga_api::NetworkConfig::default()
+        };
+
+        backend
+            .configure(&enabled_config, &mut emulator)
+            .expect("slirp should configure");
+        backend
+            .configure(&rumiga_api::NetworkConfig::default(), &mut emulator)
+            .expect("disabled network should configure");
+
+        let status = emulator.memory.a2065.borrow().status();
+        assert!(backend.slirp.is_none());
+        assert!(!status.enabled);
+        assert!(!status.link_up);
     }
 
     #[test]

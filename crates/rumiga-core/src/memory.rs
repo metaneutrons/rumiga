@@ -238,6 +238,11 @@ impl AmigaMemory {
         self.a2065.borrow_mut().enable(mac_address);
     }
 
+    /// Remove the emulated A2065-compatible Ethernet card from the memory map.
+    pub fn disable_a2065(&self) {
+        self.a2065.borrow_mut().disable();
+    }
+
     /// Load ROM data.
     ///
     /// # Panics

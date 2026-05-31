@@ -44,6 +44,7 @@ enum ApiCommand {
     EjectFloppy { drive_idx: usize },
     UpdateAudioSeparation { separation: u8 },
     UpdateFloppySpeed { percent: u16 },
+    UpdateNetwork { config: rumiga_api::NetworkConfig },
 }
 
 struct SharedState {
@@ -232,6 +233,11 @@ async fn put_config(
     if s.stereo_separation != payload.audio.stereo_separation {
         s.pending_commands.push(ApiCommand::UpdateAudioSeparation {
             separation: payload.audio.stereo_separation,
+        });
+    }
+    if s.network != payload.network {
+        s.pending_commands.push(ApiCommand::UpdateNetwork {
+            config: payload.network.clone(),
         });
     }
 
@@ -813,20 +819,11 @@ fn main() {
     eprintln!("------------------------------");
 
     let mut emulator = Emulator::new(config);
-    if launch_args.network.enabled() {
-        let mac_address =
-            rumiga_core::network::MacAddress::from_unicast_str(&launch_args.network.mac_address)
-                .unwrap_or_else(|e| {
-                    eprintln!(
-                        "Invalid A2065 MAC address '{}': {e}",
-                        launch_args.network.mac_address
-                    );
-                    process::exit(2);
-                });
-        emulator.enable_a2065(mac_address);
+    let mut network_backend = DesktopNetworkBackend::new();
+    if let Err(e) = network_backend.configure(&launch_args.network, &mut emulator) {
+        eprintln!("Failed to initialize network backend: {e}");
+        process::exit(1);
     }
-    let network_backend = DesktopNetworkBackend::new(&launch_args.network);
-    network_backend.apply_link_state(&emulator);
     if let Some(ref trace_path) = launch_args.trace_cpu {
         if let Err(e) = emulator.enable_cpu_trace(trace_path, launch_args.trace_limit) {
             eprintln!("Failed to enable CPU tracing to '{trace_path}': {e}");
@@ -1048,6 +1045,17 @@ fn main() {
                     emulator.set_floppy_speed_percent(percent);
                     let mut s = shared_state.lock().unwrap();
                     s.floppy_speed_percent = percent;
+                }
+                ApiCommand::UpdateNetwork { config } => {
+                    eprintln!(
+                        "API: Updating network backend to {}",
+                        config.backend.as_str()
+                    );
+                    if let Err(e) = network_backend.configure(&config, &mut emulator) {
+                        eprintln!("API Error: Failed to update network backend: {e}");
+                    }
+                    let mut s = shared_state.lock().unwrap();
+                    s.network = config;
                 }
             }
         }
