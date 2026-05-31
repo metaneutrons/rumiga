@@ -94,6 +94,14 @@ print(
     f" host_writeback={gayle.get('host_writeback_enabled')}"
     f" dirty={gayle.get('hdf_dirty')}"
 )
+print(
+    "hdf_geometry="
+    f"source={gayle.get('geometry_source')}"
+    f" chs={gayle.get('cylinders')}/{gayle.get('heads')}/{gayle.get('sectors_per_track')}"
+    f" rdb_detected={gayle.get('rdb', {}).get('detected')}"
+    f" rdb_usable={gayle.get('rdb', {}).get('usable')}"
+    f" rdb_checksum_valid={gayle.get('rdb', {}).get('checksum_valid')}"
+)
 for cia_name in ("a", "b"):
     timer_a = cia.get(cia_name, {}).get("timer_a", {})
     timer_b = cia.get(cia_name, {}).get("timer_b", {})
@@ -159,6 +167,16 @@ notes_path.write_text(
                 f"policy=`{gayle.get('hdf_write_policy')}` "
                 f"host_writeback=`{gayle.get('host_writeback_enabled')}` "
                 f"dirty=`{gayle.get('hdf_dirty')}`"
+            ),
+            (
+                "- HDF geometry: "
+                f"source=`{gayle.get('geometry_source')}` "
+                f"chs=`{gayle.get('cylinders')}/{gayle.get('heads')}/{gayle.get('sectors_per_track')}` "
+                f"rdb_detected=`{gayle.get('rdb', {}).get('detected')}` "
+                f"rdb_usable=`{gayle.get('rdb', {}).get('usable')}` "
+                f"rdb_checksum_valid=`{gayle.get('rdb', {}).get('checksum_valid')}` "
+                f"rdb_declared_bytes=`{gayle.get('rdb', {}).get('declared_bytes')}` "
+                f"rdb_fits_image=`{gayle.get('rdb', {}).get('fits_in_image')}`"
             ),
             (
                 "- CIA-A timers: "

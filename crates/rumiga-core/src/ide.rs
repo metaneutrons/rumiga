@@ -9,6 +9,7 @@
     clippy::cast_sign_loss,
     clippy::match_same_arms,
     clippy::missing_const_for_fn,
+    clippy::struct_excessive_bools,
     clippy::unreadable_literal
 )]
 
@@ -26,6 +27,60 @@ pub enum DataDirection {
     None,
     Read,
     Write,
+}
+
+/// Source of the currently active HDF CHS translation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HdfGeometrySource {
+    None,
+    IdeFallback,
+    Rdb,
+}
+
+impl HdfGeometrySource {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::IdeFallback => "ide-fallback",
+            Self::Rdb => "rdb",
+        }
+    }
+}
+
+/// Parsed Amiga Rigid Disk Block geometry evidence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RdbGeometry {
+    pub detected: bool,
+    pub usable: bool,
+    pub checksum_valid: bool,
+    pub block_index: u32,
+    pub checksum_longwords: u32,
+    pub block_size_bytes: u32,
+    pub cylinders: u32,
+    pub heads: u32,
+    pub sectors_per_track: u32,
+    pub declared_bytes: u64,
+    pub fits_in_image: bool,
+}
+
+impl RdbGeometry {
+    #[must_use]
+    pub const fn none() -> Self {
+        Self {
+            detected: false,
+            usable: false,
+            checksum_valid: false,
+            block_index: 0,
+            checksum_longwords: 0,
+            block_size_bytes: 0,
+            cylinders: 0,
+            heads: 0,
+            sectors_per_track: 0,
+            declared_bytes: 0,
+            fits_in_image: false,
+        }
+    }
 }
 
 /// Simplified ATA-2 controller state machine.
@@ -57,7 +112,9 @@ pub struct AtaController {
     /// CHS parameters.
     pub cylinders: u16,
     pub heads: u8,
-    pub sectors_per_track: u8,
+    pub sectors_per_track: u16,
+    pub geometry_source: HdfGeometrySource,
+    pub rdb_geometry: RdbGeometry,
 }
 
 impl Default for AtaController {
@@ -90,23 +147,38 @@ impl AtaController {
             cylinders: 0,
             heads: 16,
             sectors_per_track: 63,
+            geometry_source: HdfGeometrySource::None,
+            rdb_geometry: RdbGeometry::none(),
         }
     }
 
     /// Mount a host HDF file in-memory.
     pub fn insert_disk(&mut self, data: Vec<u8>) {
         let size = data.len();
+        let rdb_geometry = detect_rdb_geometry(&data);
+        self.rdb_geometry = rdb_geometry;
         self.disk_data = Some(data);
         self.hdf_dirty = false;
 
-        // Auto-configure geometry based on standard LBA-CHS translations
+        if rdb_geometry.usable {
+            self.cylinders = rdb_geometry.cylinders as u16;
+            self.heads = rdb_geometry.heads as u8;
+            self.sectors_per_track = rdb_geometry.sectors_per_track as u16;
+            self.geometry_source = HdfGeometrySource::Rdb;
+            return;
+        }
+
+        // Auto-configure geometry based on WinUAE-style IDE LBA-CHS translation.
         let total_sectors = (size / 512) as u32;
+        let (cylinders, heads, sectors_per_track) = ide_fallback_geometry(u64::from(total_sectors));
+        self.heads = heads;
+        self.sectors_per_track = sectors_per_track;
         if total_sectors > 0 {
-            self.heads = 16;
-            self.sectors_per_track = 63;
-            self.cylinders = (total_sectors / (16 * 63)).min(16383) as u16;
+            self.cylinders = cylinders;
+            self.geometry_source = HdfGeometrySource::IdeFallback;
         } else {
             self.cylinders = 0;
+            self.geometry_source = HdfGeometrySource::None;
         }
     }
 
@@ -283,7 +355,7 @@ impl AtaController {
             0x91 => {
                 // Initialize Drive Parameters
                 self.heads = (self.select & 0x0F) + 1;
-                self.sectors_per_track = self.nsector;
+                self.sectors_per_track = u16::from(self.nsector);
                 self.status &= !IDE_STATUS_BSY;
                 self.status |= IDE_STATUS_DRDY;
                 self.data_direction = DataDirection::None;
@@ -496,10 +568,13 @@ impl AtaController {
         // Word 3: Default heads
         self.write_word(3, self.heads as u16);
         // Words 4-5: Unformatted bytes per track/sector.
-        self.write_word(4, 512 * u16::from(self.sectors_per_track));
+        self.write_word(
+            4,
+            u16::try_from(512_u32 * u32::from(self.sectors_per_track)).unwrap_or(u16::MAX),
+        );
         self.write_word(5, 512);
         // Word 6: Default sectors per track
-        self.write_word(6, self.sectors_per_track as u16);
+        self.write_word(6, self.sectors_per_track);
 
         // Word 10-19: Serial number (ATA byte-swapped ASCII)
         self.write_string(10, "RUMIGA-000001", 20);
@@ -525,7 +600,7 @@ impl AtaController {
         // Word 54-56: Current CHS parameters
         self.write_word(54, self.cylinders);
         self.write_word(55, self.heads as u16);
-        self.write_word(56, self.sectors_per_track as u16);
+        self.write_word(56, self.sectors_per_track);
         self.write_u32_words(57, chs_sectors);
         self.write_word(59, 0x0000); // multiple sector setting not valid
 
@@ -578,6 +653,140 @@ impl AtaController {
     }
 }
 
+const ATA_SECTOR_SIZE: usize = 512;
+const IDE_FALLBACK_HEADS: u8 = 16;
+const IDE_FALLBACK_SECTORS_PER_TRACK: u16 = 63;
+const IDE_FALLBACK_MAX_CYLINDERS: u16 = 16_383;
+const RDB_SCAN_BLOCKS: usize = 16;
+const RDB_MAX_CHECKSUM_BYTES: usize = 65_536;
+const RDB_CHECKSUM_LONGWORDS_OFFSET: usize = 4;
+const RDB_BLOCK_BYTES_OFFSET: usize = 16;
+const RDB_CYLINDERS_OFFSET: usize = 64;
+const RDB_SECTORS_OFFSET: usize = 68;
+const RDB_HEADS_OFFSET: usize = 72;
+
+#[must_use]
+fn ide_fallback_geometry(total_sectors: u64) -> (u16, u8, u16) {
+    let sectors_per_cylinder =
+        u64::from(IDE_FALLBACK_HEADS) * u64::from(IDE_FALLBACK_SECTORS_PER_TRACK);
+    let cylinders = if total_sectors == 0 {
+        0
+    } else {
+        (total_sectors / sectors_per_cylinder).min(u64::from(IDE_FALLBACK_MAX_CYLINDERS))
+    };
+
+    (
+        cylinders as u16,
+        IDE_FALLBACK_HEADS,
+        IDE_FALLBACK_SECTORS_PER_TRACK,
+    )
+}
+
+#[must_use]
+fn detect_rdb_geometry(data: &[u8]) -> RdbGeometry {
+    let blocks = (data.len() / ATA_SECTOR_SIZE).min(RDB_SCAN_BLOCKS);
+    for block_index in 0..blocks {
+        let block_offset = block_index * ATA_SECTOR_SIZE;
+        if block_offset + RDB_HEADS_OFFSET + 4 > data.len() {
+            break;
+        }
+
+        let header = &data[block_offset..];
+        if !header.starts_with(b"RDSK") && !header.starts_with(b"CDSK") {
+            continue;
+        }
+
+        let mut geometry = RdbGeometry {
+            detected: true,
+            block_index: block_index as u32,
+            ..RdbGeometry::none()
+        };
+
+        let Some(checksum_longwords) =
+            be_u32_at(data, block_offset + RDB_CHECKSUM_LONGWORDS_OFFSET)
+        else {
+            return geometry;
+        };
+        geometry.checksum_longwords = checksum_longwords;
+
+        let Some(checksum_bytes) = checksum_longwords_to_bytes(checksum_longwords) else {
+            return geometry;
+        };
+        if checksum_bytes > RDB_MAX_CHECKSUM_BYTES {
+            return geometry;
+        }
+        let Some(checksum_end) = block_offset.checked_add(checksum_bytes) else {
+            return geometry;
+        };
+        if checksum_end > data.len() {
+            return geometry;
+        }
+
+        geometry.checksum_valid = rdb_checksum_valid(&data[block_offset..checksum_end]);
+        if !geometry.checksum_valid {
+            return geometry;
+        }
+
+        let checksum_block_bytes = checksum_bytes as u32;
+        let rdb_block_bytes = be_u32_at(data, block_offset + RDB_BLOCK_BYTES_OFFSET).unwrap_or(0);
+        geometry.block_size_bytes = if rdb_block_bytes == 0 {
+            checksum_block_bytes
+        } else {
+            rdb_block_bytes
+        };
+        geometry.cylinders = be_u32_at(data, block_offset + RDB_CYLINDERS_OFFSET).unwrap_or(0);
+        geometry.sectors_per_track =
+            be_u32_at(data, block_offset + RDB_SECTORS_OFFSET).unwrap_or(0);
+        geometry.heads = be_u32_at(data, block_offset + RDB_HEADS_OFFSET).unwrap_or(0);
+        geometry.declared_bytes = u64::from(geometry.cylinders)
+            .saturating_mul(u64::from(geometry.sectors_per_track))
+            .saturating_mul(u64::from(geometry.heads))
+            .saturating_mul(u64::from(geometry.block_size_bytes));
+        geometry.fits_in_image = geometry.declared_bytes <= data.len() as u64;
+        geometry.usable = rdb_geometry_supported(&geometry);
+        return geometry;
+    }
+
+    RdbGeometry::none()
+}
+
+#[must_use]
+fn checksum_longwords_to_bytes(longwords: u32) -> Option<usize> {
+    let longwords = usize::try_from(longwords).ok()?;
+    if longwords == 0 {
+        return None;
+    }
+    longwords.checked_mul(4)
+}
+
+#[must_use]
+fn rdb_checksum_valid(block: &[u8]) -> bool {
+    if block.len() % 4 != 0 {
+        return false;
+    }
+
+    let sum = block.chunks_exact(4).fold(0u32, |sum, word| {
+        sum.wrapping_add(u32::from_be_bytes([word[0], word[1], word[2], word[3]]))
+    });
+    sum == 0
+}
+
+#[must_use]
+fn rdb_geometry_supported(geometry: &RdbGeometry) -> bool {
+    geometry.checksum_valid
+        && geometry.cylinders > 0
+        && geometry.cylinders <= u32::from(IDE_FALLBACK_MAX_CYLINDERS)
+        && (1..=u32::from(u8::MAX)).contains(&geometry.heads)
+        && (1..=u32::from(u16::MAX)).contains(&geometry.sectors_per_track)
+        && geometry.block_size_bytes == ATA_SECTOR_SIZE as u32
+}
+
+#[must_use]
+fn be_u32_at(data: &[u8], offset: usize) -> Option<u32> {
+    let bytes = data.get(offset..offset + 4)?;
+    Some(u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -586,6 +795,102 @@ mod tests {
         let offset = word_index * 2;
         (u16::from(controller.data_buffer[offset]) << 8)
             | u16::from(controller.data_buffer[offset + 1])
+    }
+
+    fn put_be_u32(data: &mut [u8], offset: usize, value: u32) {
+        data[offset..offset + 4].copy_from_slice(&value.to_be_bytes());
+    }
+
+    fn finalize_rdb_checksum(block: &mut [u8]) {
+        put_be_u32(block, 8, 0);
+        let sum = block.chunks_exact(4).fold(0u32, |sum, word| {
+            sum.wrapping_add(u32::from_be_bytes([word[0], word[1], word[2], word[3]]))
+        });
+        put_be_u32(block, 8, 0u32.wrapping_sub(sum));
+    }
+
+    fn rdb_hdf(cylinders: u32, heads: u32, sectors_per_track: u32) -> Vec<u8> {
+        let declared_bytes = (cylinders * heads * sectors_per_track) as usize * ATA_SECTOR_SIZE;
+        let mut hdf = vec![0; declared_bytes.max(ATA_SECTOR_SIZE)];
+        hdf[0..4].copy_from_slice(b"RDSK");
+        put_be_u32(&mut hdf, RDB_CHECKSUM_LONGWORDS_OFFSET, 128);
+        put_be_u32(&mut hdf, RDB_BLOCK_BYTES_OFFSET, ATA_SECTOR_SIZE as u32);
+        put_be_u32(&mut hdf, RDB_CYLINDERS_OFFSET, cylinders);
+        put_be_u32(&mut hdf, RDB_SECTORS_OFFSET, sectors_per_track);
+        put_be_u32(&mut hdf, RDB_HEADS_OFFSET, heads);
+        finalize_rdb_checksum(&mut hdf[0..ATA_SECTOR_SIZE]);
+        hdf
+    }
+
+    #[test]
+    fn hdf_without_rdb_uses_winuae_style_ide_fallback_geometry() {
+        let mut controller = AtaController::new();
+        controller.insert_disk(vec![0; 10 * 1024 * 1024]);
+
+        assert_eq!(controller.geometry_source, HdfGeometrySource::IdeFallback);
+        assert_eq!(controller.cylinders, 20);
+        assert_eq!(controller.heads, IDE_FALLBACK_HEADS);
+        assert_eq!(controller.sectors_per_track, IDE_FALLBACK_SECTORS_PER_TRACK);
+        assert_eq!(controller.rdb_geometry, RdbGeometry::none());
+    }
+
+    #[test]
+    fn large_ide_fallback_geometry_caps_cylinders_like_winuae() {
+        let nine_gib_sectors = (9_u64 * 1024 * 1024 * 1024) / ATA_SECTOR_SIZE as u64;
+
+        assert_eq!(
+            ide_fallback_geometry(nine_gib_sectors),
+            (
+                IDE_FALLBACK_MAX_CYLINDERS,
+                IDE_FALLBACK_HEADS,
+                IDE_FALLBACK_SECTORS_PER_TRACK
+            )
+        );
+    }
+
+    #[test]
+    fn valid_rdb_geometry_drives_hdf_chs_translation() {
+        let mut controller = AtaController::new();
+        controller.insert_disk(rdb_hdf(100, 4, 32));
+
+        assert_eq!(controller.geometry_source, HdfGeometrySource::Rdb);
+        assert_eq!(controller.cylinders, 100);
+        assert_eq!(controller.heads, 4);
+        assert_eq!(controller.sectors_per_track, 32);
+        assert!(controller.rdb_geometry.detected);
+        assert!(controller.rdb_geometry.usable);
+        assert!(controller.rdb_geometry.checksum_valid);
+        assert_eq!(controller.rdb_geometry.block_size_bytes, 512);
+        assert_eq!(controller.rdb_geometry.declared_bytes, 100 * 4 * 32 * 512);
+        assert!(controller.rdb_geometry.fits_in_image);
+    }
+
+    #[test]
+    fn rdb_geometry_accepts_256_sectors_per_track_from_large_amiga_hdfs() {
+        let mut controller = AtaController::new();
+        controller.insert_disk(rdb_hdf(4, 4, 256));
+
+        assert_eq!(controller.geometry_source, HdfGeometrySource::Rdb);
+        assert_eq!(controller.cylinders, 4);
+        assert_eq!(controller.heads, 4);
+        assert_eq!(controller.sectors_per_track, 256);
+        assert!(controller.rdb_geometry.usable);
+    }
+
+    #[test]
+    fn invalid_rdb_checksum_is_reported_and_falls_back_to_ide_geometry() {
+        let mut hdf = rdb_hdf(100, 4, 32);
+        hdf[RDB_CYLINDERS_OFFSET + 3] ^= 0x01;
+
+        let mut controller = AtaController::new();
+        controller.insert_disk(hdf);
+
+        assert_eq!(controller.geometry_source, HdfGeometrySource::IdeFallback);
+        assert!(controller.rdb_geometry.detected);
+        assert!(!controller.rdb_geometry.usable);
+        assert!(!controller.rdb_geometry.checksum_valid);
+        assert_eq!(controller.heads, IDE_FALLBACK_HEADS);
+        assert_eq!(controller.sectors_per_track, IDE_FALLBACK_SECTORS_PER_TRACK);
     }
 
     #[test]

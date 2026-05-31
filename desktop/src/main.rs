@@ -2396,8 +2396,9 @@ fn push_gayle_ide_state_json(
     let _ = writeln!(
         json,
         "    \"geometry_source\": {},",
-        json_string("chs-fallback")
+        json_string(ide.geometry_source.as_str())
     );
+    push_rdb_geometry_json(json, &ide.rdb_geometry);
     let _ = writeln!(json, "    \"cylinders\": {},", ide.cylinders);
     let _ = writeln!(json, "    \"heads\": {},", ide.heads);
     let _ = writeln!(
@@ -2413,6 +2414,34 @@ fn push_gayle_ide_state_json(
     let _ = writeln!(json, "    \"data_index\": {},", ide.data_index);
     let _ = writeln!(json, "    \"data_buffer_len\": {}", ide.data_buffer.len());
     json.push_str("  },\n");
+}
+
+fn push_rdb_geometry_json(json: &mut String, rdb: &rumiga_core::ide::RdbGeometry) {
+    let _ = writeln!(json, "    \"rdb\": {{");
+    let _ = writeln!(json, "      \"detected\": {},", rdb.detected);
+    let _ = writeln!(json, "      \"usable\": {},", rdb.usable);
+    let _ = writeln!(json, "      \"checksum_valid\": {},", rdb.checksum_valid);
+    let _ = writeln!(json, "      \"block_index\": {},", rdb.block_index);
+    let _ = writeln!(
+        json,
+        "      \"checksum_longwords\": {},",
+        rdb.checksum_longwords
+    );
+    let _ = writeln!(
+        json,
+        "      \"block_size_bytes\": {},",
+        rdb.block_size_bytes
+    );
+    let _ = writeln!(json, "      \"cylinders\": {},", rdb.cylinders);
+    let _ = writeln!(json, "      \"heads\": {},", rdb.heads);
+    let _ = writeln!(
+        json,
+        "      \"sectors_per_track\": {},",
+        rdb.sectors_per_track
+    );
+    let _ = writeln!(json, "      \"declared_bytes\": {},", rdb.declared_bytes);
+    let _ = writeln!(json, "      \"fits_in_image\": {}", rdb.fits_in_image);
+    let _ = writeln!(json, "    }},");
 }
 
 fn push_floppy_state_json(json: &mut String, floppy: &rumiga_core::floppy::FloppyController) {
@@ -3429,8 +3458,11 @@ mod tests {
         assert_eq!(manifest["cia"]["b"]["register_writes"]["crb"]["count"], 0);
         assert_eq!(manifest["gayle_ide"]["hdf_write_policy"], "read-only");
         assert_eq!(manifest["gayle_ide"]["host_writeback_enabled"], false);
-        assert_eq!(manifest["gayle_ide"]["geometry_source"], "chs-fallback");
+        assert_eq!(manifest["gayle_ide"]["geometry_source"], "none");
         assert_eq!(manifest["gayle_ide"]["sector_size"], 512);
+        assert_eq!(manifest["gayle_ide"]["rdb"]["detected"], false);
+        assert_eq!(manifest["gayle_ide"]["rdb"]["usable"], false);
+        assert_eq!(manifest["gayle_ide"]["rdb"]["checksum_valid"], false);
         assert_eq!(manifest["viewport"]["source_width"], WIDTH);
         assert_eq!(manifest["viewport"]["preset"], "AutoCenter");
         assert_eq!(manifest["viewport"]["output_width"], 2);
