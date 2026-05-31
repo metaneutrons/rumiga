@@ -129,6 +129,8 @@ pub struct AmigaMemory {
     pub slow_ram: Vec<u8>,
     fast_ram: Vec<u8>,
     rom: Vec<u8>,
+    /// Whether the Kickstart drive step-rate compatibility patch was applied.
+    pub rom_drive_step_patch_applied: bool,
     /// When true, ROM is overlaid at address 0 (after reset, before first write to CIA).
     pub overlay: bool,
     /// Shadow copy of custom chip registers (256 words at offsets $000–$1FE).
@@ -186,6 +188,7 @@ impl AmigaMemory {
             slow_ram,
             fast_ram,
             rom,
+            rom_drive_step_patch_applied: false,
             overlay: true,
             custom_regs,
             reg_write_log: Vec::new(),
@@ -220,6 +223,7 @@ impl AmigaMemory {
             data.len()
         );
         self.rom.copy_from_slice(data);
+        self.rom_drive_step_patch_applied = false;
 
         // The drive parameter table default step rate is 3000 ($0BB8).
         // On real hardware, the drive detection timing measurement updates
@@ -230,6 +234,7 @@ impl AmigaMemory {
         if self.rom.len() > 0x2_9F41 && self.rom[0x2_9F40] == 0x0B && self.rom[0x2_9F41] == 0xB8 {
             self.rom[0x2_9F40] = 0x00;
             self.rom[0x2_9F41] = 0x50; // 80 (measured step rate for DD drive)
+            self.rom_drive_step_patch_applied = true;
         }
     }
 
@@ -637,6 +642,7 @@ impl AmigaMemory {
         self.slow_ram.copy_from_slice(&other.slow_ram);
         self.fast_ram.copy_from_slice(&other.fast_ram);
         self.rom.copy_from_slice(&other.rom);
+        self.rom_drive_step_patch_applied = other.rom_drive_step_patch_applied;
         self.overlay = other.overlay;
         self.custom_regs = other.custom_regs;
         self.cia_a_pra = other.cia_a_pra;

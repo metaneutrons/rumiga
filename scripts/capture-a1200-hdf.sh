@@ -50,6 +50,7 @@ framebuffer = data.get("framebuffer", {})
 producer = data.get("producer", {})
 run = data.get("run", {})
 schema = data.get("schema", {})
+boot_workarounds = data.get("boot_workarounds", {})
 classification = (
     "viewport-edge-clean"
     if edge.get("mirrored_non_background_pixels", 1) == 0
@@ -78,6 +79,12 @@ print(
     f"left={edge.get('left_non_background_pixels')}"
     f" right={edge.get('right_non_background_pixels')}"
     f" mirrored={edge.get('mirrored_non_background_pixels')}"
+)
+print(
+    "boot_workarounds="
+    f"forced_cia_timer_start={boot_workarounds.get('forced_cia_timer_start')}"
+    f" forced_cia_timer_start_count={boot_workarounds.get('forced_cia_timer_start_count')}"
+    f" rom_drive_step_patch={boot_workarounds.get('rom_drive_step_patch')}"
 )
 print(f"classification={classification}")
 
@@ -108,6 +115,12 @@ notes_path.write_text(
                 f"left=`{edge.get('left_non_background_pixels')}` "
                 f"right=`{edge.get('right_non_background_pixels')}` "
                 f"mirrored=`{edge.get('mirrored_non_background_pixels')}`"
+            ),
+            (
+                "- Boot workarounds: "
+                f"forced_cia_timer_start=`{boot_workarounds.get('forced_cia_timer_start')}` "
+                f"forced_cia_timer_start_count=`{boot_workarounds.get('forced_cia_timer_start_count')}` "
+                f"rom_drive_step_patch=`{boot_workarounds.get('rom_drive_step_patch')}`"
             ),
             f"- Classification: `{classification}`",
             "",

@@ -1819,6 +1819,7 @@ fn write_capture_manifest(path: &Path, context: &CaptureManifestContext<'_>) -> 
         context.frame.height
     );
     push_native_framebuffer_json(&mut json);
+    push_boot_workarounds_json(&mut json, context.emulator);
     let _ = writeln!(
         json,
         "  \"framebuffer\": {{ \"background_rgb565\": {}, \"pixels_different_from_background\": {}, \"non_zero_rgb565_pixels\": {}, \"distinct_colors\": {} }},",
@@ -1882,6 +1883,16 @@ fn push_native_framebuffer_json(json: &mut String) {
         json_string("rgb565"),
         WIDTH,
         HEIGHT
+    );
+}
+
+fn push_boot_workarounds_json(json: &mut String, emulator: &Emulator) {
+    let _ = writeln!(
+        json,
+        "  \"boot_workarounds\": {{ \"forced_cia_timer_start\": {}, \"forced_cia_timer_start_count\": {}, \"rom_drive_step_patch\": {} }},",
+        emulator.forced_cia_timer_start_count > 0,
+        emulator.forced_cia_timer_start_count,
+        emulator.memory.rom_drive_step_patch_applied
     );
 }
 
@@ -3176,6 +3187,15 @@ mod tests {
         assert_eq!(manifest["producer"]["name"], "rumiga-desktop");
         assert_eq!(manifest["native_framebuffer"]["width"], WIDTH);
         assert_eq!(manifest["native_framebuffer"]["height"], HEIGHT);
+        assert_eq!(
+            manifest["boot_workarounds"]["forced_cia_timer_start"],
+            false
+        );
+        assert_eq!(
+            manifest["boot_workarounds"]["forced_cia_timer_start_count"],
+            0
+        );
+        assert_eq!(manifest["boot_workarounds"]["rom_drive_step_patch"], false);
         assert_eq!(manifest["viewport"]["source_width"], WIDTH);
         assert_eq!(manifest["viewport"]["preset"], "AutoCenter");
         assert_eq!(manifest["viewport"]["output_width"], 2);

@@ -59,6 +59,14 @@ pub const EARLY_VIDEO_SCANLINE_DUMP: usize = 24;
 /// that starts them, enabling timer-based boot timeouts.
 const FORCE_CIA_TIMER_THRESHOLD: u64 = 22_000_000;
 
+fn force_start_cia_timer(control: &mut u8) -> bool {
+    if *control & 0x01 != 0 {
+        return false;
+    }
+    *control |= 0x01;
+    true
+}
+
 /// Video register snapshot from the most recent rendered bitplane scanline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VideoScanlineSnapshot {
@@ -157,6 +165,8 @@ pub struct Emulator {
     pub frame_ready: bool,
     /// Total CPU cycles executed since start.
     pub total_cycles: u64,
+    /// Number of frames where the CIA timer boot compatibility workaround started a timer.
+    pub forced_cia_timer_start_count: u64,
     /// First scanline in the current frame that rendered active bitplanes.
     pub first_video_scanline: Option<VideoScanlineSnapshot>,
     /// First active bitplane scanlines in the current frame.
@@ -244,6 +254,7 @@ impl Emulator {
             trace_count: 0,
             frame_ready: false,
             total_cycles: 0,
+            forced_cia_timer_start_count: 0,
             first_video_scanline: None,
             early_video_scanlines: Vec::new(),
             last_video_scanline: None,
@@ -815,11 +826,10 @@ impl Emulator {
             // timer.device manages the ICR mask itself.
             if self.total_cycles > FORCE_CIA_TIMER_THRESHOLD {
                 let mut cia = self.memory.cia.borrow_mut();
-                if cia.cia_a.cra & 0x01 == 0 {
-                    cia.cia_a.cra |= 0x01;
-                }
-                if cia.cia_b.cra & 0x01 == 0 {
-                    cia.cia_b.cra |= 0x01;
+                let applied_a = force_start_cia_timer(&mut cia.cia_a.cra);
+                let applied_b = force_start_cia_timer(&mut cia.cia_b.cra);
+                if applied_a || applied_b {
+                    self.forced_cia_timer_start_count += 1;
                 }
             }
 
