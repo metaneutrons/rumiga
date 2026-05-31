@@ -53,6 +53,7 @@ notes_path = Path(sys.argv[2])
 data = json.loads(manifest_path.read_text())
 edge = data.get("edge_integrity", {})
 viewport = data.get("viewport", {})
+presentation = data.get("presentation", {})
 framebuffer = data.get("framebuffer", {})
 producer = data.get("producer", {})
 run = data.get("run", {})
@@ -87,6 +88,8 @@ print(
     f"{viewport.get('source_width')}x{viewport.get('source_height')}"
     f" -> {viewport.get('output_width')}x{viewport.get('output_height')}"
     f" stretch={viewport.get('vertical_stretch')}"
+    f" scaling={presentation.get('scaling')}"
+    f" kind={presentation.get('capture_kind')}"
 )
 print(
     "framebuffer="
@@ -179,6 +182,8 @@ notes_path.write_text(
                 f"`{viewport.get('source_width')}x{viewport.get('source_height')}`"
                 f" -> `{viewport.get('output_width')}x{viewport.get('output_height')}`"
                 f" stretch=`{viewport.get('vertical_stretch')}`"
+                f" scaling=`{presentation.get('scaling')}`"
+                f" kind=`{presentation.get('capture_kind')}`"
             ),
             (
                 "- Framebuffer: "

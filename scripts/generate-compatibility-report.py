@@ -286,6 +286,7 @@ def classify_manifest(
     producer = data.get("producer", {})
     run = data.get("run", {})
     viewport = data.get("viewport", {})
+    presentation = data.get("presentation", {})
     edge = data.get("edge_integrity", {})
     boot = data.get("boot_workarounds", {})
     hdf = data.get("gayle_ide", {})
@@ -393,6 +394,8 @@ def classify_manifest(
         f"{scalar(viewport.get('source_width'))}x{scalar(viewport.get('source_height'))}"
         f"->{scalar(viewport.get('output_width'))}x{scalar(viewport.get('output_height'))}"
         f" stretch={scalar(viewport.get('vertical_stretch'))}"
+        f" scale={scalar(presentation.get('scaling'))}"
+        f" kind={scalar(presentation.get('capture_kind'))}"
     )
     edge_summary = (
         f"L{left_edge}/R{right_edge}/M{mirrored}/"

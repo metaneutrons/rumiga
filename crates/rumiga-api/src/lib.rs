@@ -170,6 +170,12 @@ pub enum ScalingMode {
     Stretch,
 }
 
+impl Default for ScalingMode {
+    fn default() -> Self {
+        Self::Integer
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum ViewportMode {
     /// Use the emulator's raw framebuffer.

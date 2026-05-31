@@ -826,6 +826,7 @@ impl ViewportMode {
 struct LaunchArgs {
     model: Option<MachineModel>,
     scale: usize,
+    scaling_mode: rumiga_api::ScalingMode,
     viewport_mode: ViewportMode,
     vertical_stretch: bool,
     floppy_speed_percent: u16,
@@ -1595,6 +1596,7 @@ fn existing_paths_match(a: &Path, b: &Path) -> bool {
 fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
     let mut model = None;
     let mut scale = DEFAULT_SCALE;
+    let mut scaling_mode = rumiga_api::ScalingMode::default();
     let mut viewport_mode = ViewportMode::Auto;
     let mut vertical_stretch = true;
     let mut floppy_speed_percent = FLOPPY_SPEED_COMPATIBLE_PERCENT;
@@ -1641,6 +1643,13 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
                     return Err("--scale requires a value".to_owned());
                 };
                 scale = parse_scale(value)?;
+                index += 2;
+            }
+            "--scaling-mode" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--scaling-mode requires a value".to_owned());
+                };
+                scaling_mode = parse_scaling_mode(value)?;
                 index += 2;
             }
             "--viewport" => {
@@ -1961,6 +1970,7 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
     Ok(LaunchArgs {
         model,
         scale,
+        scaling_mode,
         viewport_mode,
         vertical_stretch,
         floppy_speed_percent,
@@ -1999,6 +2009,15 @@ fn parse_scale(value: &str) -> Result<usize, String> {
     match scale {
         1 | 2 | 4 | 8 | 16 | 32 => Ok(scale),
         _ => Err(format!("Unsupported scale '{value}'")),
+    }
+}
+
+fn parse_scaling_mode(value: &str) -> Result<rumiga_api::ScalingMode, String> {
+    match value.to_ascii_lowercase().as_str() {
+        "integer" | "int" => Ok(rumiga_api::ScalingMode::Integer),
+        "aspect-fit" | "aspect_fit" | "aspect" | "fit" => Ok(rumiga_api::ScalingMode::AspectFit),
+        "stretch" => Ok(rumiga_api::ScalingMode::Stretch),
+        _ => Err(format!("Unsupported scaling mode '{value}'")),
     }
 }
 
@@ -2165,6 +2184,8 @@ fn print_usage(to_stdout: bool) {
 Options:
   -m, --model <model>     Machine profile: a500, a500-plus, a600, a1200
   -s, --scale <factor>    Window scale: 1, 2, 4, 8, 16, 32 [default: 1]
+      --scaling-mode <mode>
+                          Host presentation scaling: integer, aspect-fit, stretch
       --viewport <mode>   Viewport mode: auto, raw, native-full-border,
                           visible-area, overscan, auto-center [default: auto]
       --no-vertical-stretch  Disable vertical line doubling
@@ -2361,21 +2382,8 @@ fn write_capture_manifest(path: &Path, context: &CaptureManifestContext<'_>) -> 
         context.emulator.cpu.is_stopped(),
         context.emulator.trace_count
     );
-    let _ = writeln!(
-        json,
-        "  \"viewport\": {{ \"mode\": {}, \"preset\": {}, \"vertical_stretch\": {}, \"source_width\": {}, \"source_height\": {}, \"source_x_start\": {}, \"source_x_end\": {}, \"source_y_start\": {}, \"source_y_end\": {}, \"output_width\": {}, \"output_height\": {} }},",
-        json_string(&format!("{:?}", &context.display.viewport.mode)),
-        json_string(&format!("{:?}", &context.display.viewport.preset)),
-        context.display.viewport.vertical_stretch,
-        WIDTH,
-        HEIGHT,
-        context.frame.source_x_start,
-        context.frame.source_x_end,
-        context.frame.source_y_start,
-        context.frame.source_y_end,
-        context.frame.width,
-        context.frame.height
-    );
+    push_viewport_json(&mut json, context);
+    push_presentation_json(&mut json, context);
     push_native_framebuffer_json(&mut json);
     push_boot_workarounds_json(&mut json, context.emulator);
     push_cia_state_json(&mut json, context.emulator);
@@ -2421,6 +2429,35 @@ fn write_capture_manifest(path: &Path, context: &CaptureManifestContext<'_>) -> 
     json.push_str("}\n");
 
     fs::write(path, json).map_err(|e| format!("Failed to write manifest '{}': {e}", path.display()))
+}
+
+fn push_viewport_json(json: &mut String, context: &CaptureManifestContext<'_>) {
+    let _ = writeln!(
+        json,
+        "  \"viewport\": {{ \"mode\": {}, \"preset\": {}, \"vertical_stretch\": {}, \"source_width\": {}, \"source_height\": {}, \"source_x_start\": {}, \"source_x_end\": {}, \"source_y_start\": {}, \"source_y_end\": {}, \"output_width\": {}, \"output_height\": {} }},",
+        json_string(&format!("{:?}", &context.display.viewport.mode)),
+        json_string(&format!("{:?}", &context.display.viewport.preset)),
+        context.display.viewport.vertical_stretch,
+        WIDTH,
+        HEIGHT,
+        context.frame.source_x_start,
+        context.frame.source_x_end,
+        context.frame.source_y_start,
+        context.frame.source_y_end,
+        context.frame.width,
+        context.frame.height
+    );
+}
+
+fn push_presentation_json(json: &mut String, context: &CaptureManifestContext<'_>) {
+    let _ = writeln!(
+        json,
+        "  \"presentation\": {{ \"capture_kind\": {}, \"scaling\": {}, \"window_scale\": {}, \"orientation_landscape\": {} }},",
+        json_string("viewport-presentation"),
+        json_string(&format!("{:?}", &context.display.scaling)),
+        context.args.scale,
+        context.display.orientation_landscape
+    );
 }
 
 fn push_manifest_schema_json(json: &mut String) {
@@ -3402,7 +3439,10 @@ fn json_string(value: &str) -> String {
 }
 
 fn display_config_from_launch_args(args: &LaunchArgs) -> rumiga_api::DisplayConfig {
-    let mut display = rumiga_api::DisplayConfig::default();
+    let mut display = rumiga_api::DisplayConfig {
+        scaling: args.scaling_mode.clone(),
+        ..rumiga_api::DisplayConfig::default()
+    };
     display.viewport.mode = args.viewport_mode.api_mode();
     display.viewport.preset = args.viewport_mode.api_preset();
     display.viewport.vertical_stretch = args.vertical_stretch;
@@ -3598,6 +3638,7 @@ mod tests {
         LaunchArgs {
             model: None,
             scale: DEFAULT_SCALE,
+            scaling_mode: rumiga_api::ScalingMode::Integer,
             viewport_mode: ViewportMode::Auto,
             vertical_stretch: true,
             floppy_speed_percent: FLOPPY_SPEED_COMPATIBLE_PERCENT,
@@ -3772,6 +3813,34 @@ mod tests {
     #[test]
     fn parse_args_rejects_unsupported_scale() {
         let args = vec!["--scale".to_owned(), "3".to_owned(), "kick.rom".to_owned()];
+
+        assert!(parse_args(&args).is_err());
+    }
+
+    #[test]
+    fn parse_args_accepts_scaling_mode() {
+        let args = vec![
+            "--scaling-mode".to_owned(),
+            "aspect-fit".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+
+        assert_eq!(
+            parse_args(&args),
+            Ok(LaunchArgs {
+                scaling_mode: rumiga_api::ScalingMode::AspectFit,
+                ..default_test_args()
+            })
+        );
+    }
+
+    #[test]
+    fn parse_args_rejects_unsupported_scaling_mode() {
+        let args = vec![
+            "--scaling-mode".to_owned(),
+            "nearest".to_owned(),
+            "kick.rom".to_owned(),
+        ];
 
         assert!(parse_args(&args).is_err());
     }
@@ -4333,6 +4402,13 @@ mod tests {
         assert_eq!(manifest["viewport"]["source_width"], WIDTH);
         assert_eq!(manifest["viewport"]["preset"], "AutoCenter");
         assert_eq!(manifest["viewport"]["output_width"], 2);
+        assert_eq!(
+            manifest["presentation"]["capture_kind"],
+            "viewport-presentation"
+        );
+        assert_eq!(manifest["presentation"]["scaling"], "Integer");
+        assert_eq!(manifest["presentation"]["window_scale"], DEFAULT_SCALE);
+        assert_eq!(manifest["presentation"]["orientation_landscape"], true);
         assert_eq!(
             manifest["edge_integrity"]["first_lines"],
             EDGE_INSPECTION_LINES
