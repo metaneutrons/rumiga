@@ -98,6 +98,14 @@ via `screenshots_output_dir`, `screenshots_output_prefix`, and
 `screenshots_output_mask`. Rumiga evidence should come from Rumiga first; FS-UAE
 is the comparison oracle when validating A1200 viewport or boot behavior.
 
+Generate a local compatibility report from evidence manifests:
+
+```bash
+scripts/generate-compatibility-report.py \
+  --evidence-root target/evidence \
+  --output target/evidence/compatibility-report.md
+```
+
 ### ESP-IDF Target
 
 Prerequisites:
