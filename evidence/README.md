@@ -175,6 +175,9 @@ same filtering for a specific build.
   zero guest packet counters.
 - Host-window screenshots are useful for presentation bugs, but native
   framebuffer captures are the release gate for chipset viewport correctness.
+- CLI capture defaults to `--capture-kind viewport-presentation`; use
+  `--capture-kind native-framebuffer` when the evidence question is native
+  chipset generation before crop, stretch, or host scaling.
 - Capture manifests separate `native_framebuffer`, `viewport`, and
   `presentation`: native chipset dimensions, crop/stretch rectangle, and host
   scaling policy must be evaluated independently.

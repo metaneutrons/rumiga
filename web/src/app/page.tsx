@@ -7,6 +7,7 @@ import {
   getMachineConfig,
   type MachineStatus,
   type MachineConfig,
+  type ScreenshotKind,
   machineScreenshotUrl,
   pauseMachine,
   resetMachine,
@@ -33,6 +34,7 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [audioSeparation, setAudioSeparation] = useState<number>(100);
   const [screenshotUrl, setScreenshotUrl] = useState<string>(machineScreenshotUrl(0));
+  const [screenshotKind, setScreenshotKind] = useState<ScreenshotKind>('ViewportPresentation');
   const [autoRefresh, setAutoRefresh] = useState<boolean>(true);
   const refreshInterval = useRef<NodeJS.Timeout | null>(null);
 
@@ -64,7 +66,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (autoRefresh) {
       refreshInterval.current = setInterval(() => {
-        setScreenshotUrl(machineScreenshotUrl(Date.now()));
+        setScreenshotUrl(machineScreenshotUrl(Date.now(), screenshotKind));
       }, 200);
     } else {
       if (refreshInterval.current) {
@@ -74,7 +76,7 @@ export default function DashboardPage() {
     return () => {
       if (refreshInterval.current) clearInterval(refreshInterval.current);
     };
-  }, [autoRefresh]);
+  }, [autoRefresh, screenshotKind]);
 
   const handlePlayPause = async () => {
     if (!status) return;
@@ -110,6 +112,11 @@ export default function DashboardPage() {
     } catch (e: unknown) {
       setError(errorMessage(e, 'Audio update failed'));
     }
+  };
+
+  const handleScreenshotKindChange = (kind: ScreenshotKind) => {
+    setScreenshotKind(kind);
+    setScreenshotUrl(machineScreenshotUrl(Date.now(), kind));
   };
 
   return (
@@ -163,12 +170,30 @@ export default function DashboardPage() {
         <div className="lg:col-span-7 space-y-4 flex flex-col">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold tracking-tight text-zinc-200">Live Guest Display</h2>
-            <button
-              onClick={() => setAutoRefresh(!autoRefresh)}
-              className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-all ${autoRefresh ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' : 'bg-zinc-900/40 border-zinc-800 text-zinc-400 hover:border-zinc-700'}`}
-            >
-              {autoRefresh ? '● Auto Refreshing' : 'Paused Refresh'}
-            </button>
+            <div className="flex items-center gap-2">
+              <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/70 text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => handleScreenshotKindChange('ViewportPresentation')}
+                  className={`px-3 py-1.5 transition-colors ${screenshotKind === 'ViewportPresentation' ? 'bg-zinc-100 text-zinc-950' : 'text-zinc-400 hover:text-zinc-100'}`}
+                >
+                  Presentation
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleScreenshotKindChange('NativeFramebuffer')}
+                  className={`px-3 py-1.5 transition-colors ${screenshotKind === 'NativeFramebuffer' ? 'bg-zinc-100 text-zinc-950' : 'text-zinc-400 hover:text-zinc-100'}`}
+                >
+                  Native
+                </button>
+              </div>
+              <button
+                onClick={() => setAutoRefresh(!autoRefresh)}
+                className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-all ${autoRefresh ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' : 'bg-zinc-900/40 border-zinc-800 text-zinc-400 hover:border-zinc-700'}`}
+              >
+                {autoRefresh ? '● Auto Refreshing' : 'Paused Refresh'}
+              </button>
+            </div>
           </div>
 
           <div className="relative rounded-2xl overflow-hidden border border-zinc-800/80 bg-zinc-950 shadow-2xl flex-1 flex items-center justify-center min-h-[360px] group">

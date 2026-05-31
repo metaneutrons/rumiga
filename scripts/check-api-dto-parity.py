@@ -43,6 +43,7 @@ ENUMS = (
     "ScalingMode",
     "ViewportMode",
     "ViewportPreset",
+    "ScreenshotKind",
     "HdfWritePolicy",
     "NetworkDevice",
     "NetworkBackend",

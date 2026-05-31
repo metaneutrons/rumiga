@@ -93,6 +93,7 @@ export interface AudioConfig {
 export type ScalingMode = 'Integer' | 'AspectFit' | 'Stretch';
 export type ViewportMode = 'Raw' | 'Auto' | 'Manual';
 export type ViewportPreset = 'NativeFullBorder' | 'VisibleArea' | 'Overscan' | 'AutoCenter';
+export type ScreenshotKind = 'NativeFramebuffer' | 'ViewportPresentation';
 export type FloppySpeedPercent = 0 | 100 | 200 | 400 | 800;
 export type HdfWritePolicy = 'ReadOnly' | 'Writeback';
 export type NetworkDevice = 'A2065';
@@ -179,10 +180,16 @@ export interface SupportMediaSummary {
 
 export interface SupportScreenshotSummary {
   available: boolean;
+  kind: ScreenshotKind;
   width: number;
   height: number;
   endpoint: string;
   pixel_format: string;
+  available_kinds: ScreenshotKind[];
+  native_width: number;
+  native_height: number;
+  presentation_width: number;
+  presentation_height: number;
 }
 
 export interface SupportBundle {
@@ -336,8 +343,15 @@ export function updateAudioSeparation(
   return request(API_PATHS.machineAudioSeparation, json(requestBody));
 }
 
-export function machineScreenshotUrl(cacheBust: string | number = Date.now()): string {
-  return `${API_PATHS.machineScreenshot}?t=${encodeURIComponent(String(cacheBust))}`;
+export function machineScreenshotUrl(
+  cacheBust: string | number = Date.now(),
+  kind: ScreenshotKind = 'ViewportPresentation',
+): string {
+  const params = new URLSearchParams({
+    t: String(cacheBust),
+    kind,
+  });
+  return `${API_PATHS.machineScreenshot}?${params.toString()}`;
 }
 
 export function getMachineStatus(): Promise<ApiResponse<MachineStatus>> {

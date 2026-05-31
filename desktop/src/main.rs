@@ -66,6 +66,9 @@ struct SharedState {
     pub screenshot: Vec<u32>,
     pub screenshot_width: u32,
     pub screenshot_height: u32,
+    pub native_screenshot: Vec<u32>,
+    pub native_screenshot_width: u32,
+    pub native_screenshot_height: u32,
     pub pending_commands: Vec<ApiCommand>,
 }
 
@@ -213,6 +216,9 @@ fn support_bundle_from_state(s: &SharedState) -> rumiga_api::SupportBundle {
     let model = api_model_from_name(&s.model);
     let screenshot_available =
         !s.screenshot.is_empty() && s.screenshot_width > 0 && s.screenshot_height > 0;
+    let native_screenshot_available = !s.native_screenshot.is_empty()
+        && s.native_screenshot_width > 0
+        && s.native_screenshot_height > 0;
     let status = rumiga_api::MachineStatus {
         running: s.running,
         fps: s.fps,
@@ -241,6 +247,7 @@ fn support_bundle_from_state(s: &SharedState) -> rumiga_api::SupportBundle {
         },
         screenshot: rumiga_api::SupportScreenshotSummary {
             available: screenshot_available,
+            kind: rumiga_api::ScreenshotKind::ViewportPresentation,
             width: if screenshot_available {
                 s.screenshot_width
             } else {
@@ -251,8 +258,34 @@ fn support_bundle_from_state(s: &SharedState) -> rumiga_api::SupportBundle {
             } else {
                 0
             },
-            endpoint: "/api/machine/screenshot".to_string(),
+            endpoint: screenshot_endpoint_for_kind(
+                &rumiga_api::ScreenshotKind::ViewportPresentation,
+            ),
             pixel_format: "rgba8888-png".to_string(),
+            available_kinds: vec![
+                rumiga_api::ScreenshotKind::ViewportPresentation,
+                rumiga_api::ScreenshotKind::NativeFramebuffer,
+            ],
+            native_width: if native_screenshot_available {
+                s.native_screenshot_width
+            } else {
+                0
+            },
+            native_height: if native_screenshot_available {
+                s.native_screenshot_height
+            } else {
+                0
+            },
+            presentation_width: if screenshot_available {
+                s.screenshot_width
+            } else {
+                0
+            },
+            presentation_height: if screenshot_available {
+                s.screenshot_height
+            } else {
+                0
+            },
         },
         notes: vec![
             "Media paths are redacted to file names; ROM/HDF/ADF bytes are not included."
@@ -443,45 +476,42 @@ async fn post_audio_separation(
     axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::ok(())))
 }
 
-#[allow(clippy::many_single_char_names)]
 async fn get_screenshot(
     axum::extract::State(state): axum::extract::State<Arc<Mutex<SharedState>>>,
+    axum::extract::Query(query): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> axum::response::Response<axum::body::Body> {
-    let (pixels, w, h) = {
-        let s = state.lock().unwrap();
-        (
-            s.screenshot.clone(),
-            s.screenshot_width,
-            s.screenshot_height,
-        )
+    let kind = match query.get("kind") {
+        Some(value) => match parse_screenshot_kind(value) {
+            Ok(kind) => kind,
+            Err(message) => {
+                return axum::response::Response::builder()
+                    .status(axum::http::StatusCode::BAD_REQUEST)
+                    .body(axum::body::Body::from(message))
+                    .unwrap();
+            }
+        },
+        None => rumiga_api::ScreenshotKind::default(),
     };
-    if pixels.is_empty() || w == 0 || h == 0 {
+    let (pixels, width, height) = {
+        let s = state.lock().unwrap();
+        screenshot_buffer_for_kind(&s, &kind)
+    };
+    if pixels.is_empty() || width == 0 || height == 0 {
         return axum::response::Response::builder()
             .status(axum::http::StatusCode::NO_CONTENT)
             .body(axum::body::Body::from("No screenshot available"))
             .unwrap();
     }
 
-    let mut png_bytes = Vec::new();
-    {
-        let mut encoder = png::Encoder::new(&mut png_bytes, w, h);
-        encoder.set_color(png::ColorType::Rgba);
-        encoder.set_depth(png::BitDepth::Eight);
-        if let Ok(mut writer) = encoder.write_header() {
-            let mut rgba_bytes = vec![0u8; pixels.len() * 4];
-            for (i, &argb) in pixels.iter().enumerate() {
-                let r = ((argb >> 16) & 0xFF) as u8;
-                let g = ((argb >> 8) & 0xFF) as u8;
-                let b = (argb & 0xFF) as u8;
-                let a = ((argb >> 24) & 0xFF) as u8;
-                rgba_bytes[i * 4] = r;
-                rgba_bytes[i * 4 + 1] = g;
-                rgba_bytes[i * 4 + 2] = b;
-                rgba_bytes[i * 4 + 3] = a;
-            }
-            let _ = writer.write_image_data(&rgba_bytes);
+    let png_bytes = match encode_argb_png(&pixels, width, height) {
+        Ok(bytes) => bytes,
+        Err(message) => {
+            return axum::response::Response::builder()
+                .status(axum::http::StatusCode::INTERNAL_SERVER_ERROR)
+                .body(axum::body::Body::from(message))
+                .unwrap();
         }
-    }
+    };
 
     axum::response::Response::builder()
         .header(axum::http::header::CONTENT_TYPE, "image/png")
@@ -491,6 +521,81 @@ async fn get_screenshot(
         )
         .body(axum::body::Body::from(png_bytes))
         .unwrap()
+}
+
+fn screenshot_buffer_for_kind(
+    s: &SharedState,
+    kind: &rumiga_api::ScreenshotKind,
+) -> (Vec<u32>, u32, u32) {
+    match kind {
+        rumiga_api::ScreenshotKind::NativeFramebuffer => (
+            s.native_screenshot.clone(),
+            s.native_screenshot_width,
+            s.native_screenshot_height,
+        ),
+        rumiga_api::ScreenshotKind::ViewportPresentation => (
+            s.screenshot.clone(),
+            s.screenshot_width,
+            s.screenshot_height,
+        ),
+    }
+}
+
+fn copy_rgb565_to_argb(source: &[u16], destination: &mut Vec<u32>) {
+    destination.resize(source.len(), 0);
+    for (index, &pixel) in source.iter().enumerate() {
+        destination[index] = rumiga_platform_desktop::rgb565_to_argb(pixel);
+    }
+}
+
+const fn screenshot_kind_label(kind: &rumiga_api::ScreenshotKind) -> &'static str {
+    match kind {
+        rumiga_api::ScreenshotKind::NativeFramebuffer => "native-framebuffer",
+        rumiga_api::ScreenshotKind::ViewportPresentation => "viewport-presentation",
+    }
+}
+
+fn screenshot_endpoint_for_kind(kind: &rumiga_api::ScreenshotKind) -> String {
+    format!(
+        "{}?kind={}",
+        rumiga_api::MACHINE_SCREENSHOT_PATH,
+        screenshot_kind_label(kind)
+    )
+}
+
+fn encode_argb_png(pixels: &[u32], width: u32, height: u32) -> Result<Vec<u8>, String> {
+    let expected_pixels = usize::try_from(width)
+        .ok()
+        .and_then(|w| usize::try_from(height).ok().and_then(|h| w.checked_mul(h)))
+        .ok_or_else(|| "Screenshot dimensions overflow".to_owned())?;
+    if pixels.len() != expected_pixels {
+        return Err(format!(
+            "Screenshot buffer length mismatch: expected {expected_pixels}, got {}",
+            pixels.len()
+        ));
+    }
+
+    let mut png_bytes = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut png_bytes, width, height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder
+            .write_header()
+            .map_err(|e| format!("Failed to write screenshot PNG header: {e}"))?;
+        let mut rgba_bytes = vec![0u8; pixels.len() * 4];
+        for (index, &argb) in pixels.iter().enumerate() {
+            let base = index * 4;
+            rgba_bytes[base] = ((argb >> 16) & 0xFF) as u8;
+            rgba_bytes[base + 1] = ((argb >> 8) & 0xFF) as u8;
+            rgba_bytes[base + 2] = (argb & 0xFF) as u8;
+            rgba_bytes[base + 3] = ((argb >> 24) & 0xFF) as u8;
+        }
+        writer
+            .write_image_data(&rgba_bytes)
+            .map_err(|e| format!("Failed to write screenshot PNG data: {e}"))?;
+    }
+    Ok(png_bytes)
 }
 
 async fn get_files(
@@ -852,6 +957,7 @@ struct LaunchArgs {
     capture_path: Option<String>,
     capture_manifest_path: Option<String>,
     capture_frames: u64,
+    capture_kind: rumiga_api::ScreenshotKind,
     mouse_scale_x: f32,
     mouse_scale_y: f32,
     audio_separation: u8,
@@ -1175,6 +1281,9 @@ fn main() {
         screenshot: vec![0; initial_rect.width * initial_height],
         screenshot_width: u32::try_from(initial_rect.width).unwrap(),
         screenshot_height: u32::try_from(initial_height).unwrap(),
+        native_screenshot: vec![0; WIDTH * HEIGHT],
+        native_screenshot_width: u32::try_from(WIDTH).unwrap(),
+        native_screenshot_height: u32::try_from(HEIGHT).unwrap(),
         pending_commands: Vec::new(),
     }));
 
@@ -1423,13 +1532,13 @@ fn main() {
 
             {
                 let mut s = shared_state.lock().unwrap();
-                s.screenshot.resize(frame.pixels.len(), 0);
                 s.screenshot_width = u32::try_from(frame.width).unwrap_or(u32::MAX);
                 s.screenshot_height = u32::try_from(frame.height).unwrap_or(u32::MAX);
+                copy_rgb565_to_argb(&frame.pixels, &mut s.screenshot);
+                s.native_screenshot_width = u32::try_from(WIDTH).unwrap_or(u32::MAX);
+                s.native_screenshot_height = u32::try_from(HEIGHT).unwrap_or(u32::MAX);
+                copy_rgb565_to_argb(framebuffer, &mut s.native_screenshot);
                 s.network_status = network_status;
-                for (i, &pixel) in frame.pixels.iter().enumerate() {
-                    s.screenshot[i] = rumiga_platform_desktop::rgb565_to_argb(pixel);
-                }
             }
             emulator.clear_frame_ready();
         } else {
@@ -1620,6 +1729,7 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
     let mut capture_path = None;
     let mut capture_manifest_path = None;
     let mut capture_frames = DEFAULT_CAPTURE_FRAMES;
+    let mut capture_kind = rumiga_api::ScreenshotKind::default();
     let mut mouse_scale_x = 0.5f32;
     let mut mouse_scale_y = 1.0f32;
     let mut audio_separation = 100u8;
@@ -1827,6 +1937,13 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
                 capture_frames = parse_capture_frames(value)?;
                 index += 2;
             }
+            "--capture-kind" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--capture-kind requires a value".to_owned());
+                };
+                capture_kind = parse_screenshot_kind(value)?;
+                index += 2;
+            }
             "--mouse-scale-x" => {
                 let Some(value) = args.get(index + 1) else {
                     return Err("--mouse-scale-x requires a value".to_owned());
@@ -1996,6 +2113,7 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
         capture_path,
         capture_manifest_path,
         capture_frames,
+        capture_kind,
         mouse_scale_x,
         mouse_scale_y,
         audio_separation,
@@ -2018,6 +2136,20 @@ fn parse_scaling_mode(value: &str) -> Result<rumiga_api::ScalingMode, String> {
         "aspect-fit" | "aspect_fit" | "aspect" | "fit" => Ok(rumiga_api::ScalingMode::AspectFit),
         "stretch" => Ok(rumiga_api::ScalingMode::Stretch),
         _ => Err(format!("Unsupported scaling mode '{value}'")),
+    }
+}
+
+fn parse_screenshot_kind(value: &str) -> Result<rumiga_api::ScreenshotKind, String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "native-framebuffer" | "native_framebuffer" | "native" | "nativeframebuffer" => {
+            Ok(rumiga_api::ScreenshotKind::NativeFramebuffer)
+        }
+        "viewport-presentation"
+        | "viewport_presentation"
+        | "presentation"
+        | "viewport"
+        | "viewportpresentation" => Ok(rumiga_api::ScreenshotKind::ViewportPresentation),
+        _ => Err(format!("Unsupported screenshot kind '{value}'")),
     }
 }
 
@@ -2216,6 +2348,7 @@ Options:
       --trace-limit <n>   Stop tracing after N instructions
       --capture <file.png>  Run headless and save a PNG screenshot
       --capture-frames <n>  Frames to run before capture [default: 300]
+      --capture-kind <kind>  Capture kind: viewport-presentation, native-framebuffer
       --capture-manifest <file.json>  Save capture evidence manifest";
     if to_stdout {
         println!("{msg}");
@@ -2235,10 +2368,11 @@ fn capture_evidence(
     }
 
     let hdf_snapshot = write_hdf_snapshot_if_requested(emulator, context.args)?;
-    let frame = prepare_capture_frame(
+    let frame = prepare_capture_frame_for_kind(
         emulator.framebuffer(),
         context.display,
         Some(&emulator.playfield),
+        &context.args.capture_kind,
     )?;
     let image_path = Path::new(context.capture_path);
     write_rgb565_png(image_path, &frame.pixels, frame.width, frame.height)?;
@@ -2264,7 +2398,8 @@ fn capture_evidence(
     write_capture_manifest(&manifest_path, &manifest_context)?;
 
     eprintln!(
-        "Captured {}x{} after {} frames: {}",
+        "Captured {} {}x{} after {} frames: {}",
+        screenshot_kind_label(&context.args.capture_kind),
         frame.width,
         frame.height,
         context.args.capture_frames,
@@ -2298,6 +2433,42 @@ fn prepare_capture_frame(
         source_x_end: rect.x_end(),
         source_y_start: rect.y,
         source_y_end: rect.y_end(),
+    })
+}
+
+fn prepare_capture_frame_for_kind(
+    framebuffer: &[u16],
+    display: &rumiga_api::DisplayConfig,
+    playfield: Option<&PlayfieldState>,
+    kind: &rumiga_api::ScreenshotKind,
+) -> Result<CaptureFrame, String> {
+    match kind {
+        rumiga_api::ScreenshotKind::NativeFramebuffer => prepare_native_capture_frame(framebuffer),
+        rumiga_api::ScreenshotKind::ViewportPresentation => {
+            prepare_capture_frame(framebuffer, display, playfield)
+        }
+    }
+}
+
+fn prepare_native_capture_frame(framebuffer: &[u16]) -> Result<CaptureFrame, String> {
+    let expected_len = WIDTH
+        .checked_mul(HEIGHT)
+        .ok_or_else(|| "Native framebuffer dimensions overflow".to_owned())?;
+    if framebuffer.len() != expected_len {
+        return Err(format!(
+            "Native framebuffer length mismatch: expected {expected_len}, got {}",
+            framebuffer.len()
+        ));
+    }
+
+    Ok(CaptureFrame {
+        pixels: framebuffer.to_vec(),
+        width: WIDTH,
+        height: HEIGHT,
+        source_x_start: 0,
+        source_x_end: WIDTH,
+        source_y_start: 0,
+        source_y_end: HEIGHT,
     })
 }
 
@@ -2453,7 +2624,7 @@ fn push_presentation_json(json: &mut String, context: &CaptureManifestContext<'_
     let _ = writeln!(
         json,
         "  \"presentation\": {{ \"capture_kind\": {}, \"scaling\": {}, \"window_scale\": {}, \"orientation_landscape\": {} }},",
-        json_string("viewport-presentation"),
+        json_string(screenshot_kind_label(&context.args.capture_kind)),
         json_string(&format!("{:?}", &context.display.scaling)),
         context.args.scale,
         context.display.orientation_landscape
@@ -3664,6 +3835,7 @@ mod tests {
             capture_path: None,
             capture_manifest_path: None,
             capture_frames: DEFAULT_CAPTURE_FRAMES,
+            capture_kind: rumiga_api::ScreenshotKind::ViewportPresentation,
             mouse_scale_x: 0.5,
             mouse_scale_y: 1.0,
             audio_separation: 100,
@@ -3690,6 +3862,9 @@ mod tests {
             screenshot: vec![0xFF00_0000; 4],
             screenshot_width: 2,
             screenshot_height: 2,
+            native_screenshot: vec![0xFF00_0000; WIDTH * HEIGHT],
+            native_screenshot_width: u32::try_from(WIDTH).unwrap(),
+            native_screenshot_height: u32::try_from(HEIGHT).unwrap(),
             pending_commands: Vec::new(),
         }
     }
@@ -3726,7 +3901,28 @@ mod tests {
         assert_eq!(bundle.media.hdf_name, Some("workbench.hdf".to_owned()));
         assert_eq!(bundle.media.floppies[0], Some("install.adf".to_owned()));
         assert!(bundle.screenshot.available);
+        assert_eq!(
+            bundle.screenshot.kind,
+            rumiga_api::ScreenshotKind::ViewportPresentation
+        );
         assert_eq!(bundle.screenshot.width, 2);
+        assert_eq!(
+            bundle.screenshot.native_width,
+            u32::try_from(WIDTH).unwrap()
+        );
+        assert_eq!(
+            bundle.screenshot.native_height,
+            u32::try_from(HEIGHT).unwrap()
+        );
+        assert_eq!(bundle.screenshot.presentation_width, 2);
+        assert_eq!(bundle.screenshot.presentation_height, 2);
+        assert_eq!(
+            bundle.screenshot.available_kinds,
+            vec![
+                rumiga_api::ScreenshotKind::ViewportPresentation,
+                rumiga_api::ScreenshotKind::NativeFramebuffer,
+            ]
+        );
         assert!(!json.contains("/Users/fabian"));
     }
 
@@ -4140,6 +4336,37 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_accepts_capture_kind() {
+        let args = vec![
+            "--capture".to_owned(),
+            "evidence/native.png".to_owned(),
+            "--capture-kind".to_owned(),
+            "native-framebuffer".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+
+        assert_eq!(
+            parse_args(&args),
+            Ok(LaunchArgs {
+                capture_path: Some("evidence/native.png".to_owned()),
+                capture_kind: rumiga_api::ScreenshotKind::NativeFramebuffer,
+                ..default_test_args()
+            })
+        );
+    }
+
+    #[test]
+    fn parse_args_rejects_unsupported_capture_kind() {
+        let args = vec![
+            "--capture-kind".to_owned(),
+            "host-window".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+
+        assert!(parse_args(&args).is_err());
+    }
+
+    #[test]
     fn parse_args_rejects_manifest_without_capture() {
         let args = vec![
             "--capture-manifest".to_owned(),
@@ -4308,6 +4535,31 @@ mod tests {
         assert_eq!(frame.width, WIDTH);
         assert_eq!(frame.height, HEIGHT * 2);
         assert_eq!(frame.pixels.len(), WIDTH * HEIGHT * 2);
+    }
+
+    #[test]
+    fn prepare_capture_frame_for_native_kind_uses_full_framebuffer() {
+        let mut framebuffer = vec![0x0000u16; WIDTH * HEIGHT];
+        framebuffer[0] = 0x1234;
+        framebuffer[WIDTH * HEIGHT - 1] = 0xABCD;
+        let display = display_config_from_launch_args(&default_test_args());
+
+        let frame = prepare_capture_frame_for_kind(
+            &framebuffer,
+            &display,
+            None,
+            &rumiga_api::ScreenshotKind::NativeFramebuffer,
+        )
+        .expect("native framebuffer should capture");
+
+        assert_eq!(frame.width, WIDTH);
+        assert_eq!(frame.height, HEIGHT);
+        assert_eq!(frame.source_x_start, 0);
+        assert_eq!(frame.source_x_end, WIDTH);
+        assert_eq!(frame.source_y_start, 0);
+        assert_eq!(frame.source_y_end, HEIGHT);
+        assert_eq!(frame.pixels[0], 0x1234);
+        assert_eq!(frame.pixels[WIDTH * HEIGHT - 1], 0xABCD);
     }
 
     #[test]

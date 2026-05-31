@@ -272,6 +272,18 @@ impl Default for DisplayConfig {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub enum ScreenshotKind {
+    NativeFramebuffer,
+    ViewportPresentation,
+}
+
+impl Default for ScreenshotKind {
+    fn default() -> Self {
+        Self::ViewportPresentation
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct MachineConfig {
     pub model: AmigaModel,
@@ -566,10 +578,16 @@ pub struct SupportMediaSummary {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SupportScreenshotSummary {
     pub available: bool,
+    pub kind: ScreenshotKind,
     pub width: u32,
     pub height: u32,
     pub endpoint: String,
     pub pixel_format: String,
+    pub available_kinds: Vec<ScreenshotKind>,
+    pub native_width: u32,
+    pub native_height: u32,
+    pub presentation_width: u32,
+    pub presentation_height: u32,
 }
 
 // ─── Generic API Response ────────────────────────────────────────────────────
