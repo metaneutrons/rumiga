@@ -93,6 +93,13 @@ viewport crop/stretch settings, framebuffer statistics, floppy controller state,
 and SHA-256 hashes for the ROM and mounted media. Capture mode does not write
 dirty floppy or HDF buffers back to the source files.
 
+For HDF evidence runs that need to preserve the exact post-run disk buffer
+without mutating the source image, add `--hdf-snapshot <file.hdf>`. The snapshot
+path must be different from the source HDF. The manifest records the snapshot
+hash plus changed byte and 512-byte sector counts against the source image.
+Scenario scripts honor `RUMIGA_HDF_SNAPSHOT=/path/to/session.hdf` for opt-in
+snapshot capture.
+
 For external reference captures on macOS, FS-UAE already has screenshot support
 via `screenshots_output_dir`, `screenshots_output_prefix`, and
 `screenshots_output_mask`. Rumiga evidence should come from Rumiga first; FS-UAE

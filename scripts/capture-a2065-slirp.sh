@@ -6,6 +6,7 @@ cd "$repo_root"
 
 rom="${RUMIGA_NETWORK_ROM:-${RUMIGA_A1200_ROM:-assets/kick.a1200.47.102.rom}}"
 hdf="${RUMIGA_NETWORK_HDF:-${RUMIGA_A1200_HDF:-assets/workbench-39.hdf}}"
+hdf_snapshot="${RUMIGA_HDF_SNAPSHOT:-}"
 cpu="${RUMIGA_NETWORK_CPU:-68020}"
 mac="${RUMIGA_NETWORK_MAC:-00:80:10:4d:49:47}"
 frames="${RUMIGA_CAPTURE_FRAMES:-4000}"
@@ -33,17 +34,23 @@ fi
 
 mkdir -p "$out_dir"
 
-cargo run --release -p rumiga-desktop --bin rumiga-desktop -- \
-  --model a1200 \
-  --cpu "$cpu" \
-  --network-slirp \
-  --network-mac "$mac" \
-  --network-pcap "$pcap" \
-  --hdf "$hdf" \
-  --capture "$png" \
-  --capture-manifest "$manifest" \
-  --capture-frames "$frames" \
-  "$rom"
+cmd=(
+  cargo run --release -p rumiga-desktop --bin rumiga-desktop --
+  --model a1200
+  --cpu "$cpu"
+  --network-slirp
+  --network-mac "$mac"
+  --network-pcap "$pcap"
+  --hdf "$hdf"
+  --capture "$png"
+  --capture-manifest "$manifest"
+  --capture-frames "$frames"
+)
+if [[ -n "$hdf_snapshot" ]]; then
+  cmd+=(--hdf-snapshot "$hdf_snapshot")
+fi
+cmd+=("$rom")
+"${cmd[@]}"
 
 python3 - "$manifest" "$notes" "$mode" "$expect_configured" "$expect_tx_min" "$expect_rx_min" <<'PY'
 import json
@@ -63,6 +70,7 @@ producer = data.get("producer", {})
 run = data.get("run", {})
 network = data.get("network", {})
 hdf = data.get("gayle_ide", {})
+hdf_snapshot = hdf.get("hdf_snapshot")
 pcap = network.get("pcap")
 
 enabled = bool(network.get("enabled"))
@@ -128,6 +136,14 @@ print(
     f" rdb_detected={hdf.get('rdb', {}).get('detected')}"
     f" rdb_usable={hdf.get('rdb', {}).get('usable')}"
 )
+if isinstance(hdf_snapshot, dict):
+    print(
+        "hdf_snapshot="
+        f"path={hdf_snapshot.get('path')}"
+        f" dirty={hdf_snapshot.get('dirty')}"
+        f" changed_bytes={hdf_snapshot.get('changed_bytes')}"
+        f" changed_sectors={hdf_snapshot.get('changed_sectors')}"
+    )
 print(f"classification={classification}")
 
 notes = [
@@ -162,6 +178,15 @@ notes = [
         f"source=`{hdf.get('geometry_source')}` "
         f"rdb_detected=`{hdf.get('rdb', {}).get('detected')}` "
         f"rdb_usable=`{hdf.get('rdb', {}).get('usable')}`"
+    ),
+    (
+        "- HDF snapshot: "
+        f"path=`{hdf_snapshot.get('path')}` "
+        f"dirty=`{hdf_snapshot.get('dirty')}` "
+        f"changed_bytes=`{hdf_snapshot.get('changed_bytes')}` "
+        f"changed_sectors=`{hdf_snapshot.get('changed_sectors')}`"
+        if isinstance(hdf_snapshot, dict)
+        else "- HDF snapshot: `none`"
     ),
     f"- Classification: `{classification}`",
     "",

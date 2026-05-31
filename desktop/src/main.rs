@@ -702,6 +702,7 @@ struct LaunchArgs {
     adf_paths: Vec<String>,
     hdf_path: Option<String>,
     hdf_write_policy: rumiga_api::HdfWritePolicy,
+    hdf_snapshot_path: Option<String>,
     network: rumiga_api::NetworkConfig,
     network_pcap_path: Option<String>,
     cpu: Option<m68k::CpuType>,
@@ -729,6 +730,25 @@ struct FileEvidence {
     path: String,
     bytes: usize,
     sha256: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct HdfSnapshotEvidence {
+    path: String,
+    bytes: usize,
+    sha256: String,
+    source_sha256: String,
+    dirty: bool,
+    changed_bytes: usize,
+    changed_sectors: usize,
+    sector_size: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct HdfDiffStats {
+    changed_bytes: usize,
+    changed_sectors: usize,
+    sector_size: usize,
 }
 
 struct CaptureFrame {
@@ -801,6 +821,7 @@ struct CaptureManifestContext<'a> {
     rom: &'a FileEvidence,
     floppies: &'a [Option<FileEvidence>; 4],
     hdf: Option<&'a FileEvidence>,
+    hdf_snapshot: Option<&'a HdfSnapshotEvidence>,
 }
 
 #[allow(
@@ -1263,6 +1284,10 @@ fn main() {
         }
     }
 
+    if let Err(e) = write_hdf_snapshot_if_requested(&emulator, &launch_args) {
+        eprintln!("{e}");
+        process::exit(1);
+    }
     flush_dirty_media(&mut emulator, &launch_args, &floppy_paths);
 }
 
@@ -1328,12 +1353,90 @@ fn atomic_write_file(path: &Path, data: &[u8]) -> Result<(), String> {
     })?;
     if let Err(e) = fs::rename(&tmp_path, path) {
         let _ = fs::remove_file(&tmp_path);
-        return Err(format!(
-            "Failed to replace HDF file '{}': {e}",
-            path.display()
-        ));
+        return Err(format!("Failed to replace file '{}': {e}", path.display()));
     }
     Ok(())
+}
+
+fn write_hdf_snapshot_if_requested(
+    emulator: &Emulator,
+    launch_args: &LaunchArgs,
+) -> Result<Option<HdfSnapshotEvidence>, String> {
+    let Some(snapshot_path) = &launch_args.hdf_snapshot_path else {
+        return Ok(None);
+    };
+    let Some(source_path) = &launch_args.hdf_path else {
+        return Err("--hdf-snapshot requires --hdf".to_owned());
+    };
+    if source_path == snapshot_path
+        || existing_paths_match(Path::new(source_path), Path::new(snapshot_path))
+    {
+        return Err("--hdf-snapshot must not point at the source HDF".to_owned());
+    }
+
+    let Some(snapshot_data) = emulator.extract_hdf() else {
+        return Err("Cannot write HDF snapshot because no HDF is mounted".to_owned());
+    };
+    let source_data = fs::read(source_path)
+        .map_err(|e| format!("Failed to read source HDF '{source_path}' for diff: {e}"))?;
+    let diff = hdf_diff_stats(&source_data, &snapshot_data, HDF_DIFF_SECTOR_SIZE);
+    let snapshot_file = Path::new(snapshot_path);
+    create_parent_dirs(snapshot_file)?;
+    atomic_write_file(snapshot_file, &snapshot_data)?;
+
+    let evidence = HdfSnapshotEvidence {
+        path: snapshot_path.clone(),
+        bytes: snapshot_data.len(),
+        sha256: sha256_hex(&snapshot_data),
+        source_sha256: sha256_hex(&source_data),
+        dirty: emulator.hdf_dirty(),
+        changed_bytes: diff.changed_bytes,
+        changed_sectors: diff.changed_sectors,
+        sector_size: diff.sector_size,
+    };
+    eprintln!(
+        "Wrote HDF session snapshot: {} ({} bytes changed across {} sectors, dirty={})",
+        snapshot_file.display(),
+        evidence.changed_bytes,
+        evidence.changed_sectors,
+        evidence.dirty
+    );
+    Ok(Some(evidence))
+}
+
+const HDF_DIFF_SECTOR_SIZE: usize = 512;
+
+fn hdf_diff_stats(source: &[u8], snapshot: &[u8], sector_size: usize) -> HdfDiffStats {
+    let max_len = source.len().max(snapshot.len());
+    let changed_bytes = (0..max_len)
+        .filter(|&index| source.get(index) != snapshot.get(index))
+        .count();
+    let changed_sectors = if sector_size == 0 {
+        0
+    } else {
+        max_len.div_ceil(sector_size).saturating_sub(
+            (0..max_len.div_ceil(sector_size))
+                .filter(|&sector| {
+                    let start = sector * sector_size;
+                    let end = (start + sector_size).min(max_len);
+                    source.get(start..end) == snapshot.get(start..end)
+                })
+                .count(),
+        )
+    };
+
+    HdfDiffStats {
+        changed_bytes,
+        changed_sectors,
+        sector_size,
+    }
+}
+
+fn existing_paths_match(a: &Path, b: &Path) -> bool {
+    match (fs::canonicalize(a), fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
 }
 
 #[allow(clippy::cognitive_complexity, clippy::too_many_lines)]
@@ -1345,6 +1448,7 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
     let mut floppy_speed_percent = FLOPPY_SPEED_COMPATIBLE_PERCENT;
     let mut hdf_path = None;
     let mut hdf_write_policy = rumiga_api::HdfWritePolicy::default();
+    let mut hdf_snapshot_path = None;
     let mut network = rumiga_api::NetworkConfig::default();
     let mut network_pcap_path = None;
     let mut cpu = None;
@@ -1422,6 +1526,13 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
                     return Err("--hdf-write-policy requires a value".to_owned());
                 };
                 hdf_write_policy = parse_hdf_write_policy(value)?;
+                index += 2;
+            }
+            "--hdf-snapshot" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--hdf-snapshot requires a value".to_owned());
+                };
+                hdf_snapshot_path = Some(value.clone());
                 index += 2;
             }
             "--network" => {
@@ -1614,6 +1725,14 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
     if capture_path.is_none() && capture_manifest_path.is_some() {
         return Err("--capture-manifest requires --capture".to_owned());
     }
+    if hdf_snapshot_path.is_some() && hdf_path.is_none() {
+        return Err("--hdf-snapshot requires --hdf".to_owned());
+    }
+    if let (Some(hdf), Some(snapshot)) = (&hdf_path, &hdf_snapshot_path) {
+        if hdf == snapshot || existing_paths_match(Path::new(hdf), Path::new(snapshot)) {
+            return Err("--hdf-snapshot must not point at the source HDF".to_owned());
+        }
+    }
 
     // 2. Validate custom Chip RAM constraints (critical for Alice/Lisa DMA masking)
     if let Some(chip) = chip_ram {
@@ -1697,6 +1816,7 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
         adf_paths: positional.iter().skip(1).cloned().collect(),
         hdf_path,
         hdf_write_policy,
+        hdf_snapshot_path,
         network,
         network_pcap_path,
         cpu,
@@ -1903,6 +2023,8 @@ Options:
       --hdf-write-policy <policy>
                           HDF persistence: read-only, writeback [default: read-only]
       --hdf-writeback     Persist dirty HDF sectors back to the source file on exit
+      --hdf-snapshot <file.hdf>
+                          Write the current in-memory HDF buffer to a separate file
       --network <backend> Amiga network backend: disabled, slirp [default: disabled]
       --network-slirp     Enable A2065-compatible Ethernet via SLIRP/NAT
       --network-mac <mac> MAC for the emulated A2065 card
@@ -1939,6 +2061,7 @@ fn capture_evidence(
         network_backend.pump(emulator)?;
     }
 
+    let hdf_snapshot = write_hdf_snapshot_if_requested(emulator, context.args)?;
     let frame = prepare_capture_frame(
         emulator.framebuffer(),
         context.display,
@@ -1963,6 +2086,7 @@ fn capture_evidence(
         rom: context.rom,
         floppies: context.floppies,
         hdf: context.hdf,
+        hdf_snapshot: hdf_snapshot.as_ref(),
     };
     write_capture_manifest(&manifest_path, &manifest_context)?;
 
@@ -2114,7 +2238,12 @@ fn write_capture_manifest(path: &Path, context: &CaptureManifestContext<'_>) -> 
     push_edge_integrity_json(&mut json, context.emulator.framebuffer());
     push_video_state_json(&mut json, context.emulator);
     push_floppy_state_json(&mut json, &context.emulator.floppy);
-    push_gayle_ide_state_json(&mut json, context.emulator, context.args.hdf_write_policy);
+    push_gayle_ide_state_json(
+        &mut json,
+        context.emulator,
+        context.args.hdf_write_policy,
+        context.hdf_snapshot,
+    );
     push_network_state_json(
         &mut json,
         &context.args.network,
@@ -2527,6 +2656,7 @@ fn push_gayle_ide_state_json(
     json: &mut String,
     emulator: &Emulator,
     hdf_write_policy: rumiga_api::HdfWritePolicy,
+    hdf_snapshot: Option<&HdfSnapshotEvidence>,
 ) {
     let ide = emulator.memory.ide.borrow();
     let disk_bytes = ide.disk_data.as_ref().map_or(0, Vec::len);
@@ -2564,6 +2694,7 @@ fn push_gayle_ide_state_json(
         hdf_write_policy == rumiga_api::HdfWritePolicy::Writeback
     );
     let _ = writeln!(json, "    \"hdf_dirty\": {},", ide.hdf_dirty);
+    push_hdf_snapshot_json(json, hdf_snapshot);
     let _ = writeln!(json, "    \"pending_irq\": {},", ide.pending_irq);
     let _ = writeln!(
         json,
@@ -2626,6 +2757,31 @@ fn push_gayle_ide_state_json(
     let _ = writeln!(json, "    \"data_index\": {},", ide.data_index);
     let _ = writeln!(json, "    \"data_buffer_len\": {}", ide.data_buffer.len());
     json.push_str("  },\n");
+}
+
+fn push_hdf_snapshot_json(json: &mut String, hdf_snapshot: Option<&HdfSnapshotEvidence>) {
+    if let Some(snapshot) = hdf_snapshot {
+        let _ = writeln!(json, "    \"hdf_snapshot\": {{");
+        let _ = writeln!(json, "      \"path\": {},", json_string(&snapshot.path));
+        let _ = writeln!(json, "      \"bytes\": {},", snapshot.bytes);
+        let _ = writeln!(json, "      \"sha256\": {},", json_string(&snapshot.sha256));
+        let _ = writeln!(
+            json,
+            "      \"source_sha256\": {},",
+            json_string(&snapshot.source_sha256)
+        );
+        let _ = writeln!(json, "      \"dirty\": {},", snapshot.dirty);
+        let _ = writeln!(json, "      \"changed_bytes\": {},", snapshot.changed_bytes);
+        let _ = writeln!(
+            json,
+            "      \"changed_sectors\": {},",
+            snapshot.changed_sectors
+        );
+        let _ = writeln!(json, "      \"sector_size\": {}", snapshot.sector_size);
+        let _ = writeln!(json, "    }},");
+    } else {
+        let _ = writeln!(json, "    \"hdf_snapshot\": null,");
+    }
 }
 
 fn push_rdb_geometry_json(json: &mut String, rdb: &rumiga_core::ide::RdbGeometry) {
@@ -3241,6 +3397,7 @@ mod tests {
             adf_paths: Vec::new(),
             hdf_path: None,
             hdf_write_policy: rumiga_api::HdfWritePolicy::ReadOnly,
+            hdf_snapshot_path: None,
             network: rumiga_api::NetworkConfig::default(),
             network_pcap_path: None,
             cpu: None,
@@ -3542,6 +3699,50 @@ mod tests {
                 ..default_test_args()
             })
         );
+    }
+
+    #[test]
+    fn parse_args_accepts_hdf_snapshot_path() {
+        let args = vec![
+            "--hdf".to_owned(),
+            "system.hdf".to_owned(),
+            "--hdf-snapshot".to_owned(),
+            "target/evidence/system-session.hdf".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+
+        assert_eq!(
+            parse_args(&args),
+            Ok(LaunchArgs {
+                hdf_path: Some("system.hdf".to_owned()),
+                hdf_snapshot_path: Some("target/evidence/system-session.hdf".to_owned()),
+                ..default_test_args()
+            })
+        );
+    }
+
+    #[test]
+    fn parse_args_rejects_hdf_snapshot_without_hdf() {
+        let args = vec![
+            "--hdf-snapshot".to_owned(),
+            "target/evidence/system-session.hdf".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+
+        assert!(parse_args(&args).is_err());
+    }
+
+    #[test]
+    fn parse_args_rejects_hdf_snapshot_over_source() {
+        let args = vec![
+            "--hdf".to_owned(),
+            "system.hdf".to_owned(),
+            "--hdf-snapshot".to_owned(),
+            "system.hdf".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+
+        assert!(parse_args(&args).is_err());
     }
 
     #[test]
@@ -3847,6 +4048,7 @@ mod tests {
             rom: &rom,
             floppies: &floppies,
             hdf: None,
+            hdf_snapshot: None,
         };
 
         write_capture_manifest(&manifest_path, &context).expect("manifest should write");
@@ -3889,6 +4091,7 @@ mod tests {
         assert_eq!(manifest["cia"]["b"]["register_writes"]["crb"]["count"], 0);
         assert_eq!(manifest["gayle_ide"]["hdf_write_policy"], "read-only");
         assert_eq!(manifest["gayle_ide"]["host_writeback_enabled"], false);
+        assert!(manifest["gayle_ide"]["hdf_snapshot"].is_null());
         assert_eq!(manifest["gayle_ide"]["geometry_source"], "none");
         assert_eq!(manifest["gayle_ide"]["sector_size"], 512);
         assert_eq!(manifest["gayle_ide"]["rdb"]["detected"], false);
@@ -3968,6 +4171,66 @@ mod tests {
         );
         assert!(!emulator.hdf_dirty());
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn hdf_diff_stats_counts_changed_bytes_and_sectors() {
+        let source = [0u8; 1024];
+        let mut snapshot = source;
+        snapshot[10] = 1;
+        snapshot[700] = 2;
+
+        assert_eq!(
+            hdf_diff_stats(&source, &snapshot, HDF_DIFF_SECTOR_SIZE),
+            HdfDiffStats {
+                changed_bytes: 2,
+                changed_sectors: 2,
+                sector_size: HDF_DIFF_SECTOR_SIZE,
+            }
+        );
+    }
+
+    #[test]
+    fn hdf_snapshot_writes_copy_and_reports_diff_without_touching_source() {
+        let source_path = unique_temp_path("hdf-snapshot-source");
+        let snapshot_path = unique_temp_path("hdf-snapshot-copy");
+        let source_data = [0x11u8; 1024];
+        fs::write(&source_path, source_data).expect("source HDF should be writable");
+
+        let mut session_data = source_data.to_vec();
+        session_data[10] = 0x22;
+        session_data[513] = 0x33;
+        let mut emulator = Emulator::new(MemoryConfig::a1200());
+        emulator.insert_hdf(session_data.clone());
+        emulator.memory.ide.borrow_mut().hdf_dirty = true;
+        let args = LaunchArgs {
+            hdf_path: Some(source_path.display().to_string()),
+            hdf_snapshot_path: Some(snapshot_path.display().to_string()),
+            ..default_test_args()
+        };
+
+        let evidence = write_hdf_snapshot_if_requested(&emulator, &args)
+            .expect("snapshot should write")
+            .expect("snapshot evidence should exist");
+
+        assert_eq!(
+            fs::read(&source_path).expect("source should remain"),
+            source_data
+        );
+        assert_eq!(
+            fs::read(&snapshot_path).expect("snapshot should exist"),
+            session_data
+        );
+        assert_eq!(evidence.bytes, session_data.len());
+        assert_eq!(evidence.sha256, sha256_hex(&session_data));
+        assert_eq!(evidence.source_sha256, sha256_hex(&source_data));
+        assert!(evidence.dirty);
+        assert_eq!(evidence.changed_bytes, 2);
+        assert_eq!(evidence.changed_sectors, 2);
+        assert_eq!(evidence.sector_size, HDF_DIFF_SECTOR_SIZE);
+
+        let _ = fs::remove_file(source_path);
+        let _ = fs::remove_file(snapshot_path);
     }
 
     #[test]

@@ -160,8 +160,15 @@ def classify_manifest(path: Path, root: Path, data: dict[str, Any] | None, error
             hard_fail = True
             notes.append("RDB geometry was detected but is not usable")
         if bool_value(hdf.get("hdf_dirty")):
-            partial = True
-            notes.append("HDF was dirty after evidence run")
+            snapshot = hdf.get("hdf_snapshot")
+            if isinstance(snapshot, dict):
+                notes.append(
+                    "HDF was dirty after evidence run; snapshot captured "
+                    f"{scalar(snapshot.get('changed_sectors'))} changed sectors"
+                )
+            else:
+                partial = True
+                notes.append("HDF was dirty after evidence run without a snapshot")
 
     network_enabled = bool_value(network.get("enabled"))
     if network_enabled:
@@ -239,10 +246,18 @@ def hdf_status(hdf: dict[str, Any], has_hdf: bool) -> str:
     if not has_hdf:
         return "none"
     rdb = hdf.get("rdb", {})
+    snapshot = hdf.get("hdf_snapshot")
+    snapshot_summary = "none"
+    if isinstance(snapshot, dict):
+        snapshot_summary = (
+            f"{scalar(snapshot.get('changed_sectors'))} sectors/"
+            f"{scalar(snapshot.get('changed_bytes'))} bytes"
+        )
     return (
         f"{scalar(hdf.get('geometry_source'))} "
         f"{scalar(hdf.get('cylinders'))}/{scalar(hdf.get('heads'))}/{scalar(hdf.get('sectors_per_track'))} "
-        f"rdb={scalar(rdb.get('usable'))} dirty={scalar(hdf.get('hdf_dirty'))}"
+        f"rdb={scalar(rdb.get('usable'))} dirty={scalar(hdf.get('hdf_dirty'))} "
+        f"snapshot={snapshot_summary}"
     )
 
 

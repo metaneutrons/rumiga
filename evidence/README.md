@@ -146,6 +146,10 @@ feature proof yet, such as A2065 link/configuration without guest TCP packets.
   zero guest packet counters.
 - Host-window screenshots are useful for presentation bugs, but native
   framebuffer captures are the release gate for chipset viewport correctness.
+- HDF session snapshots are opt-in with `--hdf-snapshot` or
+  `RUMIGA_HDF_SNAPSHOT`. They are useful for write-path evidence because the
+  manifest records snapshot/source hashes and changed byte/sector counts while
+  leaving the original HDF untouched unless writeback is explicitly enabled.
 
 ## Evidence Notes
 

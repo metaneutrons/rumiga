@@ -6,6 +6,7 @@ cd "$repo_root"
 
 rom="${RUMIGA_A1200_ROM:-assets/kick.a1200.47.102.rom}"
 hdf="${RUMIGA_A1200_HDF:-assets/workbench-39.hdf}"
+hdf_snapshot="${RUMIGA_HDF_SNAPSHOT:-}"
 cpu="${RUMIGA_A1200_CPU:-68020}"
 frames="${RUMIGA_CAPTURE_FRAMES:-4000}"
 out_dir="${RUMIGA_EVIDENCE_DIR:-target/evidence/a1200-hdf}"
@@ -27,14 +28,20 @@ fi
 
 mkdir -p "$out_dir"
 
-cargo run --release -p rumiga-desktop --bin rumiga-desktop -- \
-  --model a1200 \
-  --cpu "$cpu" \
-  --hdf "$hdf" \
-  --capture "$png" \
-  --capture-manifest "$manifest" \
-  --capture-frames "$frames" \
-  "$rom"
+cmd=(
+  cargo run --release -p rumiga-desktop --bin rumiga-desktop --
+  --model a1200
+  --cpu "$cpu"
+  --hdf "$hdf"
+  --capture "$png"
+  --capture-manifest "$manifest"
+  --capture-frames "$frames"
+)
+if [[ -n "$hdf_snapshot" ]]; then
+  cmd+=(--hdf-snapshot "$hdf_snapshot")
+fi
+cmd+=("$rom")
+"${cmd[@]}"
 
 python3 - "$manifest" "$notes" <<'PY'
 import json
@@ -53,6 +60,7 @@ schema = data.get("schema", {})
 boot_workarounds = data.get("boot_workarounds", {})
 cia = data.get("cia", {})
 gayle = data.get("gayle_ide", {})
+hdf_snapshot = gayle.get("hdf_snapshot")
 network = data.get("network", {})
 classification = (
     "viewport-edge-clean"
@@ -95,6 +103,14 @@ print(
     f" host_writeback={gayle.get('host_writeback_enabled')}"
     f" dirty={gayle.get('hdf_dirty')}"
 )
+if isinstance(hdf_snapshot, dict):
+    print(
+        "hdf_snapshot="
+        f"path={hdf_snapshot.get('path')}"
+        f" dirty={hdf_snapshot.get('dirty')}"
+        f" changed_bytes={hdf_snapshot.get('changed_bytes')}"
+        f" changed_sectors={hdf_snapshot.get('changed_sectors')}"
+    )
 print(
     "hdf_geometry="
     f"source={gayle.get('geometry_source')}"
@@ -175,6 +191,15 @@ notes_path.write_text(
                 f"policy=`{gayle.get('hdf_write_policy')}` "
                 f"host_writeback=`{gayle.get('host_writeback_enabled')}` "
                 f"dirty=`{gayle.get('hdf_dirty')}`"
+            ),
+            (
+                "- HDF snapshot: "
+                f"path=`{hdf_snapshot.get('path')}` "
+                f"dirty=`{hdf_snapshot.get('dirty')}` "
+                f"changed_bytes=`{hdf_snapshot.get('changed_bytes')}` "
+                f"changed_sectors=`{hdf_snapshot.get('changed_sectors')}`"
+                if isinstance(hdf_snapshot, dict)
+                else "- HDF snapshot: `none`"
             ),
             (
                 "- HDF geometry: "
