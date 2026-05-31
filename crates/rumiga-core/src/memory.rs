@@ -149,7 +149,7 @@ pub struct AmigaMemory {
     pub slow_ram: Vec<u8>,
     fast_ram: Vec<u8>,
     rom: Vec<u8>,
-    /// Whether the Kickstart drive step-rate compatibility patch was applied.
+    /// Legacy diagnostic for ROM mutation; ROM loading must leave Kickstart bytes intact.
     pub rom_drive_step_patch_applied: bool,
     /// When true, ROM is overlaid at address 0 (after reset, before first write to CIA).
     pub overlay: bool,
@@ -257,18 +257,6 @@ impl AmigaMemory {
         );
         self.rom.copy_from_slice(data);
         self.rom_drive_step_patch_applied = false;
-
-        // The drive parameter table default step rate is 3000 ($0BB8).
-        // On real hardware, the drive detection timing measurement updates
-        // this to ~80 based on the actual drive response time. Our CIA timer
-        // doesn't provide accurate enough timing during the measurement loop,
-        // so we set the correct measured value directly.
-        // $FE9F40 - $FC0000 = $29F40
-        if self.rom.len() > 0x2_9F41 && self.rom[0x2_9F40] == 0x0B && self.rom[0x2_9F41] == 0xB8 {
-            self.rom[0x2_9F40] = 0x00;
-            self.rom[0x2_9F41] = 0x50; // 80 (measured step rate for DD drive)
-            self.rom_drive_step_patch_applied = true;
-        }
     }
 
     /// Wait for the active background blit thread to complete and restore chip RAM.
@@ -983,6 +971,20 @@ mod tests {
         // Write to ROM should be ignored
         AddressBus::write_byte(&mut mem, 0xFC_0000, 0x55);
         assert_eq!(AddressBus::read_byte(&mut mem, 0xFC_0000), 0xAA);
+    }
+
+    #[test]
+    fn load_rom_preserves_kickstart_drive_parameter_table() {
+        let mut mem = AmigaMemory::new(MemoryConfig::a500());
+        let mut rom = vec![0xFF; 256 * 1024];
+        rom[0x2_9F40] = 0x0B;
+        rom[0x2_9F41] = 0xB8;
+
+        mem.load_rom(&rom);
+
+        assert!(!mem.rom_drive_step_patch_applied);
+        assert_eq!(mem.rom[0x2_9F40], 0x0B);
+        assert_eq!(mem.rom[0x2_9F41], 0xB8);
     }
 
     #[test]
