@@ -124,6 +124,24 @@
       ]
     },
     {
+      "id": "a1200-workbench314-adf",
+      "tier": "tier-3-aga",
+      "machine": "a1200",
+      "cpu": "68020",
+      "video_standard": "pal",
+      "milestone": "Workbench 3.1.4 boots from ADF to a desktop or classified media requester with clean native geometry.",
+      "command": "scripts/capture-a1200-workbench314-adf.sh",
+      "required_assets": [
+        "RUMIGA_A1200_ROM",
+        "RUMIGA_A1200_WORKBENCH314_ADF"
+      ],
+      "status_when_missing": "skipped-missing-assets",
+      "notes": [
+        "ADF path complements A1200 HDF boot evidence and keeps trackdisk regressions visible.",
+        "A missing library requester is a media-set/install-state result for the supplied Workbench disk set, not a trackdisk failure."
+      ]
+    },
+    {
       "id": "a1200-hdf",
       "tier": "tier-3-aga",
       "machine": "a1200",

@@ -63,6 +63,37 @@ The scenario writes:
 Set `RUMIGA_CAPTURE_NATIVE=0` to skip the companion native capture during quick
 local smoke runs.
 
+## A1200 Workbench 3.1.4 ADF
+
+Run the stock A1200 Workbench 3.1.4 ADF evidence scenario with:
+
+```sh
+scripts/capture-a1200-workbench314-adf.sh
+```
+
+The script defaults to:
+
+- ROM: `assets/kick.a1200.47.102.rom`
+- ADF: `assets/wb314/Workbench3_1_4.adf`
+- CPU: `68020`
+- frames: `8000`
+- output directory: `target/evidence/a1200-workbench314-adf`
+
+Override local paths without editing the repo:
+
+```sh
+RUMIGA_A1200_ROM=/path/to/kick.a1200.47.102.rom \
+RUMIGA_A1200_WORKBENCH314_ADF=/path/to/Workbench3_1_4.adf \
+RUMIGA_CAPTURE_FRAMES=8000 \
+RUMIGA_EVIDENCE_DIR=target/evidence/a1200-workbench314-adf \
+scripts/capture-a1200-workbench314-adf.sh
+```
+
+The script emits presentation and optional native framebuffer captures plus
+`notes.md`. A requester for `LIBS/icon.library` or a similar Workbench library
+is classified as a media-set/install-state result for the supplied ADF set, not
+as a trackdisk or viewport failure.
+
 ## A2065 SLIRP Network
 
 Run the A2065 + SLIRP evidence scenario with:
@@ -184,6 +215,9 @@ asset-free and lets the compatibility report promote
   cropping or vertical stretching must not be used to hide them.
 - A requester asking for `LIBS/workbench.library` is classified as a media or
   install-state result for the supplied HDF, not as a Gayle/IDE boot failure.
+- A requester asking for `LIBS/icon.library` during the Workbench 3.1.4 ADF
+  scenario is classified as a media or install-state result for the supplied ADF
+  set, not as a trackdisk boot failure.
 - `a2065-link-ready-awaiting-guest-driver` means SLIRP and A2065 are enabled,
   but the current HDF did not autoconfigure/use the card within the frame
   budget.
