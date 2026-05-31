@@ -55,6 +55,7 @@ struct SharedState {
     pub floppy_speed_percent: u16,
     pub hdf_path: Option<String>,
     pub hdf_write_policy: rumiga_api::HdfWritePolicy,
+    pub network: rumiga_api::NetworkConfig,
     pub stereo_separation: u8,
     pub display: rumiga_api::DisplayConfig,
     pub screenshot: Vec<u32>,
@@ -164,6 +165,7 @@ async fn get_config(
             floppy_speed_percent: s.floppy_speed_percent,
             hdf_path: s.hdf_path.clone(),
             hdf_write_policy: s.hdf_write_policy,
+            network: s.network.clone(),
             audio: rumiga_api::AudioConfig {
                 channel_mix: [
                     rumiga_api::ChannelMixConfig {
@@ -210,6 +212,13 @@ async fn put_config(
             "Viewport width and height must be greater than zero".to_string()
         )));
     }
+    if payload.network.backend != rumiga_api::NetworkBackend::Disabled
+        && !rumiga_api::is_valid_unicast_mac_address(&payload.network.mac_address)
+    {
+        return axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::err(
+            "Network MAC address must be a unicast address like 02:52:55:4d:49:47".to_string()
+        )));
+    }
 
     let mut s = state.lock().unwrap();
     if s.floppy_speed_percent != payload.floppy_speed_percent {
@@ -231,6 +240,7 @@ async fn put_config(
     s.floppy_speed_percent = payload.floppy_speed_percent;
     s.hdf_path = payload.hdf_path;
     s.hdf_write_policy = payload.hdf_write_policy;
+    s.network = payload.network;
     s.stereo_separation = payload.audio.stereo_separation;
     s.display = payload.display;
     drop(s);
@@ -608,6 +618,7 @@ struct LaunchArgs {
     adf_paths: Vec<String>,
     hdf_path: Option<String>,
     hdf_write_policy: rumiga_api::HdfWritePolicy,
+    network: rumiga_api::NetworkConfig,
     cpu: Option<m68k::CpuType>,
     chip_ram: Option<u32>,
     slow_ram: Option<u32>,
@@ -769,6 +780,16 @@ fn main() {
     eprintln!("  Fast RAM:       {} KB", config.fast_ram_size / 1024);
     eprintln!("  Mouse Scale X:  {}", launch_args.mouse_scale_x);
     eprintln!("  Mouse Scale Y:  {}", launch_args.mouse_scale_y);
+    eprintln!(
+        "  Network:        {} ({}, MAC {})",
+        if launch_args.network.enabled() {
+            "enabled"
+        } else {
+            "disabled"
+        },
+        launch_args.network.backend.as_str(),
+        launch_args.network.mac_address
+    );
     let video_std = if launch_args.ntsc {
         "NTSC (60Hz)"
     } else {
@@ -888,6 +909,7 @@ fn main() {
         floppy_speed_percent: launch_args.floppy_speed_percent,
         hdf_path: launch_args.hdf_path.clone(),
         hdf_write_policy: launch_args.hdf_write_policy,
+        network: launch_args.network.clone(),
         stereo_separation: launch_args.audio_separation,
         display: display_config.clone(),
         screenshot: vec![0; initial_rect.width * initial_height],
@@ -1199,6 +1221,7 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
     let mut floppy_speed_percent = FLOPPY_SPEED_COMPATIBLE_PERCENT;
     let mut hdf_path = None;
     let mut hdf_write_policy = rumiga_api::HdfWritePolicy::default();
+    let mut network = rumiga_api::NetworkConfig::default();
     let mut cpu = None;
     let mut chip_ram = None;
     let mut slow_ram = None;
@@ -1274,6 +1297,28 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
                     return Err("--hdf-write-policy requires a value".to_owned());
                 };
                 hdf_write_policy = parse_hdf_write_policy(value)?;
+                index += 2;
+            }
+            "--network" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--network requires a value".to_owned());
+                };
+                network.backend = parse_network_backend(value)?;
+                index += 2;
+            }
+            "--network-slirp" => {
+                network.backend = rumiga_api::NetworkBackend::Slirp;
+                index += 1;
+            }
+            "--network-off" => {
+                network.backend = rumiga_api::NetworkBackend::Disabled;
+                index += 1;
+            }
+            "--network-mac" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--network-mac requires a value".to_owned());
+                };
+                network.mac_address = parse_network_mac_address(value)?;
                 index += 2;
             }
             "--cpu" => {
@@ -1520,6 +1565,7 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
         adf_paths: positional.iter().skip(1).cloned().collect(),
         hdf_path,
         hdf_write_policy,
+        network,
         cpu,
         chip_ram,
         slow_ram,
@@ -1590,6 +1636,27 @@ fn parse_hdf_write_policy(value: &str) -> Result<rumiga_api::HdfWritePolicy, Str
         _ => Err(format!(
             "Unsupported HDF write policy '{value}'. Supported: read-only, writeback"
         )),
+    }
+}
+
+fn parse_network_backend(value: &str) -> Result<rumiga_api::NetworkBackend, String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "disabled" | "off" | "none" => Ok(rumiga_api::NetworkBackend::Disabled),
+        "slirp" | "nat" => Ok(rumiga_api::NetworkBackend::Slirp),
+        _ => Err(format!(
+            "Unsupported network backend '{value}'. Supported: disabled, slirp"
+        )),
+    }
+}
+
+fn parse_network_mac_address(value: &str) -> Result<String, String> {
+    let normalized = value.trim().to_ascii_lowercase();
+    if rumiga_api::is_valid_unicast_mac_address(&normalized) {
+        Ok(normalized)
+    } else {
+        Err(format!(
+            "Invalid network MAC address '{value}'. Expected a unicast address like 02:52:55:4d:49:47"
+        ))
     }
 }
 
@@ -1703,6 +1770,9 @@ Options:
       --hdf-write-policy <policy>
                           HDF persistence: read-only, writeback [default: read-only]
       --hdf-writeback     Persist dirty HDF sectors back to the source file on exit
+      --network <backend> Amiga network backend: disabled, slirp [default: disabled]
+      --network-slirp     Enable A2065-compatible Ethernet via SLIRP/NAT
+      --network-mac <mac> MAC for the emulated A2065 card
       --cpu <type>        Override CPU: 68000, 68010, 68020, 68030, 68040
       --chip-ram <size>   Override Chip RAM size: e.g. 512K, 1M, 2M
       --slow-ram <size>   Override Slow RAM size: e.g. 512K, 1M
@@ -1909,6 +1979,7 @@ fn write_capture_manifest(path: &Path, context: &CaptureManifestContext<'_>) -> 
     push_video_state_json(&mut json, context.emulator);
     push_floppy_state_json(&mut json, &context.emulator.floppy);
     push_gayle_ide_state_json(&mut json, context.emulator, context.args.hdf_write_policy);
+    push_network_state_json(&mut json, &context.args.network);
     json.push_str("  \"media\": {\n");
     push_file_evidence_json(&mut json, "rom", context.rom, "    ", true);
     for drive in 0..4 {
@@ -2444,6 +2515,31 @@ fn push_rdb_geometry_json(json: &mut String, rdb: &rumiga_core::ide::RdbGeometry
     let _ = writeln!(json, "    }},");
 }
 
+fn push_network_state_json(json: &mut String, network: &rumiga_api::NetworkConfig) {
+    let _ = writeln!(json, "  \"network\": {{");
+    let _ = writeln!(json, "    \"enabled\": {},", network.enabled());
+    let _ = writeln!(
+        json,
+        "    \"device\": {},",
+        json_string(network.device.as_str())
+    );
+    let _ = writeln!(
+        json,
+        "    \"backend\": {},",
+        json_string(network.backend.as_str())
+    );
+    let _ = writeln!(
+        json,
+        "    \"mac_address\": {},",
+        json_string(&network.mac_address)
+    );
+    let _ = writeln!(json, "    \"link_up\": false,");
+    let _ = writeln!(json, "    \"tx_packets\": 0,");
+    let _ = writeln!(json, "    \"rx_packets\": 0,");
+    let _ = writeln!(json, "    \"dropped_packets\": 0");
+    json.push_str("  },\n");
+}
+
 fn push_floppy_state_json(json: &mut String, floppy: &rumiga_core::floppy::FloppyController) {
     let _ = writeln!(json, "  \"floppy\": {{");
     let _ = writeln!(json, "    \"speed_percent\": {},", floppy.speed_percent());
@@ -2942,6 +3038,7 @@ mod tests {
             adf_paths: Vec::new(),
             hdf_path: None,
             hdf_write_policy: rumiga_api::HdfWritePolicy::ReadOnly,
+            network: rumiga_api::NetworkConfig::default(),
             cpu: None,
             chip_ram: None,
             slow_ram: None,
@@ -3181,6 +3278,54 @@ mod tests {
                 ..default_test_args()
             })
         );
+    }
+
+    #[test]
+    fn parse_args_defaults_network_to_disabled() {
+        let args = vec!["kick.rom".to_owned()];
+
+        assert_eq!(
+            parse_args(&args),
+            Ok(LaunchArgs {
+                network: rumiga_api::NetworkConfig::default(),
+                ..default_test_args()
+            })
+        );
+    }
+
+    #[test]
+    fn parse_args_accepts_slirp_network_with_explicit_mac() {
+        let args = vec![
+            "--network".to_owned(),
+            "slirp".to_owned(),
+            "--network-mac".to_owned(),
+            "02:52:55:4D:49:48".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+
+        assert_eq!(
+            parse_args(&args),
+            Ok(LaunchArgs {
+                network: rumiga_api::NetworkConfig {
+                    backend: rumiga_api::NetworkBackend::Slirp,
+                    mac_address: "02:52:55:4d:49:48".to_owned(),
+                    ..rumiga_api::NetworkConfig::default()
+                },
+                ..default_test_args()
+            })
+        );
+    }
+
+    #[test]
+    fn parse_args_rejects_invalid_network_mac() {
+        let args = vec![
+            "--network-slirp".to_owned(),
+            "--network-mac".to_owned(),
+            "01:52:55:4d:49:48".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+
+        assert!(parse_args(&args).is_err());
     }
 
     #[test]
@@ -3463,6 +3608,7 @@ mod tests {
         assert_eq!(manifest["gayle_ide"]["rdb"]["detected"], false);
         assert_eq!(manifest["gayle_ide"]["rdb"]["usable"], false);
         assert_eq!(manifest["gayle_ide"]["rdb"]["checksum_valid"], false);
+        assert_manifest_network_defaults(&manifest);
         assert_eq!(manifest["viewport"]["source_width"], WIDTH);
         assert_eq!(manifest["viewport"]["preset"], "AutoCenter");
         assert_eq!(manifest["viewport"]["output_width"], 2);
@@ -3476,6 +3622,16 @@ mod tests {
         );
         assert_eq!(manifest["run"]["frames"], 42);
         assert!(manifest["media"]["rom"]["sha256"].is_string());
+    }
+
+    fn assert_manifest_network_defaults(manifest: &serde_json::Value) {
+        assert_eq!(manifest["network"]["enabled"], false);
+        assert_eq!(manifest["network"]["device"], "a2065");
+        assert_eq!(manifest["network"]["backend"], "disabled");
+        assert_eq!(
+            manifest["network"]["mac_address"],
+            rumiga_api::DEFAULT_NETWORK_MAC_ADDRESS
+        );
     }
 
     #[test]

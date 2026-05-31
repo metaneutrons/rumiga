@@ -15,6 +15,7 @@ import {
   type ViewportPreset,
   type FloppySpeedPercent,
   type HdfWritePolicy,
+  type NetworkBackend,
 } from '@/lib/api';
 
 const DEFAULT_VIEWPORT: MachineConfig['display']['viewport'] = {
@@ -32,6 +33,15 @@ const HDF_WRITE_POLICIES: Array<{ value: HdfWritePolicy; label: string }> = [
   { value: 'ReadOnly', label: 'Read-only session' },
   { value: 'Writeback', label: 'Writeback on exit' },
 ];
+const NETWORK_BACKENDS: Array<{ value: NetworkBackend; label: string }> = [
+  { value: 'Disabled', label: 'Disabled' },
+  { value: 'Slirp', label: 'SLIRP / NAT' },
+];
+const DEFAULT_NETWORK: MachineConfig['network'] = {
+  device: 'A2065',
+  backend: 'Disabled',
+  mac_address: '02:52:55:4d:49:47',
+};
 type ViewportChoice = ViewportPreset | 'Manual';
 const VIEWPORT_CHOICES: Array<{ value: ViewportChoice; label: string }> = [
   { value: 'AutoCenter', label: 'Auto center' },
@@ -65,6 +75,10 @@ function normalizeConfig(config: MachineConfig): MachineConfig {
       : DEFAULT_FLOPPY_SPEED_PERCENT,
     hdf_path: config.hdf_path ?? null,
     hdf_write_policy: config.hdf_write_policy === 'Writeback' ? 'Writeback' : 'ReadOnly',
+    network: {
+      ...DEFAULT_NETWORK,
+      ...config.network,
+    },
     display: {
       ...config.display,
       viewport: {
@@ -291,6 +305,43 @@ export default function MachinePage() {
                 </option>
               ))}
             </select>
+          </label>
+        </fieldset>
+
+        <fieldset className="space-y-3">
+          <legend className="text-lg font-semibold">Network</legend>
+          <label className="block">
+            <span className="text-sm text-zinc-400">A2065 backend</span>
+            <select
+              value={config.network.backend}
+              onChange={(e) =>
+                setConfig({
+                  ...config,
+                  network: { ...config.network, backend: e.target.value as NetworkBackend },
+                })
+              }
+              className="mt-1 block w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm"
+            >
+              {NETWORK_BACKENDS.map((backend) => (
+                <option key={backend.value} value={backend.value}>
+                  {backend.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-sm text-zinc-400">MAC address</span>
+            <input
+              type="text"
+              value={config.network.mac_address}
+              onChange={(e) =>
+                setConfig({
+                  ...config,
+                  network: { ...config.network, mac_address: e.target.value },
+                })
+              }
+              className="mt-1 block w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 font-mono text-sm"
+            />
           </label>
         </fieldset>
 

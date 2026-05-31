@@ -53,6 +53,7 @@ schema = data.get("schema", {})
 boot_workarounds = data.get("boot_workarounds", {})
 cia = data.get("cia", {})
 gayle = data.get("gayle_ide", {})
+network = data.get("network", {})
 classification = (
     "viewport-edge-clean"
     if edge.get("mirrored_non_background_pixels", 1) == 0
@@ -101,6 +102,13 @@ print(
     f" rdb_detected={gayle.get('rdb', {}).get('detected')}"
     f" rdb_usable={gayle.get('rdb', {}).get('usable')}"
     f" rdb_checksum_valid={gayle.get('rdb', {}).get('checksum_valid')}"
+)
+print(
+    "network="
+    f"enabled={network.get('enabled')}"
+    f" device={network.get('device')}"
+    f" backend={network.get('backend')}"
+    f" mac={network.get('mac_address')}"
 )
 for cia_name in ("a", "b"):
     timer_a = cia.get(cia_name, {}).get("timer_a", {})
@@ -177,6 +185,13 @@ notes_path.write_text(
                 f"rdb_checksum_valid=`{gayle.get('rdb', {}).get('checksum_valid')}` "
                 f"rdb_declared_bytes=`{gayle.get('rdb', {}).get('declared_bytes')}` "
                 f"rdb_fits_image=`{gayle.get('rdb', {}).get('fits_in_image')}`"
+            ),
+            (
+                "- Network: "
+                f"enabled=`{network.get('enabled')}` "
+                f"device=`{network.get('device')}` "
+                f"backend=`{network.get('backend')}` "
+                f"mac=`{network.get('mac_address')}`"
             ),
             (
                 "- CIA-A timers: "

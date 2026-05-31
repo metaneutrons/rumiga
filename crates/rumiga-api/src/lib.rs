@@ -243,6 +243,8 @@ pub struct MachineConfig {
     pub hdf_write_policy: HdfWritePolicy,
     pub audio: AudioConfig,
     pub display: DisplayConfig,
+    #[serde(default)]
+    pub network: NetworkConfig,
 }
 
 impl Default for MachineConfig {
@@ -259,6 +261,7 @@ impl Default for MachineConfig {
             hdf_write_policy: HdfWritePolicy::ReadOnly,
             audio: AudioConfig::default(),
             display: DisplayConfig::default(),
+            network: NetworkConfig::default(),
         }
     }
 }
@@ -296,6 +299,117 @@ impl Default for HdfWritePolicy {
     }
 }
 
+pub const DEFAULT_NETWORK_MAC_ADDRESS: &str = "02:52:55:4d:49:47";
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NetworkDevice {
+    A2065,
+}
+
+impl Default for NetworkDevice {
+    fn default() -> Self {
+        Self::A2065
+    }
+}
+
+impl NetworkDevice {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::A2065 => "a2065",
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NetworkBackend {
+    Disabled,
+    Slirp,
+}
+
+impl Default for NetworkBackend {
+    fn default() -> Self {
+        Self::Disabled
+    }
+}
+
+impl NetworkBackend {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Disabled => "disabled",
+            Self::Slirp => "slirp",
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct NetworkConfig {
+    #[serde(default)]
+    pub device: NetworkDevice,
+    #[serde(default)]
+    pub backend: NetworkBackend,
+    #[serde(default = "default_network_mac_address")]
+    pub mac_address: String,
+}
+
+impl NetworkConfig {
+    #[must_use]
+    pub const fn enabled(&self) -> bool {
+        !matches!(self.backend, NetworkBackend::Disabled)
+    }
+}
+
+impl Default for NetworkConfig {
+    fn default() -> Self {
+        Self {
+            device: NetworkDevice::A2065,
+            backend: NetworkBackend::Disabled,
+            mac_address: default_network_mac_address(),
+        }
+    }
+}
+
+fn default_network_mac_address() -> String {
+    String::from(DEFAULT_NETWORK_MAC_ADDRESS)
+}
+
+#[must_use]
+pub fn is_valid_unicast_mac_address(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.len() != 17 {
+        return false;
+    }
+
+    let mut octets = [0u8; 6];
+    for (index, octet) in octets.iter_mut().enumerate() {
+        let offset = index * 3;
+        let Some(high) = hex_nibble(bytes[offset]) else {
+            return false;
+        };
+        let Some(low) = hex_nibble(bytes[offset + 1]) else {
+            return false;
+        };
+        *octet = (high << 4) | low;
+        if index < 5 && bytes[offset + 2] != b':' {
+            return false;
+        }
+    }
+
+    let all_zero = octets.iter().all(|&octet| octet == 0);
+    let all_ff = octets.iter().all(|&octet| octet == 0xFF);
+    octets[0] & 0x01 == 0 && !all_zero && !all_ff
+}
+
+const fn hex_nibble(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        b'A'..=b'F' => Some(value - b'A' + 10),
+        _ => None,
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct MachineStatus {
     pub running: bool,
@@ -329,5 +443,30 @@ impl<T> ApiResponse<T> {
             data: None,
             error: Some(message),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn machine_config_defaults_network_off() {
+        let config = MachineConfig::default();
+
+        assert_eq!(config.network.backend, NetworkBackend::Disabled);
+        assert_eq!(config.network.device, NetworkDevice::A2065);
+        assert!(!config.network.enabled());
+        assert!(is_valid_unicast_mac_address(&config.network.mac_address));
+    }
+
+    #[test]
+    fn network_mac_validation_rejects_broadcast_multicast_and_malformed_values() {
+        assert!(is_valid_unicast_mac_address("02:52:55:4d:49:47"));
+        assert!(!is_valid_unicast_mac_address("01:52:55:4d:49:47"));
+        assert!(!is_valid_unicast_mac_address("ff:ff:ff:ff:ff:ff"));
+        assert!(!is_valid_unicast_mac_address("00:00:00:00:00:00"));
+        assert!(!is_valid_unicast_mac_address("02-52-55-4d-49-47"));
+        assert!(!is_valid_unicast_mac_address("02:52:55:4d:49"));
     }
 }

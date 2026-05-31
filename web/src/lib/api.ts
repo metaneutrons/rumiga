@@ -47,6 +47,8 @@ export type ViewportMode = 'Raw' | 'Auto' | 'Manual';
 export type ViewportPreset = 'NativeFullBorder' | 'VisibleArea' | 'Overscan' | 'AutoCenter';
 export type FloppySpeedPercent = 0 | 100 | 200 | 400 | 800;
 export type HdfWritePolicy = 'ReadOnly' | 'Writeback';
+export type NetworkDevice = 'A2065';
+export type NetworkBackend = 'Disabled' | 'Slirp';
 
 export interface ViewportConfig {
   mode: ViewportMode;
@@ -64,6 +66,12 @@ export interface DisplayConfig {
   viewport: ViewportConfig;
 }
 
+export interface NetworkConfig {
+  device: NetworkDevice;
+  backend: NetworkBackend;
+  mac_address: string;
+}
+
 export interface MachineConfig {
   model: AmigaModel;
   chip_ram_kb: number;
@@ -76,6 +84,7 @@ export interface MachineConfig {
   hdf_write_policy: HdfWritePolicy;
   audio: AudioConfig;
   display: DisplayConfig;
+  network: NetworkConfig;
 }
 
 export interface MachineStatus {

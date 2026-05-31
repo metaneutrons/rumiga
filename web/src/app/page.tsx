@@ -265,6 +265,12 @@ export default function DashboardPage() {
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-sm py-1.5 border-b border-zinc-800/40">
+                  <span className="text-zinc-400 font-medium">A2065 Network</span>
+                  <span className="font-bold text-zinc-200">
+                    {config.network.backend === 'Slirp' ? 'SLIRP / NAT' : 'Disabled'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-sm py-1.5 border-b border-zinc-800/40">
                   <span className="text-zinc-400 font-medium">Chip RAM (Graphics)</span>
                   <span className="font-bold text-zinc-200">{config.chip_ram_kb / 1024} MB</span>
                 </div>
