@@ -76,6 +76,8 @@ pub struct MemoryConfig {
     pub rom_size: u32,
     /// CPU type (M68000, M68020, etc).
     pub cpu_type: m68k::CpuType,
+    /// Whether CIA accesses use Gayle/Fat Gary single-CIA chip-select decoding.
+    pub gayle_cia_decode: bool,
 }
 
 impl MemoryConfig {
@@ -88,6 +90,7 @@ impl MemoryConfig {
             fast_ram_size: 0,
             rom_size: 256 * 1024,
             cpu_type: m68k::CpuType::M68000,
+            gayle_cia_decode: false,
         }
     }
 
@@ -100,6 +103,20 @@ impl MemoryConfig {
             fast_ram_size: 0,
             rom_size: 512 * 1024,
             cpu_type: m68k::CpuType::M68000,
+            gayle_cia_decode: false,
+        }
+    }
+
+    /// Amiga 600: 1MB chip, Gayle IDE/CIA decode, 512KB ROM.
+    #[must_use]
+    pub const fn a600() -> Self {
+        Self {
+            chip_ram_size: 1024 * 1024,
+            slow_ram_size: 0,
+            fast_ram_size: 0,
+            rom_size: 512 * 1024,
+            cpu_type: m68k::CpuType::M68000,
+            gayle_cia_decode: true,
         }
     }
 
@@ -112,6 +129,7 @@ impl MemoryConfig {
             fast_ram_size: 0,
             rom_size: 512 * 1024,
             cpu_type: m68k::CpuType::M68020,
+            gayle_cia_decode: true,
         }
     }
 }
@@ -272,6 +290,124 @@ impl AmigaMemory {
         Some(((offset & !0x2020_u32) >> 2) as usize)
     }
 
+    const fn cia_register(addr: u32) -> u8 {
+        ((addr >> 8) & 0x0F) as u8
+    }
+
+    const fn cia_chip_select(addr: u32) -> u8 {
+        ((addr >> 12) & 0x03) as u8
+    }
+
+    const fn cia_write_selects_a(&self, addr: u32) -> bool {
+        let cs = Self::cia_chip_select(addr);
+        if self.config.gayle_cia_decode {
+            cs == 2
+        } else {
+            cs & 1 == 0
+        }
+    }
+
+    const fn cia_write_selects_b(&self, addr: u32) -> bool {
+        let cs = Self::cia_chip_select(addr);
+        if self.config.gayle_cia_decode {
+            cs == 1
+        } else {
+            cs & 2 == 0
+        }
+    }
+
+    fn read_cia_a_register(&self, reg: u8) -> u8 {
+        if reg == 0 {
+            // PRA: mix output bits with hardware input bits.
+            // Bits 0-1: output (OVL, LED)
+            // Bits 2-5: disk status (from emulator's floppy controller)
+            // Bits 6-7: joystick fire buttons (active low = 1 when not pressed)
+            let cia = self.cia.borrow();
+            let output_bits = self.cia_a_pra & cia.cia_a.ddra;
+            let mut input_bits: u8 = self.disk_status & 0x3C;
+            if !self.mouse_left {
+                input_bits |= 0x40; // Bit 6 high when not pressed
+            }
+            input_bits |= 0x80; // Bit 7 high (joystick fire released)
+            output_bits | (input_bits & !cia.cia_a.ddra)
+        } else {
+            self.cia.borrow_mut().cia_a.read(reg)
+        }
+    }
+
+    fn read_cia_b_register(&self, reg: u8) -> u8 {
+        self.cia.borrow_mut().cia_b.read(reg)
+    }
+
+    fn write_cia_a_register(&mut self, reg: u8, value: u8) {
+        self.cia.borrow_mut().cia_a.write(reg, value);
+        if reg == 0 {
+            self.cia_a_pra = value;
+            // CIA-A PRA bit 0: 0 disables overlay (chip RAM at $0).
+            self.overlay = value & 1 != 0;
+        }
+    }
+
+    fn write_cia_b_register(&mut self, reg: u8, value: u8) {
+        self.cia.borrow_mut().cia_b.write(reg, value);
+        if reg == 1 {
+            self.cia_b_prb_dirty = true;
+
+            // Enable CIA-B FLAG mask for DSKCHANGE detection.
+            // Don't fire FLAG here - it fires naturally when DSKCHANGE
+            // transitions, which happens during disk I/O attempts.
+            let mut cia = self.cia.borrow_mut();
+            if cia.cia_b.icr_mask & 0x10 == 0 {
+                cia.cia_b.icr_mask |= 0x10;
+            }
+        }
+    }
+
+    fn read_cia_word(&self, addr: u32) -> Option<u16> {
+        if !(CIA_B_BASE..CIA_END).contains(&addr) {
+            return None;
+        }
+
+        let reg = Self::cia_register(addr);
+        let cs = Self::cia_chip_select(addr);
+        let mut value = match cs {
+            0 if !self.config.gayle_cia_decode => {
+                (u16::from(self.read_cia_b_register(reg)) << 8)
+                    | u16::from(self.read_cia_a_register(reg))
+            }
+            1 => (u16::from(self.read_cia_b_register(reg)) << 8) | 0x00FF,
+            2 => 0xFF00 | u16::from(self.read_cia_a_register(reg)),
+            _ => 0xFFFF,
+        };
+
+        if addr & 1 != 0 {
+            value = value.rotate_left(8);
+        }
+        Some(value)
+    }
+
+    fn write_cia_word(&mut self, addr: u32, value: u16) -> bool {
+        if !(CIA_B_BASE..CIA_END).contains(&addr) {
+            return false;
+        }
+
+        let reg = Self::cia_register(addr);
+        let value = if addr & 1 != 0 {
+            value.rotate_left(8)
+        } else {
+            value
+        };
+        let [high, low] = value.to_be_bytes();
+
+        if self.cia_write_selects_b(addr) {
+            self.write_cia_b_register(reg, high);
+        }
+        if self.cia_write_selects_a(addr) {
+            self.write_cia_a_register(reg, low);
+        }
+        true
+    }
+
     fn read_gayle_status(&self) -> u8 {
         let ide = self.ide.borrow();
         let pending_ide_irq = if ide.pending_irq && (ide.devcon & 0x02) == 0 {
@@ -409,27 +545,11 @@ impl AmigaMemory {
         if (CIA_B_BASE..CIA_END).contains(&addr) {
             // CIA-A at odd addresses ($BFE001), register select via A8-A11
             if addr & 1 != 0 && addr >= CIA_A_BASE {
-                let reg = ((addr >> 8) & 0xF) as u8;
-                if reg == 0 {
-                    // PRA: mix output bits with hardware input bits
-                    // Bits 0-1: output (OVL, LED)
-                    // Bits 2-5: disk status (from emulator's floppy controller)
-                    // Bits 6-7: joystick fire buttons (active low = 1 when not pressed)
-                    let cia = self.cia.borrow();
-                    let output_bits = self.cia_a_pra & cia.cia_a.ddra;
-                    let mut input_bits: u8 = self.disk_status & 0x3C;
-                    if !self.mouse_left {
-                        input_bits |= 0x40; // Bit 6 high when not pressed
-                    }
-                    input_bits |= 0x80; // Bit 7 high (joystick fire released)
-                    return output_bits | (input_bits & !cia.cia_a.ddra);
-                }
-                return self.cia.borrow_mut().cia_a.read(reg);
+                return self.read_cia_a_register(Self::cia_register(addr));
             }
             // CIA-B at even addresses ($BFD000), register select via A8-A11
             if addr & 1 == 0 {
-                let reg = ((addr >> 8) & 0xF) as u8;
-                return self.cia.borrow_mut().cia_b.read(reg);
+                return self.read_cia_b_register(Self::cia_register(addr));
             }
             return 0xFF;
         }
@@ -547,29 +667,20 @@ impl AmigaMemory {
 
         // CIA space
         if (CIA_B_BASE..CIA_END).contains(&addr) {
-            // CIA-A at odd addresses ($BFE001), register select via A8-A11
-            if addr & 1 != 0 && addr >= CIA_A_BASE {
-                let reg = ((addr >> 8) & 0xF) as u8;
-                self.cia.borrow_mut().cia_a.write(reg, value);
-                if reg == 0 {
-                    self.cia_a_pra = value;
-                    // CIA-A PRA bit 0: 0 disables overlay (chip RAM at $0)
-                    self.overlay = value & 1 != 0;
+            let reg = Self::cia_register(addr);
+            if self.config.gayle_cia_decode {
+                if self.cia_write_selects_b(addr) {
+                    self.write_cia_b_register(reg, value);
                 }
-            } else if addr & 1 == 0 {
-                // CIA-B at even addresses ($BFD000), register select via A8-A11
-                let reg = ((addr >> 8) & 0xF) as u8;
-                self.cia.borrow_mut().cia_b.write(reg, value);
-                if reg == 1 {
-                    self.cia_b_prb_dirty = true;
-
-                    // Enable CIA-B FLAG mask for DSKCHANGE detection.
-                    // Don't fire FLAG here - it fires naturally when DSKCHANGE
-                    // transitions, which happens during disk I/O attempts.
-                    let mut cia = self.cia.borrow_mut();
-                    if cia.cia_b.icr_mask & 0x10 == 0 {
-                        cia.cia_b.icr_mask |= 0x10;
-                    }
+                if self.cia_write_selects_a(addr) {
+                    self.write_cia_a_register(reg, value);
+                }
+            } else {
+                // CIA-A at odd addresses ($BFE001), CIA-B at even addresses ($BFD000).
+                if addr & 1 != 0 && addr >= CIA_A_BASE {
+                    self.write_cia_a_register(reg, value);
+                } else if addr & 1 == 0 {
+                    self.write_cia_b_register(reg, value);
                 }
             }
             return;
@@ -685,6 +796,9 @@ impl AddressBus for AmigaMemory {
         if Self::gayle_ide_register(masked) == Some(IDE_DATA_REG) {
             return self.ide.borrow_mut().read_data_word();
         }
+        if let Some(value) = self.read_cia_word(masked) {
+            return value;
+        }
         // Custom chip registers: atomic word read
         if (CUSTOM_BASE..CUSTOM_END).contains(&masked) {
             let offset = ((masked - CUSTOM_BASE) & 0x1FE) as u16;
@@ -738,6 +852,9 @@ impl AddressBus for AmigaMemory {
         // IDE Data Register write: all Gayle data-port aliases map to register 0.
         if Self::gayle_ide_register(masked) == Some(IDE_DATA_REG) {
             self.ide.borrow_mut().write_data_word(value);
+            return;
+        }
+        if self.write_cia_word(masked, value) {
             return;
         }
         // Custom chip registers: handle as atomic word write
@@ -887,6 +1004,56 @@ mod tests {
     fn beamcon0_defaults_to_pal_timing() {
         let mem = AmigaMemory::new(MemoryConfig::a500());
         assert_eq!(mem.read_custom_reg(custom::BEAMCON0), custom::BEAMCON0_PAL);
+    }
+
+    #[test]
+    fn a1200_gayle_byte_write_selects_ciaa_by_page_not_a0() {
+        let mut mem = AmigaMemory::new(MemoryConfig::a1200());
+
+        AddressBus::write_byte(&mut mem, 0x00BF_EE00, 0x01);
+
+        let cia = mem.cia.borrow();
+        assert_eq!(cia.cia_a.cra & 0x01, 0x01);
+        assert_eq!(cia.cia_b.cra & 0x01, 0x00);
+        assert_eq!(cia.cia_a.timer_a_stats.start_writes, 1);
+        assert_eq!(cia.cia_b.timer_a_stats.start_writes, 0);
+    }
+
+    #[test]
+    fn a1200_gayle_byte_write_selects_ciab_by_page_not_a0() {
+        let mut mem = AmigaMemory::new(MemoryConfig::a1200());
+
+        AddressBus::write_byte(&mut mem, 0x00BF_DE01, 0x01);
+
+        let cia = mem.cia.borrow();
+        assert_eq!(cia.cia_a.cra & 0x01, 0x00);
+        assert_eq!(cia.cia_b.cra & 0x01, 0x01);
+        assert_eq!(cia.cia_a.timer_a_stats.start_writes, 0);
+        assert_eq!(cia.cia_b.timer_a_stats.start_writes, 1);
+    }
+
+    #[test]
+    fn a1200_gayle_word_write_uses_ciaa_low_byte() {
+        let mut mem = AmigaMemory::new(MemoryConfig::a1200());
+
+        AddressBus::write_word(&mut mem, 0x00BF_EE00, 0x0001);
+
+        let cia = mem.cia.borrow();
+        assert_eq!(cia.cia_a.cra & 0x01, 0x01);
+        assert_eq!(cia.cia_b.cra & 0x01, 0x00);
+        assert_eq!(cia.cia_a.timer_a_stats.start_writes, 1);
+    }
+
+    #[test]
+    fn a1200_gayle_word_write_uses_ciab_high_byte() {
+        let mut mem = AmigaMemory::new(MemoryConfig::a1200());
+
+        AddressBus::write_word(&mut mem, 0x00BF_DE00, 0x0100);
+
+        let cia = mem.cia.borrow();
+        assert_eq!(cia.cia_a.cra & 0x01, 0x00);
+        assert_eq!(cia.cia_b.cra & 0x01, 0x01);
+        assert_eq!(cia.cia_b.timer_a_stats.start_writes, 1);
     }
 
     #[test]

@@ -524,7 +524,8 @@ impl MachineModel {
     const fn config(self) -> MemoryConfig {
         match self {
             Self::A500 => MemoryConfig::a500(),
-            Self::A500Plus | Self::A600 => MemoryConfig::a500_plus(),
+            Self::A500Plus => MemoryConfig::a500_plus(),
+            Self::A600 => MemoryConfig::a600(),
             Self::A1200 => MemoryConfig::a1200(),
         }
     }
