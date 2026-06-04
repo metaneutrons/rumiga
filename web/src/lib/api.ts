@@ -18,7 +18,7 @@ export const API_PATHS = {
   machineScreenshot: '/api/machine/screenshot',
   files: '/api/files',
   filesUpload: '/api/files/upload',
-  filesDelete: '/api/files/:name',
+  filesDelete: '/api/files/{name}',
   filesFormat: '/api/files/format',
   wifiStatus: '/api/wifi/status',
   wifiScan: '/api/wifi/scan',
@@ -226,7 +226,7 @@ export const API_ENDPOINTS = [
   { method: 'GET', path: '/api/machine/screenshot', response_format: 'Png' },
   { method: 'GET', path: '/api/files', response_format: 'Json' },
   { method: 'POST', path: '/api/files/upload', response_format: 'Json' },
-  { method: 'DELETE', path: '/api/files/:name', response_format: 'Json' },
+  { method: 'DELETE', path: '/api/files/{name}', response_format: 'Json' },
   { method: 'POST', path: '/api/files/format', response_format: 'Json' },
   { method: 'GET', path: '/api/wifi/status', response_format: 'Json' },
   { method: 'POST', path: '/api/wifi/scan', response_format: 'Json' },
@@ -276,7 +276,7 @@ export function uploadFile(file: File): Promise<ApiResponse<null>> {
 }
 
 export function deleteFile(name: string): Promise<ApiResponse<null>> {
-  return request(API_PATHS.filesDelete.replace(':name', encodeURIComponent(name)), {
+  return request(API_PATHS.filesDelete.replace('{name}', encodeURIComponent(name)), {
     method: 'DELETE',
   });
 }

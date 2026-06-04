@@ -31,7 +31,7 @@ pub const MACHINE_AUDIO_SEPARATION_PATH: &str = "/api/machine/audio/separation";
 pub const MACHINE_SCREENSHOT_PATH: &str = "/api/machine/screenshot";
 pub const FILES_PATH: &str = "/api/files";
 pub const FILES_UPLOAD_PATH: &str = "/api/files/upload";
-pub const FILES_DELETE_PATH: &str = "/api/files/:name";
+pub const FILES_DELETE_PATH: &str = "/api/files/{name}";
 pub const FILES_FORMAT_PATH: &str = "/api/files/format";
 pub const WIFI_STATUS_PATH: &str = "/api/wifi/status";
 pub const WIFI_SCAN_PATH: &str = "/api/wifi/scan";
@@ -744,6 +744,12 @@ mod tests {
         assert!(API_ENDPOINTS.iter().any(|endpoint| {
             endpoint.method == "GET" && endpoint.path == MACHINE_SCREENSHOT_PATH
         }));
+        assert!(
+            API_ENDPOINTS.iter().any(|endpoint| {
+                endpoint.method == "DELETE" && endpoint.path == FILES_DELETE_PATH
+            })
+        );
+        assert_eq!(FILES_DELETE_PATH, "/api/files/{name}");
         assert!(
             API_ENDPOINTS.iter().any(|endpoint| {
                 endpoint.method == "POST" && endpoint.path == FILES_FORMAT_PATH
