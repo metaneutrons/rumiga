@@ -1,632 +1,558 @@
-# Rumiga WinUAE-Parity Roadmap
-
-This roadmap defines a practical, enterprise-grade compatibility target for
-Rumiga. The goal is not to clone every WinUAE feature. The goal is to make
-Rumiga a trustworthy classic Amiga emulator for the stock machines we care
-about, with repeatable evidence, predictable configuration, and a clean path to
-network support.
-
-The roadmap is based on the current Rumiga implementation and reference analysis
-of WinUAE and FS-UAE. WinUAE remains the behavior reference for chipset,
-scheduler, CIA, storage, and network-device semantics. FS-UAE is the primary
-macOS-friendly operational reference, especially for local evidence runs and
-SLIRP-style networking.
-
-## Product Goal
-
-Rumiga should reach high-confidence feature parity for these classic profiles:
-
-- Amiga 500: Kickstart 1.2/1.3, OCS, 68000, chip/slow RAM, floppy boot.
-- Amiga 500+: Kickstart 2.x, ECS, 68000, chip RAM, floppy boot.
-- Amiga 600: ECS, 68000, Gayle IDE, PCMCIA address behavior, floppy and HDF
-  boot.
-- Amiga 1200: AGA, 68EC020-class stock profile, Gayle IDE, floppy and HDF boot.
-- Desktop host: stable UI, REST API, screenshots, deterministic capture, runtime
-  configuration, and evidence export.
-- Network support: one supported WinUAE/FS-UAE-compatible virtual NIC path,
-  preferably A2065-compatible Zorro II Ethernet with SLIRP/NAT backend first and
-  optional host bridge/pcap later.
-
-The target excludes accelerator and exotic expansion-board compatibility:
-
-- No PPC, JIT, accelerator-board RAM, 68060 accelerator profiles, or board ROMs.
-- No SCSI controller support, CDTV/CD32/Akiko target, RTG/Picasso96 target, or
-  graphics/sound expansion-card parity.
-- No broad network-card matrix. A2065-compatible Ethernet is the single blessed
-  network device unless future evidence shows a better compatibility tradeoff.
-- No raw-flux or IPF copy-protection target in the first enterprise milestone.
-  Standard ADF, writeback ADF, and Gayle IDE HDF/RDB are the supported storage
-  path.
-
-## Current Starting Point
-
-Rumiga already has meaningful foundations:
-
-- Rust workspace with `m68k`, `rumiga-core`, desktop, API, web, and ESP platform
-  crates.
-- Machine profiles for A500/A500+/A600/A1200 and selectable CPU profiles.
-- Chip, slow, fast, ROM, custom register, CIA, Gayle, and IDE address paths.
-- Progressive OCS/ECS/AGA display work including bitplanes, palettes, sprites,
-  HAM paths, and viewport controls.
-- Floppy trackdisk work with MFM streaming, DMA gates, dirty writeback, and
-  speed controls up to WinUAE-style 800 percent.
-- Gayle IDE HDF boot path with basic ATA behavior.
-- Desktop control surface, REST API shape, web UI integration, screenshots, and
-  headless capture manifests.
-- Paula audio and basic input support.
-
-The next step is to turn these capabilities into a compatibility program with
-clear baselines, reference traces, failure classification, and release gates.
-
-## Reference Map
-
-Use these local references when implementing or reviewing parity work:
-
-- WinUAE:
-  - `/Volumes/Dev/Source/WinUAE/custom.cpp`
-  - `/Volumes/Dev/Source/WinUAE/cia.cpp`
-  - `/Volumes/Dev/Source/WinUAE/disk.cpp`
-  - `/Volumes/Dev/Source/WinUAE/ide.cpp`
-  - `/Volumes/Dev/Source/WinUAE/a2065.cpp`
-  - `/Volumes/Dev/Source/WinUAE/bsdsocket.cpp`
-  - `/Volumes/Dev/Source/WinUAE/include/options.h`
-  - `/Volumes/Dev/Source/WinUAE/include/ethernet.h`
-- FS-UAE:
-  - `/Volumes/Dev/Source/fs-uae/src/custom.cpp`
-  - `/Volumes/Dev/Source/fs-uae/src/cia.cpp`
-  - `/Volumes/Dev/Source/fs-uae/src/disk.cpp`
-  - `/Volumes/Dev/Source/fs-uae/src/a2065.cpp`
-  - `/Volumes/Dev/Source/fs-uae/src/slirp_uae.cpp`
-- Rumiga:
-  - `/Volumes/Dev/Source/rumiga/crates/rumiga-core/src/emulator.rs`
-  - `/Volumes/Dev/Source/rumiga/crates/rumiga-core/src/memory.rs`
-  - `/Volumes/Dev/Source/rumiga/crates/rumiga-core/src/playfield.rs`
-  - `/Volumes/Dev/Source/rumiga/crates/rumiga-core/src/copper.rs`
-  - `/Volumes/Dev/Source/rumiga/crates/rumiga-core/src/blitter.rs`
-  - `/Volumes/Dev/Source/rumiga/crates/rumiga-core/src/floppy.rs`
-  - `/Volumes/Dev/Source/rumiga/crates/rumiga-core/src/ide.rs`
-  - `/Volumes/Dev/Source/rumiga/crates/rumiga-core/src/cia.rs`
-  - `/Volumes/Dev/Source/rumiga/crates/rumiga-core/src/audio.rs`
-  - `/Volumes/Dev/Source/rumiga/desktop`
-  - `/Volumes/Dev/Source/rumiga/rumiga-api`
-  - `/Volumes/Dev/Source/rumiga/web`
-  - `/Volumes/Dev/Source/rumiga/crates/rumiga-platform-esp`
-
-## Compatibility Tiers
-
-### Tier 0: Evidence Infrastructure
-
-This tier makes every later claim measurable.
-
-Deliverables:
+# Rumiga Product Roadmap
+
+This roadmap defines the path from the current desktop compatibility prototype
+to a production-quality Amiga emulator on the Seeed reTerminal D1001. It is
+outcome-based: milestones close only when their quality gates and evidence
+requirements pass.
+
+Current state is tracked in `PROJECT_STATUS.md`. Ordered engineering tasks and
+functional commit groups are tracked in `IMPLEMENTATION_PLAN.md`.
+
+## North Star
+
+Ship a self-contained, platform-independent Rust Amiga emulator whose primary
+device is the D1001 and whose macOS/Linux desktop build remains the development,
+debugging, differential-testing, and evidence environment.
+
+The release must provide:
+
+- reliable stock A500 and A1200 emulation;
+- supported A500+ and A600 profiles;
+- PAL and NTSC timing and presentation;
+- OCS, ECS, and AGA native chipset output without RTG;
+- ADF floppy and Gayle IDE HDF media from MicroSD;
+- touch, USB keyboard, USB mouse, and USB game-controller input;
+- Paula audio through the built-in speaker path;
+- A2065-compatible guest networking over Wi-Fi;
+- local on-device controls, a versioned REST API, and a web UI;
+- deterministic evidence, diagnostics, and recoverable media handling.
+
+## Scope Boundaries
+
+### In scope
 
-- Headless run mode that produces screenshot, frame metadata, machine profile,
-  ROM/media hashes, emulator git SHA, timing mode, and relevant configuration.
-- Stable screenshot format for native framebuffer capture before host scaling.
-- Optional host-window screenshot for UI viewport validation.
-- Reference-run folders for WinUAE/FS-UAE evidence where legal local ROM/media
-  paths are supplied by the developer.
-- Golden manifest schema for boot success, frame count, disk/HDF hashes, CPU
-  counters, interrupt counters, and custom-register snapshots.
-- CI-compatible tests that skip ROM/media evidence cleanly when assets are not
-  present.
+- 68000 for A500/A500+/A600 and stock 68EC020-class behavior for A1200.
+- 68010/68020/68030/68040 desktop profiles where already present, without
+  making accelerator compatibility a device release gate.
+- Chip RAM, slow RAM, conservative fast RAM, Kickstart ROM mapping, CIA,
+  Agnus/Alice, Denise/Lisa, Paula, copper, blitter, sprites, trackdisk, Gayle,
+  IDE, RDB, and A2065.
+- Standard ADF and raw/RDB HDF images with explicit read-only, snapshot, and
+  writeback policies.
+- Native OCS/ECS/AGA display modes and border policy.
+- Safe NAT networking by default; optional advanced host networking only after
+  the base product is secure and stable.
+
+### Out of scope for 1.0
+
+- PPC, JIT, accelerator boards, 68060 boards, and board-specific RAM/ROMs.
+- Third-party SCSI controllers and broad expansion-card compatibility.
+- RTG/Picasso96, CDTV, CD32/Akiko, and graphics or sound expansion cards.
+- IPF/raw-flux copy-protection fidelity.
+- Bundled Kickstart, Workbench, game, demo, or application media.
+- A promise that every historical Amiga title works.
+
+## Architecture Direction
+
+The product is split into three ownership domains:
+
+1. **Deterministic emulator core**: `no_std + alloc`, single-owner state,
+   bounded allocations, no files, threads, sockets, wall clock, or hardware.
+2. **Platform services**: display, audio, input, clock, block media, network,
+   lifecycle, capabilities, logging, and telemetry behind versioned contracts.
+3. **Product shell**: desktop runner or D1001 firmware, configuration, REST,
+   web assets, persistence, diagnostics, and release lifecycle.
+
+The initial D1001 backend will use ESP-IDF 5.4.2 and the pinned official Seeed
+BSP through a narrow Rust FFI adapter. This is the lowest-risk route to MIPI-DSI,
+GSL3670 touch, ES8311 audio, SD/MMC, ESP32-C6 connectivity, and USB host support.
+The emulator and product behavior remain Rust-owned. A future pure-Rust driver
+path may replace individual vendor services after equivalent HIL evidence exists.
+
+## Delivery Tracks
+
+Work proceeds in parallel where dependencies allow:
+
+- **Track A: Core portability and determinism**
+- **Track B: Amiga compatibility and reference evidence**
+- **Track C: D1001 board support and real-time I/O**
+- **Track D: Product controls, network, and release operations**
+- **Track E: Quality engineering, security, and HIL**
+
+No track may bypass a shared quality gate to claim milestone completion.
+
+## Milestone Summary
+
+| ID | Outcome | Depends on | Status |
+| --- | --- | --- | --- |
+| BASE | Desktop evidence foundation | None | Verified |
+| M0 | Hermetic engineering baseline | BASE | Next |
+| M1 | Portable deterministic core | M0 | Planned |
+| M2 | D1001 board bring-up | M0 | Planned in parallel with M1 |
+| M3 | Bounded media and memory | M1, M2 storage smoke | Planned |
+| M4 | D1001 display pipeline | M1, M2 | Planned |
+| M5 | D1001 touch, USB, and audio | M1, M2 | Planned |
+| M6 | A500 device alpha | M3, M4, M5 | Planned |
+| M7 | A1200 device alpha | M6 | Planned |
+| M8 | Network and control plane | M2, M7 | Planned |
+| M9 | Compatibility and performance beta | M6, M7, M8 | Planned |
+| M10 | Production release | M9 | Planned |
+
+## BASE: Desktop Evidence Foundation
 
-Evidence gates:
+### Outcome
 
-- `cargo test --workspace` passes.
-- `cargo clippy --workspace --all-targets -- -D warnings` passes or has an
-  explicitly tracked exception list.
-- Headless capture produces identical manifest fields across repeated runs with
-  the same inputs.
-- Every compatibility bug has a reproduction command and at least one captured
-  artifact.
+The current host build can generate auditable regression artifacts before the
+embedded port begins.
 
-### Tier 1: A500 OCS Baseline
+### Proven now
 
-Target:
-
-- Kickstart 1.3 insert-hand screen.
-- Workbench 1.3 floppy boot.
-- Common OCS games and demos that exercise copper, bitplanes, sprites, blitter,
-  CIA timers, joystick, mouse, and floppy timing.
+- Versioned screenshot manifests and compatibility report generator.
+- Native framebuffer and presentation captures.
+- First-line and left/right-edge wrap diagnostics.
+- A500 Kickstart 1.3, A1200 Kickstart, A1200 ADF, and A1200 HDF evidence.
+- A2065/SLIRP link and configuration evidence.
+- Shared REST/TypeScript DTO and endpoint parity checks.
 
-Deliverables:
-
-- Correct PAL/NTSC model defaults and explicit override controls.
-- Accurate OCS viewport, border, DIW/DDF interaction, and host scaling.
-- Stable DSKSYNC/DSKBYTR behavior and disk-change semantics.
-- Keyboard, joystick, mouse, and basic serial/parallel register behavior.
-- Boot-time correctness without forced CIA timer workarounds.
-
-Evidence gates:
-
-- Kickstart 1.3 insert-hand screenshot matches reference within agreed visual
-  tolerance.
-- Workbench 1.3 reaches usable desktop from ADF.
-- At least 20 curated OCS software titles reach documented milestones.
-- No right-edge wraparound, left-edge ghosting, or bottom crop in native capture.
-
-### Tier 2: ECS/A600 Baseline
-
-Target:
+### Remaining debt carried into M0
 
-- A500+ and A600 profiles with Kickstart 2.x.
-- ECS display behavior, enhanced Denise edge cases, and Gayle address behavior.
-- Gayle IDE boot for A600-style HDF.
-
-Deliverables:
-
-- ECS register coverage required by Workbench 2.x and common ECS software.
-- PCMCIA address/open-bus behavior sufficient for OS compatibility, even if
-  PCMCIA devices are not yet emulated.
-- A600 Gayle IDE path with RDB-aware disk mounting, geometry detection, and
-  writeback safety.
-
-Evidence gates:
-
-- A500+ Workbench 2.x ADF boots.
-- A600 HDF boots from Gayle IDE.
-- ECS viewport and border tests pass against FS-UAE/WinUAE reference captures.
-
-### Tier 3: A1200 AGA Baseline
+- Evidence output is local and not yet a CI artifact.
+- Several legally provided media scenarios are skipped.
+- No reference image metadata is pinned to an FS-UAE/WinUAE version.
+- No D1001 evidence exists.
 
-Target:
+## M0: Hermetic Engineering Baseline
 
-- A1200 stock profile with 68EC020-class CPU behavior.
-- Workbench 3.1 and 3.1.4 boot from ADF and HDF.
-- AGA native display modes without RTG.
+### Goal
 
-Deliverables:
+A clean checkout can reproduce every supported host and cross-build check
+without unpublished sibling repositories or machine-specific paths.
+
+### Deliverables
 
-- AGA bitplane, palette banking, BPLCON3/BPLCON4, FMODE, HAM8, sprites, and
-  fetch behavior required by Workbench and representative AGA software.
-- Correct PAL/NTSC and overscan handling with configurable host viewport.
-- Interlace and high-resolution modes with predictable aspect and scaling.
-- No host scaling setting should modify native chipset state.
+- Remove, vendor, or explicitly feature-gate the `../r68k` comparison oracle.
+- Track `Cargo.lock`; retain and enforce the existing npm lockfile for web builds.
+- Put `rumiga-platform-esp` and `firmware` in an explicit workspace topology.
+- Pin Rust, Node, ESP-IDF, ESP Rust crates, Seeed BSP revision, and build tools.
+- Add CI jobs for macOS/Linux Rust, web lint/build, `no_std` compile, and
+  ESP32-P4 firmware compile.
+- Add dependency license, advisory, and duplicate-version policy.
+- Eliminate hard-coded developer filesystem roots from the REST file service.
+- Publish machine-readable test and evidence summaries as CI artifacts.
+
+### Exit gate G0
 
-Evidence gates:
+- `cargo fmt --all --check`, Clippy, and tests pass from a clean checkout.
+- No Cargo manifest resolves outside the repository unless the source is an
+  immutable, checksummed dependency.
+- Web install and build use the tracked lockfile.
+- Firmware and ESP platform crates at least compile their minimal target.
+- CI fails when any required matrix leg is absent or skipped unexpectedly.
 
-- A1200 Kickstart insert screen renders correctly.
-- Workbench 3.1 and 3.1.4 boot from known-good ADF/HDF assets.
-- AGA screen modes render without right-edge wrap, left-edge injected pixels, or
-  bottom crop in native capture.
-- At least 20 curated AGA titles reach documented milestones.
+## M1: Portable Deterministic Core
 
-### Tier 4: Network Support
+### Goal
 
-Target:
+The emulator core compiles for a 32-bit RISC-V `no_std + alloc` target and
+produces the same deterministic state transitions as the host build.
+
+### Deliverables
+
+- Add deliberate `std` and `no_std` features to `rumiga-core` and `m68k`.
+- Replace `std` collections/cells with `core`/`alloc` equivalents.
+- Move file tracing to an injected trace sink.
+- Remove core-owned thread creation and `core_affinity` decisions.
+- Establish a single-thread deterministic blitter baseline; optional host
+  acceleration stays outside the canonical evidence path.
+- Introduce explicit emulated-clock and host-yield contracts.
+- Add bounded queues and typed errors for video, audio, input, and host events.
+- Add deterministic input replay, state digest, and frame/audio digest fixtures.
+- Compile-check the core for `riscv32imafc-unknown-none-elf`.
+
+### Exit gate G1
+
+- Core and CPU crates compile without `std` for 32-bit RISC-V.
+- A fixed ROM-free diagnostic replay has identical state digests on macOS,
+  Linux, and RISC-V compile-test execution where available.
+- The canonical core path contains no filesystem, socket, OS-thread, affinity,
+  or wall-clock dependency.
+- Every unbounded container in a per-frame path has a documented maximum or a
+  measured allocation budget.
 
-- WinUAE/FS-UAE-style A2065-compatible Ethernet as the first supported Amiga
-  network device.
-- SLIRP/NAT backend first for safe default networking.
-- Optional host bridge/pcap backend later for advanced users.
-- Optional bsdsocket-style host integration only after hardware NIC parity is
-  reliable.
+## M2: D1001 Board Bring-Up
 
-Rationale:
+### Goal
 
-- A2065 is a known Amiga Ethernet device with mature WinUAE/FS-UAE reference
-  behavior.
-- It gives real Amiga OS drivers a hardware target instead of inventing a
-  Rumiga-only interface.
-- SLIRP avoids privileged host networking and is a safer default for desktop and
-  web-controlled runs.
+Produce a reproducible Rust firmware image that boots on the D1001 and proves
+each board service independently before loading the emulator.
+
+### Deliverables
+
+- Pin ESP-IDF 5.4.2-compatible Rust tooling and the Seeed BSP revision.
+- Define flash partitions, PSRAM policy, panic handling, watchdog policy, build
+  metadata, and serial diagnostics.
+- Wrap the Seeed BSP in one audited FFI crate with safe Rust interfaces.
+- Emit a boot manifest containing firmware version, git SHA, toolchain, reset
+  reason, CPU frequency, flash/PSRAM sizes, and available capabilities.
+- Add board smokes for RGB565 display, touch points, speaker tone, SD read/write,
+  ESP32-C6 link, USB enumeration, buttons, and battery/power state where exposed.
+- Qualify the physical USB-C/OTG path, VBUS sourcing, adapter/hub requirements,
+  and hot-plug behavior on the actual board.
+
+### Exit gate G2
+
+- A clean, documented macOS command builds, flashes, and monitors the firmware.
+- Firmware boots 20 consecutive cold starts without watchdog reset.
+- The board service matrix records pass/fail and measured memory use.
+- Display test pattern, touch coordinates, audio tone, and SD checksum artifacts
+  are captured by HIL.
+- USB keyboard and mouse enumerate through the documented physical connection,
+  or the product requirement is explicitly revised with hardware evidence.
 
-Deliverables:
+## M3: Bounded Media and Memory
 
-- Zorro II autoconfig for a single A2065-compatible card.
-- LANCE-style CSR/RAP/RDP register behavior, descriptor rings, interrupts,
-  transmit, receive, multicast/broadcast filtering, MAC address handling, and
-  reset behavior.
-- SLIRP backend with deterministic event integration into the emulator scheduler.
-- REST API and web UI controls for enabling/disabling network, backend type, MAC
-  address, NAT port forwards, and link state.
-- Packet capture evidence mode for debugging, redacted when needed.
-- Security defaults: network off unless requested, no inbound host exposure
-  unless explicitly configured, clear UI/API warning for bridged mode.
+### Goal
+
+ADF and multi-gigabyte HDF images operate within a fixed embedded memory budget.
+
+### Deliverables
+
+- Introduce a sector-addressed `BlockDevice` contract with capacity, read,
+  write, flush, read-only, and media-change semantics.
+- Refactor Gayle/ATA away from `Option<Vec<u8>>` whole-image ownership.
+- Implement desktop file, in-memory test, SD/MMC file, and snapshot overlay
+  block devices.
+- Use a bounded, instrumented LRU or clock cache with explicit dirty eviction.
+- Add power-loss-safe write policy: read-only default, explicit writeback,
+  atomic metadata where possible, and recoverable overlay/snapshot mode.
+- Stream ADF data where useful while preserving deterministic MFM behavior.
+- Validate raw and RDB HDF geometry without trusting guest-controlled values.
+- Publish a D1001 memory map and high-water telemetry.
+
+### Exit gate G3
 
-Evidence gates:
+- A 2 GiB HDF can boot without allocating storage proportional to image size.
+- HDF cache is capped at 1 MiB or less for the release profile.
+- Corrupt/truncated media tests never panic, overrun, or write outside the image.
+- Forced reset and SD-removal tests preserve the source in read-only/snapshot
+  mode and produce a diagnosable recovery result in writeback mode.
+- Total release-profile PSRAM high-water is at most 27 MiB with at least 4 MiB
+  operational reserve under the integrated A1200 workload.
 
-- Amiga OS driver detects the card.
-- Static IP works.
-- DHCP/BOOTP works if supported by the selected Amiga-side stack.
-- Guest can ping SLIRP gateway.
-- Guest can resolve DNS through the backend.
-- Guest can fetch a known HTTP resource and validate checksum.
-- Sustained transfer test passes without descriptor leaks, missed interrupts, or
-  emulator stalls.
-- Network settings round-trip through CLI, REST API, and web UI.
+## M4: D1001 Display Pipeline
+
+### Goal
 
-### Tier 5: Desktop, REST, Web UI, and ESP
+Render native Amiga output correctly and present it on the 800x1280 panel in
+landscape or portrait without wrap, crop, uneven border, or accidental stretch.
 
-Target:
+### Deliverables
+
+- Use the official MIPI-DSI/JD9365 RGB565 path with DMA-safe buffers.
+- Keep native chipset rendering separate from crop, pixel-aspect correction,
+  rotation, scaling, border, OSD, and physical panel presentation.
+- Support `native`, `visible-area`, `overscan`, and `auto-center` viewport
+  policies with explicit PAL/NTSC behavior.
+- Support nearest/integer and aspect-fit presentation; arbitrary stretch is an
+  explicit opt-in diagnostic mode, not a default.
+- Add double-buffer or bounded partial-update policy with tear measurements.
+- Add on-device native-frame and presented-frame screenshot capture.
+- Keep emulator pixels inspectable; OSD does not modify native evidence.
 
-- Desktop app is the primary local emulator front end.
-- REST API and web UI expose the same operational controls.
-- ESP target remains a constrained-port target with clearly defined feature
-  support rather than pretending to match desktop.
+### Exit gate G4
 
-Deliverables:
-
-- Runtime controls for machine model, CPU profile, PAL/NTSC, viewport, scaling,
-  border policy, floppy speed, disk insert/eject, HDF mount, audio, input,
-  screenshot, pause/resume/reset, and network.
-- REST API schemas with versioning and error contracts.
-- Web UI controls that map one-to-one to stable API operations.
-- ESP stubs replaced with explicit capability reports and implemented features
-  where hardware allows.
-- Failure states visible in logs, API responses, and UI.
-
-Evidence gates:
-
-- CLI, desktop UI, REST API, and web UI can start the same machine profile.
-- Screenshot and manifest capture are available from CLI and API.
-- Viewport settings can be changed without corrupting native framebuffer state.
-- API contract tests cover every public endpoint.
-
-## Feature Workstreams
-
-### 1. Deterministic Scheduler and DMA
-
-Why it matters:
-
-WinUAE compatibility is built on strict ordering of CPU, copper, blitter,
-bitplane DMA, sprite DMA, audio DMA, CIA, disk, and interrupts. Many visible
-bugs are scheduler bugs wearing a display costume.
-
-Tasks:
-
-- Define a cycle-domain model for PAL and NTSC.
-- Track custom-chip DMA slots explicitly enough for compatibility.
-- Make copper waits/skips, blitter completion, and CPU bus stealing observable
-  in tests.
-- Remove temporary timing hacks by replacing them with evidence-backed behavior.
-- Add per-frame scheduler counters to manifests.
-
-Pitfalls:
-
-- Immediate blitter completion can make Workbench look alive while breaking
-  games and demos.
-- CIA timer shortcuts can hide boot issues and then fail under real software.
-- PAL/NTSC mismatches can masquerade as viewport bugs.
-
-### 2. CPU and Exception Semantics
-
-Why it matters:
-
-Workbench and most games tolerate some CPU timing drift. Copy protection,
-debuggers, demos, and 68020+ OS paths do not.
-
-Tasks:
-
-- Lock stock profile expectations: A500/A600 use 68000, A1200 uses 68EC020-class
-  behavior.
-- Treat 68030/68040 modes as diagnostic or future non-stock profiles unless
-  explicitly promoted.
-- Expand instruction, flag, prefetch, exception, bus error, and address error
-  tests.
-- Document unsupported FPU/MMU behavior clearly.
-
-Pitfalls:
-
-- 68020+ exception stack frames affect real software.
-- Prefetch and PC reporting bugs can break loaders and debuggers.
-- FPU/MMU stubs must fail predictably instead of producing silent corruption.
-
-### 3. Display, Viewport, and Scaling
-
-Why it matters:
-
-The current user-visible pain is display correctness: right-edge pixels wrapping
-to the left, uneven gray border, bottom crop, and confusing vertical stretching.
-WinUAE separates chipset display generation from host filter, border, autoscale,
-and aspect controls. Rumiga needs the same conceptual separation.
-
-Tasks:
-
-- Preserve a native chipset framebuffer with exact beam/display-window behavior.
-- Model DIWSTRT, DIWSTOP, DIWHIGH, DDFSTRT, DDFSTOP, BPLCON registers, and
-  fetch alignment as chipset behavior.
-- Implement host viewport as a separate crop/scale/filter layer.
-- Provide named viewport presets: native full border, visible area, overscan,
-  auto center, integer scale, aspect-correct, stretch.
-- Make border crop adjustable and reversible from CLI, REST API, and web UI.
-- Add first-20-lines and right-edge regression tests for wraparound bugs.
-
-Pitfalls:
-
-- Cropping cannot fix a native framebuffer wrap bug.
-- Stretching is a host presentation option, not a chipset fix.
-- RTG/P96 has no classic chipset border problem, but RTG is out of scope for the
-  main target.
-- OCS/ECS/AGA and PAL/NTSC have subtle edge differences. Do not hardcode one
-  Workbench screenshot as universal truth.
-
-Evidence:
-
-- Native capture proves no wraparound before host scaling.
-- Host-window capture proves the selected viewport preset presents correctly.
-- Reference captures from FS-UAE/WinUAE are stored with the same ROM/media hash
-  metadata.
-
-### 4. Floppy and Trackdisk
-
-Why it matters:
-
-ADF boot and trackdisk behavior are the first compatibility gate for A500 and
-Workbench installs.
-
-Tasks:
-
-- Keep per-word MFM streaming and DSKSYNC behavior observable.
-- Validate DMA enable/disable transitions, index pulses, disk ready, disk change,
-  write protect, side select, motor behavior, and interrupts.
-- Keep 100/200/400/800 percent speed modes, plus turbo mode if intentionally
-  supported.
-- Ensure speed-up modes do not change guest-visible semantics beyond timing.
-- Add writeback tests with temporary disk images and hash verification.
-
-Pitfalls:
-
-- Fast floppy mode can break software that relies on realistic ready/index
-  timing.
-- ADF is not raw flux. Do not claim copy-protected disk parity from ADF tests.
-- Dirty writeback must never mutate source media accidentally in read-only runs.
-
-### 5. Gayle IDE and HDF
-
-Why it matters:
-
-A600/A1200 Workbench practicality depends on reliable HDF boot and safe writes.
-
-Tasks:
-
-- Implement RDB-aware HDF mounting and geometry detection.
-- Support common ATA commands used by Amiga OS and installers.
-- Define writeback flushing and crash-safety behavior.
-- Add HDF snapshot and diff tooling for evidence.
-- Keep SCSI controller support out of scope.
-
-Pitfalls:
-
-- CHS guessing can boot one image and corrupt another.
-- RDB parsing needs strong validation and explicit error messages.
-- Host file writes need atomicity and clear read-only mode.
-
-### 6. Audio and Input
-
-Why it matters:
-
-Software compatibility depends on Paula interrupts, DMA timing, mouse quadrature,
-joystick bits, and raw keyboard behavior, not just audible sound.
-
-Tasks:
-
-- Validate four Paula channels, period reloads, volume changes, DMA start/stop,
-  interrupts, stereo separation, and LED filter.
-- Add audio underrun metrics to manifests.
-- Implement raw Amiga keycode mapping with keyboard handshake tests.
-- Add mouse quadrature tests and joystick state tests.
-- Expose audio/input settings through CLI, REST API, and web UI.
-
-Pitfalls:
-
-- Host key layout and Amiga raw keycodes are separate concerns.
-- Mouse acceleration belongs in host/UI policy, not CIA register behavior.
-- Audio buffer smoothing can hide timing bugs.
-
-### 7. Network
-
-Why it matters:
-
-Network support is explicitly in scope even though most other expansion boards
-are not. This must be done as a real Amiga-compatible device, not as a
-Rumiga-only shortcut.
-
-Tasks:
-
-- Implement A2065-compatible Zorro II autoconfig.
-- Implement register and descriptor behavior based on WinUAE/FS-UAE references.
-- Add SLIRP/NAT backend with guest-to-host event pumping.
-- Add optional pcap/bridge backend behind explicit permissions and warnings.
-- Add API/UI controls and evidence capture for packets and link state.
-- Define packet redaction policy for logs and test artifacts.
-
-Pitfalls:
-
-- MAC address expectations matter for some Amiga drivers.
-- Missed interrupt behavior causes intermittent network stalls.
-- Host networking is security-sensitive and must default to off.
-- Bridged networking may need elevated host permissions and cannot be assumed in
-  CI.
-
-### 8. API, Web UI, and Operations
-
-Why it matters:
-
-Enterprise grade means the emulator is operable, observable, testable, and
-scriptable.
-
-Tasks:
-
-- Version REST API schemas.
-- Add contract tests for all endpoints.
-- Keep CLI, REST, and web UI configuration names aligned.
-- Add structured logs for machine profile, media mount, viewport, network,
-  speed, and error states.
-- Provide a support bundle command that collects manifest, config, logs, and
-  screenshots without bundling copyrighted ROM/media.
-
-Pitfalls:
-
-- Web-only settings can drift from CLI behavior.
-- Screenshots must identify whether they are native framebuffer captures or host
-  presentation captures.
-- Error messages should name the failing subsystem and likely corrective action.
+- First 20 visible lines and both horizontal edges pass wrap diagnostics on the
+  device for A500 and A1200 fixtures.
+- No valid Workbench content is hidden at the bottom or right edge.
+- Border thickness follows the selected policy and is visually symmetric after
+  panel rotation.
+- Native and presented captures record dimensions, crop, scale, rotation,
+  timing mode, and framebuffer hash.
+- A 30-minute static and scrolling test shows no tearing beyond the documented
+  threshold and no display DMA starvation.
+
+## M5: Touch, USB, and Audio
+
+### Goal
+
+The D1001 is usable without a development host and accepts external USB input.
+
+### Deliverables
+
+- Map GSL3670 touch through calibrated panel coordinates to OSD actions and an
+  Amiga mouse mode with an explicit gesture policy.
+- Implement USB HID keyboard, mouse, and common gamepad report handling with
+  hot-plug, disconnect, rollover, and stuck-key recovery.
+- Provide configurable Amiga key mapping and joystick ports without embedding
+  host key codes in the core.
+- Feed Paula output into a bounded resampler and I2S DMA ring.
+- Configure ES8311 and the PCA9535 amplifier path; retain stereo mixing before
+  controlled mono downmix for the built-in speaker.
+- Add volume, mute, latency, underrun, and clipping telemetry.
+
+### Exit gate G5
+
+- USB keyboard and mouse pass 100 hot-plug cycles without reboot or stuck input.
+- A game controller completes a scripted direction/button matrix.
+- Touch calibration error is at most 2 percent of the active panel dimension.
+- End-to-end input latency is p95 <= 35 ms for USB and <= 50 ms for touch.
+- Audio has zero DMA underruns and no clipped samples in a 60-minute reference
+  run; measured output rate error is <= 100 ppm after steady state.
+
+## M6: A500 Device Alpha
+
+### Goal
+
+The D1001 runs a useful stock A500 profile in real time.
+
+### Deliverables
+
+- 68000, OCS, 512 KiB/1 MiB memory profiles, CIA, trackdisk, input, display,
+  and audio integrated on device.
+- Kickstart 1.3 insert-hand and Workbench 1.3 ADF boot evidence.
+- Floppy speed matrix at 100, 200, 400, and 800 percent where software-safe.
+- Ten legal/local OCS scenarios covering scrolling, sprites, copper, blitter,
+  audio DMA, keyboard, mouse, and joystick.
+- Device support bundle and one-command evidence capture.
+
+### Exit gate G6
+
+- A500 PAL runs at >= 0.98 emulated real-time ratio for 30 minutes with no
+  accumulated frame or audio backlog.
+- Kickstart and Workbench visual artifacts match the approved reference within
+  the documented native-frame tolerance.
+- Ten OCS scenarios reach their declared milestone; no critical regression is
+  waived.
+- An 8-hour mixed ADF/input/audio soak has no crash, watchdog, leak trend, or
+  media corruption.
+
+## M7: A1200 Device Alpha
+
+### Goal
+
+The D1001 runs the stock A1200 profile from floppy and hard disk in real time.
+
+### Deliverables
+
+- Stock 68EC020-class profile, 2 MiB Chip RAM, AGA, Gayle, IDE, RDB, and HDF.
+- Kickstart 3.x, Workbench 3.1/3.1.4 ADF, and Workbench HDF evidence.
+- AGA fixtures for 8 bitplanes, palette banks, HAM8, sprites, dual playfield,
+  fetch modes, high resolution, and scrolling.
+- Safe SD-backed HDF snapshots and explicit writeback controls.
+- Ten legal/local AGA scenarios before beta corpus expansion.
+
+### Exit gate G7
+
+- Stock A1200 PAL runs at >= 0.98 real-time ratio for the Workbench workload
+  and >= 0.95 for every supported alpha scenario.
+- A 2 GiB HDF boot stays inside G3 memory limits.
+- ADF and HDF Workbench sessions are interactively usable with touch/USB input
+  and audio enabled.
+- Ten AGA scenarios pass their exact visual and interaction milestones.
+- A 12-hour A1200 storage/display/audio soak completes without corruption or
+  unbounded memory growth.
+
+## M8: Network and Control Plane
+
+### Goal
+
+Expose safe device management and functional guest networking over the D1001's
+ESP32-C6 Wi-Fi path.
+
+### Deliverables
+
+- Bring up ESP-hosted/SDIO connectivity with reconnect and link telemetry.
+- Bridge the A2065 model to the host network service without network calls in
+  the deterministic core.
+- Support safe NAT, DHCP/BOOTP where applicable, DNS, and local port-forward
+  configuration; network remains off by default.
+- Serve versioned REST endpoints and embedded web assets from the device.
+- Add authenticated first-run provisioning, CSRF-safe state changes, request
+  limits, canonical media paths, and secrets redaction.
+- Keep CLI, REST, web, and persisted configuration semantically aligned.
+- Add support bundle, packet counters, optional redacted PCAP, and recovery
+  controls.
+
+### Exit gate G8
+
+- Guest driver configures A2065 and produces non-zero TX/RX counters.
+- Guest pings the gateway, resolves a fixture hostname, downloads a local HTTP
+  payload, and validates its checksum.
+- A one-hour sustained local transfer has no descriptor leak, missed-interrupt
+  stall, or emulator timing collapse.
+- Browser tests cover provisioning, upload, mount, start, pause, reset,
+  screenshot, eject, network toggle, and error recovery on the device.
+- Unauthenticated remote state changes and path traversal tests fail closed.
+
+## M9: Compatibility and Performance Beta
+
+### Goal
+
+Turn alpha capability into a measured compatibility product.
+
+### Deliverables
+
+- Expand to 20 OCS, 10 ECS, and 20 AGA approved scenarios.
+- Add differential CPU, CIA, copper, blitter, disk, audio, and display fixtures
+  derived from documented WinUAE/FS-UAE behavior.
+- Profile CPU hot paths, memory bandwidth, PSRAM cache behavior, display copy,
+  audio DMA, and SD latency on real hardware.
+- Add frame-time, emulation-ratio, allocation, queue-depth, underrun, input
+  latency, temperature, reset-reason, and power telemetry.
+- Fuzz and property-test parsers, RDB/HDF geometry, MFM data, API payloads, and
+  state restoration boundaries.
+- Run automated HIL cold boot, reset, SD removal, Wi-Fi loss, USB hot-plug,
+  brownout recovery, and long-soak suites.
+
+### Exit gate G9
+
+- All 50 catalog scenarios have current pass/partial/fail artifacts; every
+  partial/fail has severity, owner, and disposition.
+- Release-critical A500/A1200 scenarios are pass, not waived partials.
+- p99 emulation frame work is <= 20 ms for PAL release workloads, or an
+  explicitly measured scheduler policy demonstrates no real-time backlog.
+- Total memory stays within G3 limits with no positive leak slope over 24 hours.
+- No audio underrun, watchdog reset, or thermal throttling occurs in the
+  24-hour qualification run.
+- Security, dependency, license, and fuzz gates have no unresolved critical or
+  high findings.
+
+## M10: Production Release
+
+### Goal
+
+Ship a recoverable, supportable, reproducible D1001 firmware release.
+
+### Deliverables
+
+- Versioned release image, flash layout, web assets, default configuration,
+  checksums, signature, SBOM, license bundle, and reproducible build metadata.
+- A/B OTA or equivalent rollback-safe update path, factory recovery image, and
+  documented serial recovery procedure.
+- Secure production defaults, unique device credentials where required,
+  secrets lifecycle, and optional secure-boot/flash-encryption profile.
+- Migration tests for persisted configuration and media metadata.
+- User, operator, troubleshooting, compatibility, and known-issues docs.
+- Release evidence pack containing host and D1001 HIL artifacts but no ROM or
+  copyrighted media bytes.
+
+### Exit gate G10
+
+- Two independent clean environments reproduce byte-identical release outputs
+  or document every unavoidable variance.
+- Upgrade, rollback, interrupted-update, and factory-recovery tests pass.
+- A 72-hour mixed-workload soak passes on at least three physical D1001 units.
+- No unresolved critical/high defect, security finding, or data-loss issue.
+- The compatibility report, SBOM, licenses, checksums, signatures, and recovery
+  instructions are published with the release.
+
+## Cross-Cutting Quality Gates
+
+These gates apply to every milestone, not only M10.
+
+### QG-1: Code and build
+
+- Formatting, Clippy, unit tests, integration tests, and documentation checks.
+- Pinned toolchains and lockfiles; no hidden local dependency.
+- Local unsafe code forbidden except the named ESP-IDF FFI boundary, which has
+  documented invariants and focused tests.
+- No new warning baseline. Warnings are fixed or explicitly scoped with reason.
+
+### QG-2: Correctness and determinism
+
+- Pure components have unit/property tests.
+- Cross-component behavior has integration tests.
+- Deterministic scenarios include input log, final state digest, framebuffer
+  digest, audio digest, and configuration fingerprint.
+- Timing shortcuts are visible in manifests and cannot silently qualify as
+  release behavior.
+
+### QG-3: Performance and memory
+
+- Every hot-path change includes before/after measurements on host and, after
+  M2, D1001.
+- Frame, audio, input, storage, and network queues are bounded and observable.
+- No allocation is allowed in the steady-state scanline loop without measured
+  justification.
+- Memory budgets include fragmentation and largest-free-block telemetry.
+
+### QG-4: Reliability
+
+- Errors are typed and actionable; corrupt inputs do not panic.
+- Hot-plug, disconnect, timeout, cancellation, and reset are tested.
+- Media writes are explicit, flushable, and resilient to interrupted operation.
+- Watchdog and reset reasons become evidence, not console-only messages.
+
+### QG-5: Security and privacy
+
+- Network is off by default and provisioning is local-safe.
+- API authentication, authorization, request limits, canonical paths, CSRF
+  protection, secret redaction, and upload validation are tested.
+- Support bundles contain hashes and safe names, not ROM/media content or Wi-Fi
+  credentials.
+- Dependency advisories, licenses, and SBOM are release gates.
+
+### QG-6: Evidence and traceability
+
+- Every claim maps to a task ID, test, evidence scenario, and revision.
+- Host-only evidence cannot promote a device feature.
+- Reference comparisons record emulator version, config, ROM/media hashes, and
+  exact milestone without copying copyrighted assets into git.
+- Generated evidence is immutable for a revision and reproducible by command or
+  HIL job.
 
 ## Testing Strategy
 
-### Test Layers
+### Test pyramid
 
-- Unit tests: pure register behavior, instruction semantics, MFM encoding,
-  palette conversion, blitter math, ATA command handling, CIA timer behavior,
-  A2065 descriptors, and API schemas.
-- Integration tests: boot loops, media insertion, HDF reads/writes, network
-  packet flow, audio/input event flow, and REST operations.
-- Headless evidence tests: run fixed frame budgets and capture screenshot plus
-  manifest.
-- Reference comparison tests: compare Rumiga artifacts to FS-UAE/WinUAE artifacts
-  using hashes where deterministic and perceptual metrics where presentation can
-  differ.
-- Manual acceptance tests: reserved for interactive UI, audio perception,
-  network bridge permissions, and copyrighted media that cannot run in CI.
+1. **Unit tests**: CPU semantics, register masks, DMA math, MFM, ATA, palette,
+   resampler, descriptors, parsers, DTOs, and pure mapping logic.
+2. **Property/fuzz tests**: malformed media, geometry, API inputs, event order,
+   and bounded queues.
+3. **Integration tests**: machine reset/boot loops, disk I/O, display, audio,
+   input, network packets, persistence, and REST operations.
+4. **Headless host evidence**: fixed frame budgets, input replays, manifests,
+   screenshots, audio, state hashes, and support bundles.
+5. **Differential reference evidence**: FS-UAE on macOS and WinUAE source/trace
+   behavior for chipset and device semantics.
+6. **D1001 HIL**: flash, serial control, framebuffer capture, audio loopback,
+   USB HID injection, touch fixture/manual calibration, SD fault injection,
+   Wi-Fi fixtures, power cycling, and soak tests.
 
-### Evidence Matrix
+### Evidence levels
 
-Required scenarios:
+| Level | Meaning | Suitable claim |
+| --- | --- | --- |
+| E0 | Code exists | None beyond implementation status |
+| E1 | Unit/property tests | Component behavior |
+| E2 | Host integration test | Desktop subsystem behavior |
+| E3 | Host scenario artifact | Desktop compatibility claim |
+| E4 | Differential reference artifact | Compatibility parity claim |
+| E5 | D1001 HIL artifact | Device feature claim |
+| E6 | Multi-device soak/release pack | Production release claim |
 
-- A500 Kickstart 1.3 no-disk insert screen.
-- A500 Workbench 1.3 ADF boot.
-- A500 OCS game/demo set.
-- A500+ Workbench 2.x ADF boot.
-- A600 Gayle IDE HDF boot.
-- A1200 Kickstart 3.x no-disk insert screen.
-- A1200 Workbench 3.1 ADF boot.
-- A1200 Workbench 3.1.4 HDF boot.
-- AGA title set with high-color, HAM8, sprites, and scroll tests.
-- Floppy speed matrix: 100, 200, 400, 800 percent on safe boot/install tests.
-- Network static IP: ping gateway, DNS lookup, HTTP fetch, checksum validation.
-- Network sustained transfer: large download/upload loop with packet counters.
-- REST/Web UI: configure, run, pause, reset, screenshot, insert/eject media,
-  change viewport, change floppy speed, toggle network.
+## Definition of Done
 
-Each evidence run must record:
+A feature is done only when all applicable items are true:
 
-- Rumiga git SHA and dirty flag.
-- Host OS and architecture.
-- Machine model, CPU profile, PAL/NTSC mode, RAM sizes, and chipset mode.
-- ROM path hash, media path hashes, and writeback policy.
-- Frame count, elapsed host time, emulated time, and speed factor.
-- Screenshot path and native framebuffer dimensions.
-- Viewport preset and host scaling settings.
-- Disk/HDF dirty state and output hashes when writes are enabled.
-- Network backend, MAC address, packet counters, and redacted endpoint summary.
-- Pass/fail milestone and human-readable notes.
+- scope and non-goals are documented;
+- behavior and failure contracts are versioned;
+- implementation has focused tests and no unbounded resource path;
+- reference behavior is identified where compatibility matters;
+- CLI, REST, web, persisted config, and support bundle agree where user-facing;
+- host and device evidence reach the required evidence level;
+- performance, memory, reliability, and security budgets pass;
+- docs and tracking are updated in the same functional commit;
+- generated artifacts identify revision, toolchain, configuration, and inputs by
+  hash while excluding copyrighted content and secrets.
 
-### Visual Comparison Rules
+## Reference Sources
 
-- Native framebuffer capture is the primary correctness artifact.
-- Host-window screenshots validate presentation only.
-- Border color, crop, and aspect must be evaluated separately from chipset pixel
-  generation.
-- A wraparound bug is any pixel group from the right edge appearing on the left
-  edge in native capture.
-- A viewport bug is any valid native content hidden or shifted by host crop/scale
-  settings.
-- A scaling bug is any incorrect aspect/stretch behavior after native capture is
-  known good.
-
-### Network Test Rules
-
-- CI default uses SLIRP/NAT and local test servers.
-- Bridge/pcap tests are opt-in because they may require host permissions.
-- Tests must avoid leaking external traffic by default.
-- Packet captures are redacted or generated only against local fixtures unless
-  explicitly requested.
-- Network is off by default for normal emulator launches.
-
-### Release Gates
-
-A release candidate cannot be called enterprise grade until:
-
-- All unit and integration tests pass.
-- Evidence matrix has current artifacts for the targeted compatibility tier.
-- New regressions are either fixed or documented with owner, severity, and
-  expected fix milestone.
-- CLI, REST, and web UI expose the same user-facing controls for completed
-  features.
-- All completed features have docs, tests, and failure-mode behavior.
-- Copyrighted ROMs, Workbench disks, and HDFs are not committed or embedded.
-
-## Definition of Done for a Feature
-
-A feature is not done when it first boots once. It is done when all of these are
-true:
-
-- The WinUAE/FS-UAE reference behavior has been identified and summarized.
-- The Rumiga implementation has focused unit tests.
-- At least one integration or headless evidence test covers the behavior.
-- User-facing controls are wired through CLI, REST API, and web UI when relevant.
-- Failure modes are explicit and testable.
-- Logs and manifests include enough detail to debug regressions.
-- Performance impact is measured.
-- Documentation explains scope, unsupported cases, and known limitations.
-
-## Priority Order
-
-1. Stabilize evidence infrastructure and native screenshot capture.
-2. Fix native display edge correctness before adding more scaling options.
-3. Remove or replace timing workarounds with scheduler/CIA evidence.
-4. Lock A500 Kickstart 1.3 and Workbench 1.3 baselines.
-5. Lock A1200 Workbench 3.1/3.1.4 HDF boot with correct viewport.
-6. Harden Gayle IDE and RDB/HDF write safety.
-7. Expand curated OCS/ECS/AGA compatibility corpus.
-8. Implement A2065-compatible Ethernet with SLIRP.
-9. Integrate network, viewport, floppy speed, and media controls across REST and
-   web UI.
-10. Promote ESP from stubs to explicit capability-driven features.
-
-## Known High-Risk Areas
-
-- Display edge behavior: right-edge wrap and left-edge injection must be solved
-  in native generation, not hidden by crop.
-- CIA timing: current shortcuts can boot software while leaving deeper
-  compatibility broken.
-- Scheduler ordering: copper/blitter/CPU/DMA race behavior is the core emulator
-  quality bar.
-- AGA fetch modes: Workbench can pass while games and demos still fail.
-- HDF write safety: a single bad geometry assumption can corrupt user data.
-- Network interrupts: A2065 can appear detected while transfers stall under load.
-- Host presentation: aspect, border, crop, and vertical stretch must be separate
-  and reversible settings.
-- Asset management: ROMs and Workbench media are legal/user-provided inputs and
-  must never become repository artifacts.
-
-## Enterprise-Grade Operating Model
-
-Rumiga should be managed like a serious emulator product:
-
-- Every compatibility claim is backed by a command, artifact, and manifest.
-- Every regression has a small reproduction and a subsystem label.
-- Every user-facing setting has a CLI name, API field, web UI control, default,
-  validation rule, and persisted representation if applicable.
-- Every media write path has read-only mode, explicit writeback mode, atomicity
-  notes, and test coverage.
-- Every network path is disabled by default, documented, and observable.
-- Every release has a compatibility report, known-issues list, and artifact
-  bundle excluding copyrighted inputs.
-
-## Near-Term Milestone
-
-The next milestone should be:
-
-**A1200 Workbench 3.1.4 HDF Boot Evidence Pack**
-
-Scope:
-
-- Stock A1200 profile.
-- 68EC020-compatible behavior as the release target.
-- Gayle IDE HDF boot.
-- Correct native viewport with no right-edge wrap, no left-edge injected pixels,
-  no bottom crop, and documented host scaling.
-- CLI, REST, and web UI controls for viewport preset and screenshot capture.
-
-Exit evidence:
-
-- Native screenshot plus host screenshot.
-- Manifest with ROM/HDF hashes, git SHA, model, PAL/NTSC mode, viewport preset,
-  frame count, and disk dirty state.
-- FS-UAE reference screenshot and configuration notes.
-- Regression test that inspects the first 20 visible lines and right-edge pixels.
-
-After this milestone is stable, start the A2065 + SLIRP network milestone.
+- Seeed D1001 guide: <https://wiki.seeedstudio.com/getting_started_with_reterminal_d1001/>
+- Seeed D1001 BSP: <https://github.com/Seeed-Studio/reTerminal-D1001>
+- ESP32-P4 ESP-IDF guide: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32p4/>
+- ESP32-P4 USB host guide: <https://docs.espressif.com/projects/esp-usb/en/latest/esp32p4/usb_host.html>
+- Rust ESP HAL: <https://github.com/esp-rs/esp-hal>
+- Rust ESP-IDF HAL: <https://github.com/esp-rs/esp-idf-hal>
+- WinUAE reference: <https://github.com/tonioni/WinUAE>
+- FS-UAE reference: <https://github.com/FrodeSolheim/fs-uae>

@@ -1,215 +1,221 @@
-# rumiga
+# Rumiga
 
 [![CI](https://github.com/metaneutrons/rumiga/actions/workflows/ci.yml/badge.svg)](https://github.com/metaneutrons/rumiga/actions/workflows/ci.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 
-Enterprise-grade Amiga emulator targeting the Seeed reTerminal D1001 (ESP32-P4), with a modular multi-platform architecture.
+Rumiga is a Rust Amiga emulator under active development. macOS and Linux are
+the current development hosts; the primary product target is the Seeed
+reTerminal D1001 with an ESP32-P4 RISC-V processor.
 
-## Features
+The desktop emulator is functional and has repeatable A500/A1200 boot and visual
+evidence. The D1001 firmware is not functional yet: its crate and platform
+modules are currently scaffolding. See [Project Status](PROJECT_STATUS.md) for
+the evidence-backed baseline and [Roadmap](ROADMAP.md) for the embedded plan.
 
-- **OCS/ECS/AGA** chipset emulation (progressive implementation)
-- **Motorola 68000-family** CPU emulation with 68000/68010/68020/68030/68040 profiles
-- **Multi-platform**: Desktop (macOS/Linux) for development, ESP32-P4 for production
-- **Web UI**: Next.js management interface for file management, WiFi config, and machine setup
-- **On-device OSD**: Slint-based overlay in display black bars
-- **SD card storage**: FAT32 for ADF/HDA disk images
-- **Audio**: 4-channel Paula emulation with configurable stereo mixing
-- **Input**: USB HID keyboard/gamepad + capacitive touch-as-mouse
+## Product Goal
 
-## Project Structure
+- Stock A500 and A1200 as release-critical profiles.
+- A500+ and A600 as supported secondary profiles.
+- OCS, ECS, AGA, CIA, copper, blitter, sprites, Paula, trackdisk, and Gayle IDE.
+- ADF and bounded, SD-backed HDF media with safe write policies.
+- Correct PAL/NTSC native output and explicit viewport/presentation controls.
+- D1001 touch, USB keyboard/mouse/gamepad, built-in audio, MicroSD, and Wi-Fi.
+- A2065-compatible guest networking.
+- Versioned REST API, web controls, screenshots, support bundles, and evidence.
 
+PPC/accelerator boards, third-party SCSI controllers, RTG/Picasso96, CDTV, and
+CD32 are outside the first release scope.
+
+## Current Highlights
+
+- M68000-family interpreter with 68000 through 68040 selectable host profiles.
+- A500, A500+, A600, and A1200 machine profiles.
+- Progressive OCS/ECS/AGA chipset implementation.
+- Paula audio, CIA timers/I/O, MFM floppy, ADF writes, and 100-800% floppy speed.
+- Gayle ATA/IDE, raw/RDB HDF behavior, read-only default, snapshot, and explicit
+  host writeback modes.
+- Native and presentation screenshots with versioned evidence manifests.
+- Regression checks for right-edge wrap, left-edge injection, crop, and stretch.
+- Desktop localhost REST server and embedded Next.js static UI.
+- A2065 device model with desktop SLIRP, packet counters, and optional PCAP.
+
+These are implementation highlights, not blanket compatibility claims. The
+current report has 6 passing scenarios out of 16 catalog entries; 7 need
+additional legal/local media and 3 are explicitly out of scope.
+
+## Repository Layout
+
+```text
+crates/
+  m68k/                     active M68000-family CPU core
+  m68000/                   legacy/reference no_std CPU crate
+  rumiga-core/              Amiga machine core; not no_std yet
+  rumiga-platform/          no_std platform contracts
+  rumiga-platform-desktop/  desktop platform adapter
+  rumiga-platform-esp/      D1001 adapter scaffolding; not build-integrated yet
+  rumiga-api/               shared REST DTO and endpoint contracts
+desktop/                    current emulator binary and localhost server
+firmware/                   D1001 firmware scaffolding; not build-integrated yet
+web/                        Next.js control UI
+evidence/                   versioned scenario catalog
+scripts/                    capture, parity, and report tools
 ```
-rumiga/
-├── crates/
-│   ├── m68k/                    # Motorola 68000-family CPU emulation
-│   ├── m68000/                  # Legacy 68000 CPU comparison/reference crate
-│   ├── rumiga-core/             # no_std + alloc — emulation engine
-│   │   ├── audio.rs            # Paula 4-channel audio
-│   │   ├── blitter.rs          # Blitter DMA engine
-│   │   ├── chipset.rs          # Custom chip register state
-│   │   ├── cia.rs              # CIA-A/B timers and I/O
-│   │   ├── copper.rs           # Copper coprocessor
-│   │   ├── custom.rs           # Custom register address decoding
-│   │   ├── emulator.rs         # Main emulation loop
-│   │   ├── events.rs           # Cycle-accurate event scheduler
-│   │   ├── floppy.rs           # Floppy disk controller
-│   │   ├── ide.rs              # Gayle ATA/IDE controller
-│   │   ├── memory.rs           # Memory subsystem (Chip/Fast/ROM/Gayle)
-│   │   ├── playfield.rs        # Bitplane-to-pixel rendering
-│   │   └── sprites.rs          # Hardware sprite engine
-│   ├── rumiga-platform/         # Platform trait definitions
-│   ├── rumiga-platform-desktop/ # Desktop backend (minifb, cpal)
-│   ├── rumiga-platform-esp/     # ESP-IDF backend (MIPI-DSI, I2S, SD, OSD)
-│   └── rumiga-api/              # Shared REST API types (OpenAPI)
-├── desktop/                     # Desktop binary
-├── firmware/                    # ESP-IDF binary
-└── web/                         # Next.js 16.x + Tailwind v4
-```
 
-## Hardware Target
+## Development
 
-- **Seeed reTerminal D1001**: ESP32-P4 @ 400 MHz, 32 MB PSRAM, 8" 800×1280 MIPI-DSI touch display
-- WiFi 6 + BLE 5 via ESP32-C6, MicroSD, USB 2.0, I2S audio (ES8311)
+### Requirements
 
-## Build Instructions
+- Rust 1.85.0 for the audited host baseline.
+- Git.
+- Node.js/npm only when changing or validating `web/`.
+- User-provided Kickstart and disk images for boot evidence.
 
-### Prerequisites
+The current default graph also references sibling `../r68k` comparison crates.
+That non-hermetic dependency is the first M0 remediation item and means a clean
+clone may not yet reproduce every desktop check.
 
-- Rust 1.85+ (edition 2024)
-- Git
+### Desktop
 
-### Desktop Target
-
-```bash
-git clone https://github.com/metaneutrons/rumiga.git
-cd rumiga
+```sh
 git config core.hooksPath .githooks
-
-# Build all workspace crates
 cargo build --workspace
-
-# Run tests
 cargo test --workspace
-
-# Show desktop emulator options
 cargo run -p rumiga-desktop -- --help
+```
 
-# Run desktop emulator
-cargo run -p rumiga-desktop -- --model a1200 --cpu 68020 --hdf workbench.hdf <kickstart.rom> [df0.adf]
+Run a stock A1200 host session:
 
-# Freeze a headless screenshot and evidence manifest
-cargo run -p rumiga-desktop -- \
+```sh
+cargo run --release -p rumiga-desktop --bin rumiga-desktop -- \
   --model a1200 \
-  --capture target/evidence/a1200/workbench.png \
-  --capture-frames 1200 \
-  --hdf workbench.hdf \
-  <kickstart.rom>
+  --cpu 68020 \
+  --hdf /path/to/workbench.hdf \
+  /path/to/kickstart.rom
 ```
 
-`--capture` runs without opening a window, saves an RGB565 screenshot, and
-writes a sibling JSON manifest by default. It captures the desktop viewport
-presentation unless `--capture-kind native-framebuffer` is supplied. The manifest
-records model, CPU, RAM, frame count, PC/SR, native framebuffer dimensions,
-viewport crop/stretch settings, presentation policy, framebuffer statistics,
-floppy controller state, and SHA-256 hashes for the ROM and mounted media.
-Capture mode does not write dirty floppy or HDF buffers back to the source
-files.
+The desktop server listens on <http://127.0.0.1:8080> while the emulator runs.
+It serves the embedded web UI and REST endpoints. File-management endpoints are
+still development-only and currently contain a machine-specific storage root;
+do not expose this server beyond localhost.
 
-For HDF evidence runs that need to preserve the exact post-run disk buffer
-without mutating the source image, add `--hdf-snapshot <file.hdf>`. The snapshot
-path must be different from the source HDF. The manifest records the snapshot
-hash plus changed byte and 512-byte sector counts against the source image.
-Scenario scripts honor `RUMIGA_HDF_SNAPSHOT=/path/to/session.hdf` for opt-in
-snapshot capture.
+### Headless Evidence
 
-For external reference captures on macOS, FS-UAE already has screenshot support
-via `screenshots_output_dir`, `screenshots_output_prefix`, and
-`screenshots_output_mask`. Rumiga evidence should come from Rumiga first; FS-UAE
-is the comparison oracle when validating A1200 viewport or boot behavior.
+```sh
+cargo run --release -p rumiga-desktop --bin rumiga-desktop -- \
+  --model a1200 \
+  --cpu 68020 \
+  --capture target/evidence/a1200-local/rumiga.png \
+  --capture-manifest target/evidence/a1200-local/rumiga.json \
+  --capture-frames 4000 \
+  --hdf /path/to/workbench.hdf \
+  /path/to/kickstart.rom
+```
 
-Generate a local compatibility report from evidence manifests:
+`--capture-kind native-framebuffer` records chipset pixels before viewport and
+host presentation. The default records the viewport presentation. Manifests
+include model, CPU, RAM, PAL/NTSC, frame count, PC/SR, dimensions, crop/stretch,
+framebuffer diagnostics, media state, and input hashes. Capture mode does not
+write dirty media back to source files.
 
-```bash
+Use `--hdf-snapshot /path/to/session.hdf` when post-run HDF bytes are needed
+without changing the base image.
+
+Generate a current-revision compatibility report:
+
+```sh
 scripts/generate-compatibility-report.py \
-  --evidence-root target/evidence \
-  --output target/evidence/compatibility-report.md
+  --current-git-only \
+  --strict \
+  --output target/evidence/current-report.md
 ```
 
-Check that Rust REST DTOs and public endpoint contracts still match the web UI
-TypeScript contract:
+Check Rust/TypeScript API contract parity:
 
-```bash
+```sh
 scripts/check-api-dto-parity.py
 ```
 
-The desktop REST API also exposes `GET /api/machine/support-bundle` for a
-redacted JSON support snapshot. It includes current status, display settings,
-network counters, screenshot metadata, and media file names, but not ROM, HDF,
-ADF, screenshot, or packet-capture bytes.
+### Web UI
 
-### ESP-IDF Target
+The web app is a real control surface for the desktop server; it is not required
+to build the Rust emulator.
 
-Prerequisites:
-- [ESP-IDF v5.4+](https://docs.espressif.com/projects/esp-idf/en/latest/esp32p4/get-started/)
-- `espup` toolchain installer
-- ESP32-P4 target support (`xtensa-esp32p4-none-elf`)
-
-```bash
-# Install ESP-IDF toolchain
-cargo install espup
-espup install
-
-# Build firmware (from project root)
-cd firmware
-cargo build --release --target xtensa-esp32p4-none-elf
-
-# Flash to device
-espflash flash target/xtensa-esp32p4-none-elf/release/rumiga-firmware
-```
-
-### Web UI Development
-
-```bash
+```sh
 cd web
-npm install
-npm run dev    # http://localhost:3000
-npm run build  # Production build
+npm ci
+npm run lint
+npm run build
+npm run dev
 ```
 
-The web UI connects to the device REST API for:
-- File management (upload/download ADF/HDA images)
-- WiFi configuration
-- Machine state control (pause, reset, eject)
+The npm lockfile is tracked. M0 adds web CI coverage and also starts tracking the
+currently ignored Rust application `Cargo.lock`.
 
-## Current Status
+### D1001 / ESP32-P4
 
-### Implemented
+The correct ESP-IDF Rust target is:
 
-- M68000-family CPU: 68000/68010/68020/68030/68040 profiles, disassembler, tracing
-- Memory subsystem: Chip RAM, Fast RAM, ROM mapping with configurable sizes
-- A1200 baseline: 2MB Chip RAM profile, 32-bit CPU address bus, PCMCIA/Gayle ranges
-- Custom chipset registers: address decoding and read/write dispatch
-- Copper coprocessor: MOVE, WAIT, SKIP instructions
-- Blitter: all 256 minterms, line draw mode, fill mode
-- Playfield: dual-playfield, bitplane-to-chunky conversion, HAM6/HAM8, AGA palette banking
-- Sprite engine: 8 hardware sprites with attach mode
-- Paula audio: 4-channel DMA with period/volume, stereo mixing
-- CIA-A/B: timers, TOD clock, keyboard handshake, disk control
-- Floppy controller: MFM decode, ADF read/write, step/seek, configurable speed
-- Gayle IDE: in-memory HDF mount, ATA identify/read/write sectors
-- Event scheduler: cycle-accurate timing with priority queue
-- Emulation loop: frame-based execution with video/audio sync
-- Platform traits: video, audio, input, storage abstractions
-- Desktop backend: minifb window, keyboard/mouse input
-- ESP platform stubs: display, audio, input, storage, WiFi, API, OSD
-- REST API types: OpenAPI-derived request/response types
-- Web UI: Next.js dashboard with file manager, WiFi config, machine control
-- CI/CD: GitHub Actions (fmt, clippy, test, audit)
+```text
+riscv32imafc-esp-espidf
+```
 
-### Not Yet Implemented
+It is not an Xtensa target. The ESP platform and firmware manifests currently
+fail workspace discovery and contain no drivers, so there is intentionally no
+claim that the command below works at this revision. Milestones M0 and M2 will
+establish the pinned toolchain and final commands, expected to follow this
+shape:
 
-- Slint OSD rendering (stub only)
-- ESP-IDF hardware drivers (stubs only)
-- Full AGA chipset coverage
-- Desktop/ESP REST backend serving the Web UI
-- Network stack on ESP32
+```sh
+cargo build -p rumiga-firmware --release \
+  --target riscv32imafc-esp-espidf
+```
+
+The implementation will use the official Seeed D1001 ESP-IDF BSP through a
+narrow audited Rust FFI adapter. Emulator/product logic remains in Rust, while
+vendor MIPI-DSI, touch, audio, SD/MMC, Wi-Fi, and USB services stay behind safe
+platform contracts.
+
+## Quality Baseline
+
+At revision `c66069059a5c` on the audited Mac:
+
+| Check | Result |
+| --- | --- |
+| `cargo test --workspace` | Pass; 450 discovered tests |
+| Clippy with `-D warnings` | Pass; legacy sibling dependency emits 3,013 warnings |
+| `cargo fmt --all --check` | Fail due to sibling `../r68k` formatting |
+| Web ESLint | Pass |
+| Web production build | Pass |
+| D1001 firmware check | Fail before compile; workspace integration missing |
+
+Do not interpret the CI badge as D1001 readiness. The current workflow does not
+build firmware, RISC-V `no_std`, or the web app.
+
+## Documentation
+
+- [Project Status](PROJECT_STATUS.md): what is verified, partial, planned, and
+  blocked now.
+- [Roadmap](ROADMAP.md): milestones M0-M10 and release quality gates.
+- [Implementation Plan](IMPLEMENTATION_PLAN.md): stable task IDs and functional
+  commit sequence.
+- [Architecture](ARCHITECTURE.md): current and target boundaries.
+- [Audit](AUDIT.md): prioritized findings and remediation mapping.
+
+## Legal Inputs
+
+Kickstart ROMs, Workbench disks, HDFs, games, demos, screenshots derived from
+private media, and packet captures are not committed. Evidence records hashes,
+safe metadata, and reproduction commands without redistributing those inputs.
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feat/my-feature`
-3. Activate git hooks: `git config core.hooksPath .githooks`
-4. Make changes, ensuring `cargo fmt && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace` passes
-5. Commit using [conventional commits](https://www.conventionalcommits.org/): `feat(core): add copper SKIP instruction`
-6. Open a pull request against `main`
+Keep commits functional and reviewable. Activate the repository hooks, map work
+to an implementation task ID, add tests/evidence appropriate to the behavior,
+and update `PROJECT_STATUS.md` when a verified claim changes.
 
-### Code Style
-
-- Rust edition 2024, `#![forbid(unsafe_code)]`
-- Clippy: `deny` for `all`, `pedantic`, `nursery`, `cargo`
-- `no_std` + `alloc` for core/platform crates
-- All public items documented with `///` doc comments
+The default branch currently forbids unsafe Rust. The future ESP-IDF FFI adapter
+will be the only reviewed exception; emulator logic remains safe Rust.
 
 ## License
 
-GPL-3.0-only — see [LICENSE](LICENSE).
+GPL-3.0-only. See [LICENSE](LICENSE).
