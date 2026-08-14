@@ -61,8 +61,8 @@ milestone.
 | Task | Status | Deliverable | Acceptance evidence |
 | --- | --- | --- | --- |
 | M0-001 | DONE | Replace aspirational project docs with current-state, roadmap, and execution sources of truth | `PROJECT_STATUS.md`, `ROADMAP.md`, this plan, updated audit/architecture/README |
-| M0-002 | NEXT | Remove unpublished `../r68k` dependency from the default graph; preserve comparison as pinned fixture/tool or opt-in feature | Clean checkout resolves Cargo metadata and formatting without sibling directories |
-| M0-003 | PLANNED | Commit `Cargo.lock`; enforce the existing npm lockfile; document dependency update cadence | Repeated locked builds resolve identical versions |
+| M0-002 | DONE | Replace unpublished `../r68k` dependencies with a tracked `m68000` differential fixture and frozen checkpoints | Cargo metadata, formatting, Clippy, and all 450 tests pass without sibling directories |
+| M0-003 | NEXT | Commit `Cargo.lock`; enforce the existing npm lockfile; document dependency update cadence | Repeated locked builds resolve identical versions |
 | M0-004 | PLANNED | Define workspace topology for `rumiga-platform-esp` and `firmware` | Both manifests pass metadata/check without workspace-membership errors |
 | M0-005 | PLANNED | Pin Rust, Node, ESP-IDF, ESP Rust crates, Seeed BSP SHA, and required tools | Machine-readable toolchain files and build manifest |
 | M0-006 | PLANNED | Replace hard-coded REST storage path with configured root and canonical path policy | Unit tests for traversal, symlink escape, upload limits, and error responses |
@@ -72,6 +72,14 @@ milestone.
 | M0-010 | PLANNED | Add `xtask` or equivalent single entry point for local/CI quality gates | One documented command runs the same gates as CI |
 | M0-011 | PLANNED | Export current compatibility report and test counts as CI artifacts without private media | Artifact contains schema, revision, skipped reasons, and commands |
 | M0-012 | PLANNED | Add contribution, review, release-note, and architecture-decision templates | A sample change is traceable from task to tests and evidence |
+
+M0-002 evidence (2026-08-14):
+
+- `cargo metadata --no-deps --format-version 1 --quiet`
+- `cargo fmt --all --check`
+- `cargo clippy --workspace --all-targets -- -D warnings`
+- `cargo test --workspace` (450 discovered tests)
+- `crates/rumiga-core/tests/cpu_differential.rs`
 
 ### M0 functional commits
 

@@ -31,6 +31,5 @@ cargo = { level = "deny", priority = -1 }
 multiple_crate_versions = "allow"
 
 [workspace.dependencies]
-r68k-emu = { path = "../r68k/emu" }
-r68k-common = { path = "../r68k/common" }
+m68000 = { path = "crates/m68000" }
 m68k = { path = "crates/m68k" }

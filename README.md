@@ -70,9 +70,9 @@ scripts/                    capture, parity, and report tools
 - Node.js/npm only when changing or validating `web/`.
 - User-provided Kickstart and disk images for boot evidence.
 
-The current default graph also references sibling `../r68k` comparison crates.
-That non-hermetic dependency is the first M0 remediation item and means a clean
-clone may not yet reproduce every desktop check.
+The default Cargo graph is self-contained. Its CPU differential test uses the
+tracked `m68000` workspace crate and a synthetic ROM, so no private Kickstart or
+sibling repository is required for that gate.
 
 ### Desktop
 
@@ -177,13 +177,13 @@ platform contracts.
 
 ## Quality Baseline
 
-At revision `c66069059a5c` on the audited Mac:
+Current host baseline on 2026-08-14:
 
 | Check | Result |
 | --- | --- |
 | `cargo test --workspace` | Pass; 450 discovered tests |
-| Clippy with `-D warnings` | Pass; legacy sibling dependency emits 3,013 warnings |
-| `cargo fmt --all --check` | Fail due to sibling `../r68k` formatting |
+| Clippy with `-D warnings` | Pass without warnings |
+| `cargo fmt --all --check` | Pass |
 | Web ESLint | Pass |
 | Web production build | Pass |
 | D1001 firmware check | Fail before compile; workspace integration missing |

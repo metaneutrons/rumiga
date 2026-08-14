@@ -130,7 +130,7 @@ without unpublished sibling repositories or machine-specific paths.
 
 ### Deliverables
 
-- Remove, vendor, or explicitly feature-gate the `../r68k` comparison oracle.
+- Use a repository-owned CPU comparison oracle (completed by M0-002).
 - Track `Cargo.lock`; retain and enforce the existing npm lockfile for web builds.
 - Put `rumiga-platform-esp` and `firmware` in an explicit workspace topology.
 - Pin Rust, Node, ESP-IDF, ESP Rust crates, Seeed BSP revision, and build tools.

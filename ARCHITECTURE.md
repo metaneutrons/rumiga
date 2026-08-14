@@ -27,12 +27,12 @@ rumiga-desktop --> rumiga-api
      |          -> rumiga-platform
      +----------> rumiga-platform-desktop
 
-m68000  (legacy/reference crate)
+m68000  (tracked independent 68000 test oracle)
 ```
 
 `rumiga-platform-esp` and `firmware` exist in the tree but are not workspace
-members and currently contain stubs. Desktop comparison tests also depend on
-untracked sibling `../r68k` crates.
+members and currently contain stubs. CPU differential evidence uses only the
+tracked `m68000` workspace crate and frozen synthetic checkpoints.
 
 Important current constraints:
 

@@ -95,6 +95,12 @@ not credible as a release gate.
 
 Remediation: M0-002, M0-007, M0-010.
 
+Resolution update (2026-08-14): M0-002 removed both external path
+dependencies and replaced the non-asserting private-ROM comparison with a
+tracked `m68000` differential test plus frozen checkpoints. Cargo metadata,
+formatting, strict Clippy, and all 450 workspace tests now pass without sibling
+repositories. CI parity remains tracked by M0-007 and M0-010.
+
 ### P1: High priority
 
 #### A-005: Platform contracts are too weak for real-time hardware
@@ -183,7 +189,8 @@ Remediation: M0-003 and M0-005.
 
 The workflow checks Rust formatting, Clippy, tests, and advisories. It does not
 build web, firmware, RISC-V `no_std`, evidence schemas, or release artifacts.
-It also cannot reconstruct the local sibling dependency layout.
+At the audited revision it also could not reconstruct the local sibling
+dependency layout; M0-002 has since removed that specific blocker.
 
 Impact: CI does not test the actual product target.
 

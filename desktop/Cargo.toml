@@ -31,7 +31,3 @@ mio = "0.6.23"
 
 [lints]
 workspace = true
-
-[dev-dependencies]
-r68k-emu = { workspace = true }
-r68k-common = { workspace = true }
