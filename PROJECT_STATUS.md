@@ -8,13 +8,13 @@ ordered work; this file records what is actually proven now.
 
 | Field | Value |
 | --- | --- |
-| Status date | 2026-08-14 |
-| Audited baseline revision | `c66069059a5c` |
-| Latest completed task | M0-005: pinned host and ESP build inputs |
+| Status date | 2026-08-15 |
+| Audited baseline revision | Repository revision containing this document |
+| Latest completed task | M0-005: pinned and validated host/ESP build inputs |
 | Development host | macOS, Apple Silicon |
 | Product target | Seeed reTerminal D1001, ESP32-P4 |
 | Product maturity | Desktop compatibility prototype |
-| D1001 maturity | Skeleton only; no firmware or hardware evidence |
+| D1001 maturity | Cross-built Rust firmware skeleton; no device boot or HIL evidence |
 | Release readiness | Not a release candidate |
 
 ## Product Intent
@@ -61,6 +61,8 @@ No feature is called done merely because it compiled or booted once.
   high-severity advisory gate.
 - ESP platform and firmware manifests are regular unpublished workspace
   packages and pass locked host checks under the same strict lint policy.
+- The locked ESP-IDF 6.0.0 and esp-rs matrix produces a statically linked
+  32-bit RISC-V firmware ELF for ESP32-P4 on the audited Mac.
 - The desktop runner supports A500, A500+, A600, and A1200 profiles and exposes
   68000 through 68040 CPU selections.
 - Native and presentation screenshots, versioned manifests, support bundles,
@@ -78,16 +80,16 @@ No feature is called done merely because it compiled or booted once.
   `std::thread`, `JoinHandle`, and `core_affinity`.
 - `rumiga-platform-esp` and `firmware` are host-checkable workspace members, but
   every ESP platform module and the firmware entry point remain stubs. Their
-  toolchain and SDK inputs are pinned, but there is no ESP32-P4 cross-build,
-  flash, boot, display, touch, USB, audio, SD, Wi-Fi, or performance artifact.
+  toolchain and SDK inputs now cross-build, but there is no flash, boot,
+  display, touch, USB, audio, SD, Wi-Fi, or performance HIL artifact.
 - HDF media is loaded into one `Vec<u8>`. The local 2 GiB images cannot fit in
   the D1001's 32 MiB PSRAM. Sector-based block I/O is a release blocker.
 - The A2065/SLIRP evidence proves link/configuration only. Guest TX/RX counters
   are zero, so guest TCP/IP is not yet proven.
 - Full OCS/ECS/AGA compatibility is not proven by the current Workbench and
   Kickstart scenarios.
-- The repository is not fully hermetic yet because ESP32-P4 cross-build
-  provisioning and automation are incomplete. The host graph, application
+- The repository is not fully hermetic yet because ESP32-P4 cross-build CI,
+  source-tag validation, and artifact publication are incomplete. The host graph, application
   dependency resolution, package topology, toolchains, ESP-IDF commit, ESP Rust
   crates, and BSP revision are repository-owned or immutably pinned.
 
@@ -110,7 +112,7 @@ No feature is called done merely because it compiled or booted once.
 | Web UI | Partial | Lint/build and static contract parity pass; browser workflow and device evidence are missing |
 | A2065 networking | Partial | Device model and desktop SLIRP link exist; guest packet flow and D1001 Wi-Fi bridge are missing |
 | Platform abstraction | Partial | A small `no_std` trait crate exists; contracts lack backpressure, capabilities, clock, block media, network, lifecycle, and telemetry |
-| D1001 firmware | Planned | Workspace-integrated host stub with commented ESP dependencies; no target build or hardware evidence |
+| D1001 firmware | Partial | Locked IDF 6.0.0 target build produces an ELF; firmware services are stubs and no hardware evidence exists |
 | Release operations | Planned | No device image, signed release, OTA rollback, HIL, SBOM, or soak evidence |
 
 ## Verification Baseline
@@ -126,6 +128,7 @@ The following commands were run during this audit:
 | `cargo check --locked --manifest-path firmware/Cargo.toml` | Pass | Firmware is a valid host-side workspace build unit; this is not target evidence |
 | `cargo check --locked --manifest-path crates/rumiga-platform-esp/Cargo.toml` | Pass | ESP adapter is a valid host-side workspace build unit; drivers remain stubs |
 | `cargo test --locked -p rumiga-firmware --test toolchain_manifest` | Pass | Rust, Node/npm, ESP-IDF, BSP, Cargo config, and locked ESP crate pins agree |
+| `env -u IDF_PATH CARGO_BUILD_RUSTC_WRAPPER= cargo build --locked --release --target riscv32imafc-esp-espidf` from `firmware` | Pass | IDF 6.0.0 Rust firmware links as a 32-bit RISC-V ELF; this is not boot evidence |
 | `npm run lint` | Pass | Web static lint baseline is green |
 | `npm run build` | Pass | Next.js 16.3.1 production build is green |
 | `(cd web && npm ci --ignore-scripts)` | Pass | npm manifest and tracked lockfile agree |
@@ -168,11 +171,12 @@ The official Seeed material establishes the following target:
 | USB | ESP32-P4 USB 2.0 host capability; exact D1001 connector/VBUS role must be qualified on the board |
 
 The official Seeed BSP is cloned locally for analysis at revision
-`5074d3b2f45626b261298e305aaf792036febc5a`. It targets ESP-IDF 5.4.2 and
-contains board support for display, touch, audio, SD/MMC, and Wi-Fi. It is a
-reference dependency, not part of Rumiga's current build. ESP-IDF 6.0.2 is
-tracked as an upgrade candidate, but Seeed's bundled audio manifests declare
-`<6.0`; promotion requires a BSP port plus compile and HIL evidence.
+`5074d3b2f45626b261298e305aaf792036febc5a`. It targets ESP-IDF 5.4.2 and is a
+hardware reference, not part of Rumiga's build. Vellum revision
+`15bff64d316c3751861d02fcf7ace6b47afab176` independently proves ESP-IDF 6.0.0
+bring-up on the D1001. Rumiga now cross-builds on that baseline. Vellum's AGPL
+board code remains reference-only; device services require clean-room Rust or
+compatibly licensed adapters plus Rumiga HIL evidence.
 
 ## Critical Risks
 
@@ -180,7 +184,7 @@ tracked as an upgrade candidate, but Seeed's bundled audio manifests declare
 | --- | --- | --- | --- |
 | R-001 | Critical | Whole HDF images are resident in RAM | Introduce a bounded sector `BlockDevice` contract before A1200 device integration |
 | R-003 | Critical | Core owns host threads and files | Move host services behind adapters and make the deterministic core `no_std + alloc` in M1 |
-| R-004 | High | No D1001 firmware has booted | Produce a pinned firmware artifact and serial boot evidence in M0-008/M2 |
+| R-004 | High | No D1001 firmware has booted | Publish the pinned firmware artifact and capture serial boot evidence in M0-008/M2 |
 | R-005 | High | USB-C host wiring and VBUS behavior are not qualified | Verify schematic and actual board before promising direct USB-C peripherals; document required adapter/hub |
 | R-006 | High | Performance on ESP32-P4 is unknown | Add cycle, frame, PSRAM bandwidth, and memory benchmarks before compatibility expansion |
 | R-007 | High | API file handling is hard-coded to a developer path and device security is undefined | Add a configured storage root, canonical path checks, size limits, authentication, and local-safe defaults |
@@ -200,9 +204,10 @@ Retired risks:
 
 These decisions are binding until replaced by a reviewed architecture decision:
 
-1. The emulator and product logic remain Rust. The initial D1001 backend may
-   call the vendor ESP-IDF/Seeed C BSP through one narrow, audited FFI boundary.
-   Reimplementing MIPI-DSI and the board BSP in Rust is not a release gate.
+1. The emulator and product logic remain Rust. D1001 services use maintained
+   Rust APIs first and may call ESP-IDF through narrow audited FFI boundaries.
+   Seeed and Vellum are hardware/behavior references, not wholesale source
+   dependencies; provenance and license review are release gates.
 2. `rumiga-core` targets `no_std + alloc`. It does not open files, spawn tasks,
    select CPU cores, serve HTTP, or know about D1001 hardware.
 3. The core has one deterministic owner. Desktop and firmware schedule it;
@@ -223,7 +228,7 @@ Detailed gates are in `ROADMAP.md`; task IDs are in `IMPLEMENTATION_PLAN.md`.
 | Milestone | Status | Promotion evidence |
 | --- | --- | --- |
 | BASE: Desktop evidence foundation | Verified | Six current host scenarios and versioned evidence tooling |
-| M0: Hermetic engineering baseline | Active | Host graph, lockfiles, package topology, and toolchains are pinned; broader CI and target compile gates remain |
+| M0: Hermetic engineering baseline | Active | Host graph, lockfiles, package topology, toolchains, and local IDF 6 target compile pass; CI artifacts and remaining gates remain |
 | M1: Portable deterministic core | Planned | `no_std` RISC-V compile and deterministic replay parity |
 | M2: D1001 board bring-up | Planned | Flashable firmware, serial manifest, memory/display smoke |
 | M3: Bounded media and memory | Planned | 2 GiB HDF boots through bounded sector cache |

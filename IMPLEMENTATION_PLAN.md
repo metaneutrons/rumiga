@@ -67,7 +67,7 @@ milestone.
 | M0-005 | DONE | Pin Rust, Node, ESP-IDF, ESP Rust crates, Seeed BSP SHA, and required tools | Machine-readable toolchain files, immutable source revisions, locked ESP crates, and cross-file Rust tests |
 | M0-006 | NEXT | Replace hard-coded REST storage path with configured root and canonical path policy | Unit tests for traversal, symlink escape, upload limits, and error responses |
 | M0-007 | PLANNED | Add host CI matrix for Linux/macOS, Rust fmt/Clippy/test/doc, and web lint/build | Required checks run on pull requests and publish summaries |
-| M0-008 | PLANNED | Add RISC-V `no_std` compile job and ESP32-P4 firmware compile job | CI artifacts include core target check and firmware ELF/map |
+| M0-008 | ACTIVE | Add RISC-V `no_std` compile job and ESP32-P4 firmware compile job | Local locked IDF 6 firmware ELF passes; CI artifacts must add core target check and firmware ELF/map |
 | M0-009 | PLANNED | Add advisory, license, source, and dependency-policy checks | No unreviewed critical/high advisory or incompatible license |
 | M0-010 | PLANNED | Add `xtask` or equivalent single entry point for local/CI quality gates | One documented command runs the same gates as CI |
 | M0-011 | PLANNED | Export current compatibility report and test counts as CI artifacts without private media | Artifact contains schema, revision, skipped reasons, and commands |
@@ -110,18 +110,32 @@ M0-005 evidence (2026-08-14):
 - `toolchain/manifest.toml`, root and firmware `rust-toolchain.toml` files,
   `.node-version`, `.cargo/config.toml`, and exact Cargo/npm manifests
 - `cargo test --locked -p rumiga-firmware --test toolchain_manifest`
-- resolved `esp-idf-svc 0.52.1`, `esp-idf-hal 0.46.2`, `esp-idf-sys 0.37.2`,
-  and `embuild 0.33.3` entries in `Cargo.lock`
+- resolved `esp-idf-svc 0.52.1`, `esp-idf-hal 0.46.2`, and
+  `esp-idf-sys 0.37.2` from immutable upstream IDF 6 fix revisions, plus
+  `embuild 0.33.3`, in `Cargo.lock`
 - installed `nightly-2026-07-27` with `rust-src`
 - `cargo clippy --locked --workspace --all-targets -- -D warnings` under Rust
   1.97.1
 - `cargo test --locked --workspace` (452 discovered tests)
 - repeated resolution preserves `Cargo.lock`
-  (`a46297571a43f0612a267fbb860192b9dbd4975c3ec91848a1d2bcda0319ac8d`)
+  (`125ceebff9b79160ebe88ed4943cda4e3311fb66b87006fc397a6681619c0ca9`)
   and `web/package-lock.json`
   (`9cc4ae0079f8fb3126e7a80a43b5cb7e8460a79608f66440214d756ee1712074`)
-- IDF 5.4.2 and 6.0.2 tag commits plus the current Seeed BSP SHA independently
-  verified against their official Git repositories
+- IDF 6.0.0 and 6.0.2 tag commits, current esp-rs patch revisions, and the
+  Seeed hardware-reference SHA independently verified against their Git
+  repositories
+- Vellum revision `15bff64d316c3751861d02fcf7ace6b47afab176` records working
+  IDF 6.0.0 D1001 bring-up; its AGPL implementation is reference-only
+
+M0-008 local evidence (2026-08-15):
+
+- `env -u IDF_PATH CARGO_BUILD_RUSTC_WRAPPER= cargo build --locked --release
+  --target riscv32imafc-esp-espidf` passes from `firmware`
+- output is a 438,436-byte statically linked 32-bit RISC-V ELF using the
+  single-float ABI
+- local artifact SHA-256:
+  `2a22b83675cf7e78d102be70b652339d526ca06add4609186b57f96a7d77764b`
+- CI publication, map/flash image, `no_std` core compile, and HIL remain open
 
 ### M0 functional commits
 
@@ -130,9 +144,10 @@ M0-005 evidence (2026-08-14):
 3. `chore(deps): enforce reproducible dependency resolution`
 4. `chore(esp): make firmware workspace topology explicit`
 5. `chore(toolchain): pin host and ESP build inputs`
-6. `fix(api): sandbox desktop media storage root`
-7. `ci: add host web and riscv build matrix`
-8. `ci: publish quality and evidence summaries`
+6. `fix(toolchain): adopt validated ESP-IDF 6 baseline`
+7. `fix(api): sandbox desktop media storage root`
+8. `ci: add host web and riscv build matrix`
+9. `ci: publish quality and evidence summaries`
 
 ### M0 promotion command set
 
@@ -185,7 +200,7 @@ visible in CI logs.
 | M2-001 | PLANNED | Record D1001 schematic revision, board revision, BSP SHA, and connector inventory | Reviewed hardware manifest under `docs/hardware` |
 | M2-002 | PLANNED | Create reproducible ESP-IDF/Rust firmware build using `riscv32imafc-esp-espidf` | CI produces ELF, binary, map, size report, and checksums |
 | M2-003 | PLANNED | Define partitions, PSRAM allocator, panic, watchdog, logging, and reset policy | Boot manifest reports all values and reset reason |
-| M2-004 | PLANNED | Create narrow Seeed BSP FFI adapter and safety contract | Unsafe code limited to named adapter; host mocks test safe surface |
+| M2-004 | PLANNED | Create clean-room D1001 board adapters and safety/provenance contract | Rust-first surface, narrowly scoped unsafe code, host mocks, and license audit pass |
 | M2-005 | PLANNED | Add serial command protocol for capabilities, self-test, metrics, and reset | Versioned protocol test and captured cold-boot log |
 | M2-006 | PLANNED | Bring up RGB565 display test pattern and framebuffer checksum | HIL screenshot/checksum artifact |
 | M2-007 | PLANNED | Bring up GSL3670 touch and calibration capture | HIL touch-point matrix |
@@ -198,7 +213,7 @@ visible in CI logs.
 ### M2 functional commits
 
 1. `build(firmware): add pinned esp32-p4 image pipeline`
-2. `feat(d1001): add safe seeed bsp adapter`
+2. `feat(d1001): add clean-room board adapters`
 3. `feat(firmware): expose boot manifest and serial self-test`
 4. `feat(d1001): bring up display and touch`
 5. `feat(d1001): bring up audio and sdmmc`

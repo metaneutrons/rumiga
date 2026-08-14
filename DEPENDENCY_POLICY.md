@@ -30,9 +30,13 @@ manager and are never edited manually.
 - npm dependency lifecycle scripts are denied unless their source and purpose
   are reviewed and the approval is recorded explicitly in `allowScripts`.
 - Firmware release/evidence builds must have `IDF_PATH` unset; the pinned
-  `ESP_IDF_VERSION=commit:<sha>` must not be replaced by a local SDK clone.
-- ESP-IDF 6 is an upgrade candidate, not the baseline, until the BSP compile and
-  D1001 hardware gates in `TOOLCHAIN.md` pass.
+  `ESP_IDF_VERSION=tag:v6.0` must resolve to the commit recorded in
+  `toolchain/manifest.toml` and must not be replaced by a local SDK clone.
+- ESP-IDF 6.0.0 is the active baseline. Patchlevel promotion requires a locked
+  Rust cross-build and the D1001 hardware gates in `TOOLCHAIN.md`.
+- Seeed and Vellum sources are reference inputs, not implicit dependencies.
+  Vellum's AGPL implementation may inform tests and behavior but cannot be
+  copied into the GPL-only tree without an explicit licensing decision.
 
 Standard verification commands:
 

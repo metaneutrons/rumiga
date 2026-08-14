@@ -37,9 +37,16 @@ missing_const_for_fn = "allow"
 suboptimal_flops = "allow"
 
 [workspace.dependencies]
+embuild = "=0.33.3"
 esp-idf-svc = { version = "=0.52.1", default-features = false }
 m68000 = { path = "crates/m68000" }
 m68k = { path = "crates/m68k" }
 rumiga-core = { path = "crates/rumiga-core" }
 rumiga-platform = { path = "crates/rumiga-platform" }
 rumiga-platform-esp = { path = "crates/rumiga-platform-esp" }
+
+[patch.crates-io]
+# Temporary upstream IDF 6 fixes; remove after compatible crates.io releases.
+esp-idf-hal = { git = "https://github.com/esp-rs/esp-idf-hal.git", rev = "c2dac82f5243b0b7036c392f8218e6a2b4f7e375" }
+esp-idf-svc = { git = "https://github.com/esp-rs/esp-idf-svc.git", rev = "f59ffada5638cf582fe8cab1771fa38873ef6d73" }
+esp-idf-sys = { git = "https://github.com/esp-rs/esp-idf-sys.git", rev = "8369f610a31e9c90a5479ed7f366f983589dfa0a" }

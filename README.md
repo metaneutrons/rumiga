@@ -163,29 +163,31 @@ riscv32imafc-esp-espidf
 It is not an Xtensa target. The ESP platform and firmware are now regular
 workspace packages and pass host-side checks. M0-005 pins their Rust nightly,
 ESP-IDF commit, ESP Rust crates, Seeed BSP revision, linker, and flash tooling.
-The packages still contain no drivers and have no ESP32-P4 build artifact, so
-there is intentionally no claim that the command below works at this revision.
-M0-008 and M2 establish cross-build and hardware evidence, expected to follow
-this shape from the firmware directory:
+The driver modules remain stubs, but the locked ESP-IDF 6.0.0 stack now produces
+an ESP32-P4 firmware ELF locally. M0-008 still has to reproduce and publish that
+artifact in CI; M2 establishes flash, boot, and peripheral evidence. Run from
+the firmware directory:
 
 ```sh
-env -u IDF_PATH cargo build --locked --release \
+env -u IDF_PATH CARGO_BUILD_RUSTC_WRAPPER= \
+  cargo build --locked --release \
   --target riscv32imafc-esp-espidf
 ```
 
-ESP-IDF 6.0.2 is tracked as the upgrade candidate. The reproducible baseline
-remains IDF 5.4.2 because the current official Seeed BSP names that version and
-contains component constraints below IDF 6. Promotion requires a separate
-compile and D1001 HIL gate; see [Toolchain](TOOLCHAIN.md#esp-idf-6).
+ESP-IDF 6.0.0 is the active, cross-built baseline. The separate Vellum project
+also proves this SDK on D1001 hardware. ESP-IDF 6.0.2 is tracked as a patchlevel
+candidate pending an upstream Rust DSI compatibility fix and fresh HIL; see
+[Toolchain](TOOLCHAIN.md#esp-idf-6).
 
-The implementation will use the official Seeed D1001 ESP-IDF BSP through a
-narrow audited Rust FFI adapter. Emulator/product logic remains in Rust, while
-vendor MIPI-DSI, touch, audio, SD/MMC, Wi-Fi, and USB services stay behind safe
-platform contracts.
+The implementation remains Rust-first. The official Seeed BSP and Vellum are
+hardware and behavior references; required MIPI-DSI, touch, audio, SD/MMC,
+Wi-Fi, and USB services will be exposed through safe platform contracts with
+only the smallest reviewed ESP-IDF FFI surface. Vellum's AGPL board code is not
+copied into this GPL-only repository.
 
 ## Quality Baseline
 
-Current host baseline on 2026-08-14:
+Current baseline on 2026-08-15:
 
 | Check | Result |
 | --- | --- |
@@ -196,8 +198,8 @@ Current host baseline on 2026-08-14:
 | Web ESLint | Pass |
 | Web production build | Pass |
 | npm audit | Pass; no known vulnerabilities reported |
-| ESP platform/firmware host checks | Pass; topology, pins, and strict lints only |
-| ESP32-P4 firmware cross-build | Not yet available |
+| ESP platform/firmware host checks | Pass; topology, pins, and strict lints |
+| ESP32-P4 firmware cross-build | Pass locally for locked IDF 6.0.0; CI artifact pending |
 
 Do not interpret the CI badge as D1001 readiness. The current workflow does not
 cross-build firmware, compile RISC-V `no_std`, or build the web app.

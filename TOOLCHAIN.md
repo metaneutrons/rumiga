@@ -4,17 +4,18 @@
 manifest. The Rust, Cargo, npm, and target configuration files consume its
 values; `firmware/tests/toolchain_manifest.rs` rejects drift between them.
 
-This baseline pins inputs. It does not prove that the firmware cross-builds,
-flashes, boots, or drives D1001 hardware. Those claims require M0-008 and M2
-evidence.
+This baseline pins inputs and has produced a local ESP32-P4 firmware ELF. It
+does not yet prove CI reproducibility, flashing, booting, or D1001 peripherals.
+Those claims require the remaining M0-008 automation and M2 HIL evidence.
 
 ## Rust-First Boundary
 
 The emulator core, platform contracts, firmware composition, configuration,
-tests, and product behavior remain Rust. The D1001 backend uses safe Rust
-wrappers first. Vendor ESP-IDF and Seeed C components are admitted only behind
-the single audited BSP FFI boundary described in `ARCHITECTURE.md`; Rumiga does
-not add C application logic when a maintained Rust interface exists.
+tests, and product behavior remain Rust. The D1001 backend uses maintained Rust
+interfaces first and admits ESP-IDF C only through generated bindings or a
+narrow audited adapter. Vellum's working D1001 port is behavioral and hardware
+evidence, not a code dependency: its AGPL-3.0-or-later board code must not be
+copied into this GPL-3.0-only repository without an explicit compatible license.
 
 ## Pinned Baseline
 
@@ -26,35 +27,45 @@ not add C application logic when a maintained Rust interface exists.
 | Rust target | `riscv32imafc-esp-espidf` | ESP32-P4 application target |
 | Node.js | `24.19.0` | Web build LTS runtime |
 | npm | `11.17.0` | Locked web installer |
-| ESP-IDF | `5.4.2` at `f5c3654a1c2d2a01f7f67def7a0dc48e691f63c0` | Seeed-compatible firmware baseline |
-| Seeed D1001 BSP | `5074d3b2f45626b261298e305aaf792036febc5a` | Board component source baseline |
-| `esp-idf-svc` | `0.52.1` | Safe ESP-IDF services |
-| `esp-idf-hal` | `0.46.2` | Safe ESP-IDF peripheral abstractions |
-| `esp-idf-sys` | `0.37.2` | Generated ESP-IDF bindings and native builder |
+| ESP-IDF | `6.0.0` at `662a3be354759d9487bf4b1a629fadb766cb1800` | Cross-built D1001 firmware baseline |
+| Seeed D1001 BSP | `5074d3b2f45626b261298e305aaf792036febc5a` | Hardware reference only |
+| `esp-idf-svc` | `0.52.1` plus pinned upstream IDF 6 revision | Safe ESP-IDF services |
+| `esp-idf-hal` | `0.46.2` plus pinned upstream IDF 6 revision | Safe ESP-IDF peripheral abstractions |
+| `esp-idf-sys` | `0.37.2` plus pinned upstream IDF 6 revision | Generated ESP-IDF bindings and native builder |
 | `embuild` | `0.33.3` | ESP-IDF build integration |
 | `ldproxy` | `0.3.5` | ESP-IDF linker proxy |
 | `espflash` | `4.5.0` | Image and serial tooling |
 
-The exact IDF commit is passed to `esp-idf-sys`, not merely its mutable release
-branch. Native IDF tools are installed under the ignored workspace `.embuild`
+`esp-idf-sys` receives the release tag `v6.0`, while the canonical manifest
+records its expected commit. A tag is required because `embuild 0.33.3` checks
+out raw commits after its recursive clone without refreshing submodules. Source
+verification in M0-008 must reject a `v6.0` resolution other than the recorded
+commit.
+Native IDF tools are installed under the ignored workspace `.embuild`
 directory. Release and evidence builds must have `IDF_PATH` unset so a local
-clone cannot override the repository pin.
+clone cannot override the repository selection.
 
 ## ESP-IDF 6
 
-ESP-IDF `6.0.2` at `7101770dc6db2667b3c477cc31365dd1acd6db4e` is recorded as
-the next upgrade candidate, not the D1001 baseline. At the audited Seeed BSP
-revision:
+ESP-IDF `6.0.0` is the active baseline. Two independent local observations
+support it:
 
-- Seeed documents ESP-IDF 5.4.2;
-- bundled audio component manifests constrain ESP-IDF to `<6.0`;
-- the audited `esp-rs/esp-idf-template` revision does not offer an IDF 6 profile;
-- no D1001 BSP compile or hardware-in-the-loop result exists for IDF 6.
+- Vellum revision `15bff64d316c3751861d02fcf7ace6b47afab176` builds and has
+  D1001 bring-up evidence for boot, display, touch, audio, USB, and Wi-Fi.
+- Rumiga cross-builds and links its Rust firmware for
+  `riscv32imafc-esp-espidf` with the locked IDF 6 and esp-rs revisions.
 
-Promotion to IDF 6 therefore requires an isolated compatibility change that
-updates or replaces incompatible BSP components and passes firmware compile,
-display, touch, audio, SD/MMC, Wi-Fi, USB, soak, and rollback gates. This is a
-compatibility decision, not a preference for an older SDK.
+The official Seeed repository still describes IDF 5.4.2 and is retained as a
+hardware reference. Rumiga will port only the required board services through
+safe Rust APIs and small audited FFI surfaces instead of importing the
+monolithic BSP.
+
+ESP-IDF `6.0.2` at `7101770dc6db2667b3c477cc31365dd1acd6db4e` remains a tracked
+patch candidate. Its DSI bus config adds a `flags` field that upstream
+`esp-idf-hal` revision `c2dac82f5243b0b7036c392f8218e6a2b4f7e375`
+does not yet initialize, so the locked Rust build fails before Rumiga code.
+Promotion requires a compatible upstream revision plus the full compile and
+D1001 HIL gates.
 
 ## Setup
 
@@ -79,12 +90,14 @@ Verify all cross-file pins without downloading ESP-IDF:
 cargo test --locked -p rumiga-firmware --test toolchain_manifest
 ```
 
-M0-008 will turn the following intended build shape into a CI-proven command
-and publish ELF, map, binary, size, and checksum artifacts:
+The following locked command produced a RISC-V firmware ELF locally on
+2026-08-15. M0-008 must run it in CI and publish the ELF, map, binary, size, and
+checksum artifacts:
 
 ```sh
 cd firmware
-env -u IDF_PATH cargo build --locked --release \
+env -u IDF_PATH CARGO_BUILD_RUSTC_WRAPPER= \
+  cargo build --locked --release \
   --target riscv32imafc-esp-espidf
 ```
 

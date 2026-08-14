@@ -63,14 +63,15 @@ The product is split into three ownership domains:
 3. **Product shell**: desktop runner or D1001 firmware, configuration, REST,
    web assets, persistence, diagnostics, and release lifecycle.
 
-The initial D1001 backend will use ESP-IDF 5.4.2 and the pinned official Seeed
-BSP through a narrow Rust FFI adapter. This is the lowest-risk route to MIPI-DSI,
-GSL3670 touch, ES8311 audio, SD/MMC, ESP32-C6 connectivity, and USB host support.
-The emulator and product behavior remain Rust-owned. A future pure-Rust driver
-path may replace individual vendor services after equivalent HIL evidence exists.
-ESP-IDF 6.0.2 is the tracked upgrade candidate, but promotion is blocked until
-the Seeed components that declare `<6.0` are ported and the complete D1001 HIL
-gate passes.
+The initial D1001 backend uses the cross-built ESP-IDF 6.0.0 baseline. Vellum
+proves that SDK on the same board, while the official Seeed BSP remains a pinned
+hardware reference. Rumiga will implement board composition and product logic
+in Rust, use maintained Rust ESP-IDF interfaces where available, and isolate
+only unavoidable C calls behind narrow reviewed adapters. Vellum's AGPL board
+implementation is reference-only and must not cross the GPL-only source
+boundary without explicit relicensing. ESP-IDF 6.0.2 is the tracked patchlevel
+candidate; promotion requires compatible esp-rs DSI bindings and the complete
+D1001 HIL gate.
 
 ## Delivery Tracks
 
@@ -89,7 +90,7 @@ No track may bypass a shared quality gate to claim milestone completion.
 | ID | Outcome | Depends on | Status |
 | --- | --- | --- | --- |
 | BASE | Desktop evidence foundation | None | Verified |
-| M0 | Hermetic engineering baseline | BASE | Next |
+| M0 | Hermetic engineering baseline | BASE | Active |
 | M1 | Portable deterministic core | M0 | Planned |
 | M2 | D1001 board bring-up | M0 | Planned in parallel with M1 |
 | M3 | Bounded media and memory | M1, M2 storage smoke | Planned |
@@ -122,7 +123,7 @@ embedded port begins.
 - Evidence output is local and not yet a CI artifact.
 - Several legally provided media scenarios are skipped.
 - No reference image metadata is pinned to an FS-UAE/WinUAE version.
-- No D1001 evidence exists.
+- No D1001 HIL evidence exists; only the local firmware cross-build is proven.
 
 ## M0: Hermetic Engineering Baseline
 
@@ -139,6 +140,8 @@ without unpublished sibling repositories or machine-specific paths.
   (completed by M0-004).
 - Pin Rust, Node, ESP-IDF, ESP Rust crates, Seeed BSP revision, and build tools
   (completed by M0-005).
+- Cross-build and link the minimal ESP32-P4 firmware locally on the pinned IDF
+  6.0.0 stack (local portion of M0-008 completed).
 - Add CI jobs for macOS/Linux Rust, web lint/build, `no_std` compile, and
   ESP32-P4 firmware compile.
 - Add dependency license, advisory, and duplicate-version policy.
@@ -193,10 +196,13 @@ each board service independently before loading the emulator.
 
 ### Deliverables
 
-- Pin ESP-IDF 5.4.2-compatible Rust tooling and the Seeed BSP revision.
+- Pin the ESP-IDF 6.0.0 Rust compatibility matrix and hardware-reference SHAs.
 - Define flash partitions, PSRAM policy, panic handling, watchdog policy, build
   metadata, and serial diagnostics.
-- Wrap the Seeed BSP in one audited FFI crate with safe Rust interfaces.
+- Implement the minimum D1001 board services with safe Rust interfaces and
+  narrowly scoped ESP-IDF adapters where maintained Rust APIs are unavailable.
+- Record source provenance and license review for every reference-derived
+  constant, register sequence, binary component, and adapter.
 - Emit a boot manifest containing firmware version, git SHA, toolchain, reset
   reason, CPU frequency, flash/PSRAM sizes, and available capabilities.
 - Add board smokes for RGB565 display, touch points, speaker tone, SD read/write,
@@ -209,6 +215,7 @@ each board service independently before loading the emulator.
 - A clean, documented macOS command builds, flashes, and monitors the firmware.
 - Firmware boots 20 consecutive cold starts without watchdog reset.
 - The board service matrix records pass/fail and measured memory use.
+- A provenance audit proves that no incompatible Vellum source entered Rumiga.
 - Display test pattern, touch coordinates, audio tone, and SD checksum artifacts
   are captured by HIL.
 - USB keyboard and mouse enumerate through the documented physical connection,

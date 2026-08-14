@@ -1,6 +1,6 @@
 schema_version = 1
 profile = "d1001-espidf"
-status = "pinned-not-cross-built"
+status = "cross-built-not-hil"
 
 [target]
 board = "seeed-reterminal-d1001"
@@ -20,35 +20,55 @@ components = ["rust-src"]
 build_std = ["std", "panic_abort"]
 
 [esp_idf]
-version = "5.4.2"
-git_reference = "commit:f5c3654a1c2d2a01f7f67def7a0dc48e691f63c0"
-commit = "f5c3654a1c2d2a01f7f67def7a0dc48e691f63c0"
+version = "6.0.0"
+git_reference = "tag:v6.0"
+commit = "662a3be354759d9487bf4b1a629fadb766cb1800"
 repository = "https://github.com/espressif/esp-idf.git"
 tools_install_dir = "workspace"
-compatibility = "seeed-supported-baseline"
+compatibility = "rust-cross-build"
 
-[esp_idf_upgrade_candidate]
+[esp_idf_patch_candidate]
 version = "6.0.2"
+git_reference = "tag:v6.0.2"
 commit = "7101770dc6db2667b3c477cc31365dd1acd6db4e"
 repository = "https://github.com/espressif/esp-idf.git"
-status = "blocked"
+status = "awaiting-upstream-rust-compatibility"
 blockers = [
-    "Seeed D1001 audio components declare ESP-IDF <6.0",
-    "The audited esp-rs template does not offer ESP-IDF 6.0",
-    "No D1001 BSP compile or hardware evidence exists for ESP-IDF 6.0",
+    "esp-idf-hal c2dac82 does not initialize the DSI bus flags field added by ESP-IDF 6.0.2",
+    "No Rumiga cross-build or D1001 HIL evidence exists for ESP-IDF 6.0.2",
 ]
+
+[d1001_idf6_evidence]
+repository = "https://github.com/metaneutrons/Vellum.git"
+revision = "15bff64d316c3751861d02fcf7ace6b47afab176"
+idf_version = "6.0.0"
+idf_commit = "662a3be354759d9487bf4b1a629fadb766cb1800"
+target = "esp32p4"
+scope = ["build", "boot", "display", "touch", "audio", "usb", "wifi"]
+source_license = "AGPL-3.0-or-later"
+usage = "reference-only-clean-room"
 
 [seeed_bsp]
 commit = "5074d3b2f45626b261298e305aaf792036febc5a"
 repository = "https://github.com/Seeed-Studio/reTerminal-D1001.git"
 esp_idf_version = "5.4.2"
 license = "Apache-2.0"
+role = "hardware-reference-only"
 
 [esp_rust_crates]
 esp_idf_svc = "0.52.1"
 esp_idf_hal = "0.46.2"
 esp_idf_sys = "0.37.2"
 embuild = "0.33.3"
+
+[esp_rust_patches]
+esp_idf_svc_repository = "https://github.com/esp-rs/esp-idf-svc.git"
+esp_idf_svc_commit = "f59ffada5638cf582fe8cab1771fa38873ef6d73"
+esp_idf_hal_repository = "https://github.com/esp-rs/esp-idf-hal.git"
+esp_idf_hal_commit = "c2dac82f5243b0b7036c392f8218e6a2b4f7e375"
+esp_idf_sys_repository = "https://github.com/esp-rs/esp-idf-sys.git"
+esp_idf_sys_commit = "8369f610a31e9c90a5479ed7f366f983589dfa0a"
+removal_gate = "compatible crates.io releases pass the locked ESP32-P4 build"
 
 [tools]
 rustup = "1.29.0"
@@ -60,8 +80,9 @@ builder = "esp-idf-sys-native"
 sdkconfig = "firmware/sdkconfig"
 sdkconfig_defaults = "firmware/sdkconfig.defaults"
 idf_path_policy = "must-be-unset"
+idf_reference_policy = "tag-with-verified-commit"
 profile = "release"
 
 [audit]
-checked_on = "2026-08-14"
+checked_on = "2026-08-15"
 esp_idf_template_commit = "08115a069d167a5ee37363e84f168a565f17bbca"

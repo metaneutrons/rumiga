@@ -36,9 +36,11 @@ m68000  (tracked independent 68000 test oracle)
 
 `rumiga-platform-esp` and `firmware` are workspace members and pass host-side
 manifest, check, lint, and toolchain-pin gates. ESP-IDF Rust dependencies and
-immutable SDK/BSP inputs are configured, but the modules remain stubs and there
-is no ESP32-P4 build evidence. The ESP adapter depends only on the platform
-contracts; firmware is the composition root that also owns the emulator core.
+immutable SDK/reference inputs are configured. The locked ESP-IDF 6.0.0 stack
+produces an ESP32-P4 ELF locally, but the modules remain stubs and there is no
+flash, boot, peripheral, or performance HIL evidence. The ESP adapter depends
+only on the platform contracts; firmware is the composition root that also owns
+the emulator core.
 
 Important current constraints:
 
@@ -312,12 +314,15 @@ metric decide the final buffer strategy.
 The existing workspace forbids unsafe Rust. ESP-IDF bindings necessarily cross
 an unsafe FFI boundary. The exception is narrowly scoped:
 
-- unsafe code is allowed only in the named D1001 BSP adapter crate/module;
+- unsafe code is allowed only in named D1001 adapter modules approved by an
+  architecture decision; no blanket BSP exception exists;
 - every unsafe block states pointer, lifetime, alignment, ownership, interrupt,
   and task-context invariants;
 - the public adapter API is safe Rust with typed handles and errors;
 - callbacks do not outlive their owners and DMA buffers have explicit lifetime;
 - host mocks and D1001 HIL test the safe contract;
+- Seeed and Vellum inputs carry source and license provenance; incompatible
+  reference code is not copied into adapters;
 - no unsafe code is permitted in emulator logic.
 
 ## Configuration and API
