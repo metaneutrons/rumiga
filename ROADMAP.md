@@ -132,7 +132,8 @@ without unpublished sibling repositories or machine-specific paths.
 
 - Use a repository-owned CPU comparison oracle (completed by M0-002).
 - Track and enforce the Cargo/npm lockfiles (completed by M0-003).
-- Put `rumiga-platform-esp` and `firmware` in an explicit workspace topology.
+- Put the ESP platform and firmware in an explicit workspace topology
+  (completed by M0-004).
 - Pin Rust, Node, ESP-IDF, ESP Rust crates, Seeed BSP revision, and build tools.
 - Add CI jobs for macOS/Linux Rust, web lint/build, `no_std` compile, and
   ESP32-P4 firmware compile.

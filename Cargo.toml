@@ -4,10 +4,12 @@ members = [
     "crates/rumiga-core",
     "crates/rumiga-platform",
     "crates/rumiga-platform-desktop",
+    "crates/rumiga-platform-esp",
     "crates/rumiga-api",
     "crates/m68000",
     "crates/m68k",
     "desktop",
+    "firmware",
 ]
 
 [workspace.package]
@@ -33,3 +35,6 @@ multiple_crate_versions = "allow"
 [workspace.dependencies]
 m68000 = { path = "crates/m68000" }
 m68k = { path = "crates/m68k" }
+rumiga-core = { path = "crates/rumiga-core" }
+rumiga-platform = { path = "crates/rumiga-platform" }
+rumiga-platform-esp = { path = "crates/rumiga-platform-esp" }

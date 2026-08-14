@@ -10,7 +10,7 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-14 |
 | Audited baseline revision | `c66069059a5c` |
-| Latest completed task | M0-003: reproducible dependency resolution |
+| Latest completed task | M0-004: explicit ESP workspace topology |
 | Development host | macOS, Apple Silicon |
 | Product target | Seeed reTerminal D1001, ESP32-P4 |
 | Product maturity | Desktop compatibility prototype |
@@ -59,6 +59,8 @@ No feature is called done merely because it compiled or booted once.
 - Root Cargo and web npm lockfiles are tracked. CI, Git hooks, and evidence
   commands reject stale Rust resolution; CI verifies npm with `npm ci` and a
   high-severity advisory gate.
+- ESP platform and firmware manifests are regular unpublished workspace
+  packages and pass locked host checks under the same strict lint policy.
 - The desktop runner supports A500, A500+, A600, and A1200 profiles and exposes
   68000 through 68040 CPU selections.
 - Native and presentation screenshots, versioned manifests, support bundles,
@@ -74,21 +76,19 @@ No feature is called done merely because it compiled or booted once.
 
 - `rumiga-core` is not currently `no_std`; it directly uses host files,
   `std::thread`, `JoinHandle`, and `core_affinity`.
-- `rumiga-platform-esp` and `firmware` are not workspace members. Both fail a
-  standalone `cargo check` before compilation because Cargo treats them as
-  unlisted children of the root workspace.
-- Every ESP platform module and the firmware entry point are stubs. There is no
-  D1001 build, flash, boot, display, touch, USB, audio, SD, Wi-Fi, or performance
-  artifact.
+- `rumiga-platform-esp` and `firmware` are host-checkable workspace members, but
+  every ESP platform module and the firmware entry point remain stubs. There is
+  no ESP32-P4 cross-build, flash, boot, display, touch, USB, audio, SD, Wi-Fi, or
+  performance artifact.
 - HDF media is loaded into one `Vec<u8>`. The local 2 GiB images cannot fit in
   the D1001's 32 MiB PSRAM. Sector-based block I/O is a release blocker.
 - The A2065/SLIRP evidence proves link/configuration only. Guest TX/RX counters
   are zero, so guest TCP/IP is not yet proven.
 - Full OCS/ECS/AGA compatibility is not proven by the current Workbench and
   Kickstart scenarios.
-- The repository is not fully hermetic yet because the ESP crates still fail
-  workspace discovery and toolchain/BSP pins are incomplete. The host graph and
-  application dependency resolution are now repository-owned and locked.
+- The repository is not fully hermetic yet because toolchain/BSP pins and
+  ESP32-P4 cross-build automation are incomplete. The host graph, application
+  dependency resolution, and package topology are repository-owned and locked.
 
 ## Current Capability Matrix
 
@@ -109,7 +109,7 @@ No feature is called done merely because it compiled or booted once.
 | Web UI | Partial | Lint/build and static contract parity pass; browser workflow and device evidence are missing |
 | A2065 networking | Partial | Device model and desktop SLIRP link exist; guest packet flow and D1001 Wi-Fi bridge are missing |
 | Platform abstraction | Partial | A small `no_std` trait crate exists; contracts lack backpressure, capabilities, clock, block media, network, lifecycle, and telemetry |
-| D1001 firmware | Planned | Empty entry point and commented dependencies only |
+| D1001 firmware | Planned | Workspace-integrated host stub with commented ESP dependencies; no target build or hardware evidence |
 | Release operations | Planned | No device image, signed release, OTA rollback, HIL, SBOM, or soak evidence |
 
 ## Verification Baseline
@@ -119,19 +119,20 @@ The following commands were run during this audit:
 | Check | Result | Interpretation |
 | --- | --- | --- |
 | `cargo metadata --locked --no-deps --format-version 1 --quiet` | Pass | Root Cargo manifest and lockfile agree |
-| `cargo test --locked --workspace` | Pass | 450 desktop workspace tests pass locally |
+| `cargo test --locked --workspace` | Pass | 450 workspace tests pass locally, including host builds of both ESP packages |
 | `cargo clippy --locked --workspace --all-targets -- -D warnings` | Pass | All workspace targets pass without warnings |
 | `cargo fmt --all --check` | Pass | Formatting is confined to repository-owned workspace sources |
-| `cargo check --manifest-path firmware/Cargo.toml` | Fail | Firmware is neither included in nor excluded from the root workspace |
-| `cargo check --manifest-path crates/rumiga-platform-esp/Cargo.toml` | Fail | ESP platform crate has the same workspace topology failure |
+| `cargo check --locked --manifest-path firmware/Cargo.toml` | Pass | Firmware is a valid host-side workspace build unit; this is not target evidence |
+| `cargo check --locked --manifest-path crates/rumiga-platform-esp/Cargo.toml` | Pass | ESP adapter is a valid host-side workspace build unit; drivers remain stubs |
 | `npm run lint` | Pass | Web static lint baseline is green |
 | `npm run build` | Pass | Next.js 16.3.1 production build is green |
 | `(cd web && npm ci --ignore-scripts)` | Pass | npm manifest and tracked lockfile agree |
 | `(cd web && npm audit --audit-level=high)` | Pass | No known npm vulnerabilities reported |
 
-The CI workflow validates both lockfiles but does not yet lint/build the web app
-or compile the ESP32-P4 target. A green badge must therefore not be used as
-evidence of an embedded-ready product until milestone M0 closes.
+The CI workflow validates both lockfiles and host-builds all workspace packages,
+but does not yet lint/build the web app or compile the ESP32-P4 target. A green
+badge must therefore not be used as evidence of an embedded-ready product until
+milestone M0 closes.
 
 ## Evidence Baseline
 
@@ -174,7 +175,6 @@ reference dependency, not part of Rumiga's current build.
 | ID | Severity | Risk | Required response |
 | --- | --- | --- | --- |
 | R-001 | Critical | Whole HDF images are resident in RAM | Introduce a bounded sector `BlockDevice` contract before A1200 device integration |
-| R-002 | Critical | ESP crates and firmware are not buildable workspace units | Make workspace topology and cross-build CI hermetic in M0 |
 | R-003 | Critical | Core owns host threads and files | Move host services behind adapters and make the deterministic core `no_std + alloc` in M1 |
 | R-004 | High | No D1001 firmware has booted | Pin toolchain/BSP and produce serial boot evidence in M2 |
 | R-005 | High | USB-C host wiring and VBUS behavior are not qualified | Verify schematic and actual board before promising direct USB-C peripherals; document required adapter/hub |
@@ -190,6 +190,7 @@ Retired risks:
 | --- | --- | --- |
 | R-009 | 2026-08-14 by M0-002 | External `../r68k` paths removed; tracked `m68000` differential fixture passes in the 450-test workspace run |
 | R-010 | 2026-08-14 by M0-003 | Both application lockfiles are tracked and enforced; monthly update automation and review policy exist |
+| R-002 | 2026-08-14 by M0-004 | ESP platform and firmware are locked workspace members with passing host checks; target build risk remains R-004 |
 
 ## Engineering Decisions
 
@@ -218,7 +219,7 @@ Detailed gates are in `ROADMAP.md`; task IDs are in `IMPLEMENTATION_PLAN.md`.
 | Milestone | Status | Promotion evidence |
 | --- | --- | --- |
 | BASE: Desktop evidence foundation | Verified | Six current host scenarios and versioned evidence tooling |
-| M0: Hermetic engineering baseline | Active | Host graph and lockfiles are self-contained; ESP topology and broader CI gates remain |
+| M0: Hermetic engineering baseline | Active | Host graph, lockfiles, and package topology are self-contained; toolchain pins and broader CI gates remain |
 | M1: Portable deterministic core | Planned | `no_std` RISC-V compile and deterministic replay parity |
 | M2: D1001 board bring-up | Planned | Flashable firmware, serial manifest, memory/display smoke |
 | M3: Bounded media and memory | Planned | 2 GiB HDF boots through bounded sector cache |

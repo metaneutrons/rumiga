@@ -52,10 +52,10 @@ crates/
   rumiga-core/              Amiga machine core; not no_std yet
   rumiga-platform/          no_std platform contracts
   rumiga-platform-desktop/  desktop platform adapter
-  rumiga-platform-esp/      D1001 adapter scaffolding; not build-integrated yet
+  rumiga-platform-esp/      workspace-integrated D1001 adapter scaffolding
   rumiga-api/               shared REST DTO and endpoint contracts
 desktop/                    current emulator binary and localhost server
-firmware/                   D1001 firmware scaffolding; not build-integrated yet
+firmware/                   workspace-integrated D1001 firmware scaffolding
 web/                        Next.js control UI
 evidence/                   versioned scenario catalog
 scripts/                    capture, parity, and report tools
@@ -159,10 +159,11 @@ The correct ESP-IDF Rust target is:
 riscv32imafc-esp-espidf
 ```
 
-It is not an Xtensa target. The ESP platform and firmware manifests currently
-fail workspace discovery and contain no drivers, so there is intentionally no
-claim that the command below works at this revision. Milestones M0 and M2 will
-establish the pinned toolchain and final commands, expected to follow this
+It is not an Xtensa target. The ESP platform and firmware are now regular
+workspace packages and pass host-side checks. They still contain no drivers or
+configured ESP-IDF dependencies, so there is intentionally no claim that the
+command below works at this revision. M0-005, M0-008, and M2 establish the
+pinned toolchain, cross-build, and hardware evidence, expected to follow this
 shape:
 
 ```sh
@@ -188,10 +189,11 @@ Current host baseline on 2026-08-14:
 | Web ESLint | Pass |
 | Web production build | Pass |
 | npm audit | Pass; no known vulnerabilities reported |
-| D1001 firmware check | Fail before compile; workspace integration missing |
+| ESP platform/firmware host checks | Pass; topology and strict lints only |
+| ESP32-P4 firmware cross-build | Not yet available |
 
 Do not interpret the CI badge as D1001 readiness. The current workflow does not
-build firmware, RISC-V `no_std`, or the web app.
+cross-build firmware, compile RISC-V `no_std`, or build the web app.
 
 ## Documentation
 

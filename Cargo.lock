@@ -1280,6 +1280,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rumiga-firmware"
+version = "0.1.0"
+dependencies = [
+ "rumiga-core",
+ "rumiga-platform",
+ "rumiga-platform-esp",
+]
+
+[[package]]
 name = "rumiga-platform"
 version = "0.1.0"
 
@@ -1288,6 +1297,13 @@ name = "rumiga-platform-desktop"
 version = "0.1.0"
 dependencies = [
  "minifb",
+ "rumiga-platform",
+]
+
+[[package]]
+name = "rumiga-platform-esp"
+version = "0.1.0"
+dependencies = [
  "rumiga-platform",
 ]
 

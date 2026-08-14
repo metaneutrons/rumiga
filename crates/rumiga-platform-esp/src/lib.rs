@@ -7,7 +7,7 @@
 //! - MIPI-DSI display output (800x1280, 8")
 //! - I2S audio via ES8311 codec
 //! - SD/MMC storage with FAT32
-//! - WiFi 6 via ESP32-C6 (SDIO)
+//! - `WiFi` 6 via ESP32-C6 (SDIO)
 //! - USB HID input + capacitive touch (GSL3670)
 //! - REST API via axum/tokio
 

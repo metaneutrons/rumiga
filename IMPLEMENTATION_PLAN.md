@@ -63,8 +63,8 @@ milestone.
 | M0-001 | DONE | Replace aspirational project docs with current-state, roadmap, and execution sources of truth | `PROJECT_STATUS.md`, `ROADMAP.md`, this plan, updated audit/architecture/README |
 | M0-002 | DONE | Replace unpublished `../r68k` dependencies with a tracked `m68000` differential fixture and frozen checkpoints | Cargo metadata, formatting, Clippy, and all 450 tests pass without sibling directories |
 | M0-003 | DONE | Track the root `Cargo.lock`, enforce both application lockfiles, and automate the documented update cadence | Repeated locked Rust and npm resolution leaves both lockfiles byte-identical |
-| M0-004 | NEXT | Define workspace topology for `rumiga-platform-esp` and `firmware` | Both manifests pass metadata/check without workspace-membership errors |
-| M0-005 | PLANNED | Pin Rust, Node, ESP-IDF, ESP Rust crates, Seeed BSP SHA, and required tools | Machine-readable toolchain files and build manifest |
+| M0-004 | DONE | Integrate `rumiga-platform-esp` and `firmware` as unpublished workspace packages with centralized metadata, dependencies, and lints | Both manifests pass locked host checks; the full workspace remains green |
+| M0-005 | NEXT | Pin Rust, Node, ESP-IDF, ESP Rust crates, Seeed BSP SHA, and required tools | Machine-readable toolchain files and build manifest |
 | M0-006 | PLANNED | Replace hard-coded REST storage path with configured root and canonical path policy | Unit tests for traversal, symlink escape, upload limits, and error responses |
 | M0-007 | PLANNED | Add host CI matrix for Linux/macOS, Rust fmt/Clippy/test/doc, and web lint/build | Required checks run on pull requests and publish summaries |
 | M0-008 | PLANNED | Add RISC-V `no_std` compile job and ESP32-P4 firmware compile job | CI artifacts include core target check and firmware ELF/map |
@@ -96,6 +96,14 @@ M0-003 evidence (2026-08-14):
   compatible security updates
 - `.github/workflows/ci.yml`, `.github/dependabot.yml`, and
   `DEPENDENCY_POLICY.md`
+
+M0-004 evidence (2026-08-14):
+
+- `cargo metadata --locked --no-deps --format-version 1 --quiet`
+- `cargo check --locked --manifest-path crates/rumiga-platform-esp/Cargo.toml`
+- `cargo check --locked --manifest-path firmware/Cargo.toml`
+- `cargo clippy --locked --workspace --all-targets -- -D warnings`
+- `cargo test --locked --workspace` (450 discovered tests)
 
 ### M0 functional commits
 

@@ -1,17 +1,25 @@
 [package]
 name = "rumiga-platform-esp"
 description = "ESP-IDF platform backend for the Rumiga emulator (reTerminal D1001)"
-version = "0.1.0"
-edition = "2024"
-license = "GPL-3.0-only"
-repository = "https://github.com/metaneutrons/rumiga"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish = false
 
 [dependencies]
-rumiga-platform = { path = "../rumiga-platform" }
-rumiga-core = { path = "../rumiga-core" }
+rumiga-platform = { workspace = true }
 
-# ESP-IDF dependencies (uncomment when building for ESP32-P4)
+[target.'cfg(target_os = "espidf")'.dependencies]
+# ESP-IDF dependencies are added here once M0-005 pins the target toolchain.
 # esp-idf-svc = "0.49"
 # esp-idf-hal = "0.44"
 # tokio = { version = "1", features = ["rt", "macros"] }
 # axum = "0.7"
+
+[lints]
+workspace = true

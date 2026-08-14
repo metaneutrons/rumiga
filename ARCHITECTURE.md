@@ -27,12 +27,18 @@ rumiga-desktop --> rumiga-api
      |          -> rumiga-platform
      +----------> rumiga-platform-desktop
 
+rumiga-firmware -> rumiga-core
+       |         -> rumiga-platform
+       +---------> rumiga-platform-esp -> rumiga-platform
+
 m68000  (tracked independent 68000 test oracle)
 ```
 
-`rumiga-platform-esp` and `firmware` exist in the tree but are not workspace
-members and currently contain stubs. CPU differential evidence uses only the
-tracked `m68000` workspace crate and frozen synthetic checkpoints.
+`rumiga-platform-esp` and `firmware` are workspace members and pass host-side
+manifest, check, and lint gates. They still contain stubs and have no configured
+ESP-IDF dependencies or ESP32-P4 build evidence. The ESP adapter depends only on
+the platform contracts; firmware is the composition root that also owns the
+emulator core.
 
 Important current constraints:
 

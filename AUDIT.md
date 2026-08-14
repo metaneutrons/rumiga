@@ -60,6 +60,12 @@ Impact: no cross-compile, firmware artifact, flash, boot, or CI evidence exists.
 
 Remediation: M0-004, M0-005, M0-008, then M2.
 
+Resolution update (2026-08-14): M0-004 makes both packages unpublished members
+of the root workspace with inherited metadata, dependencies, and strict lints.
+Their locked host checks now pass. ESP-IDF toolchain pinning, ESP32-P4
+cross-compilation, drivers, firmware artifacts, and hardware boot evidence
+remain open under M0-005, M0-008, and M2.
+
 #### A-002: HDF design cannot fit the D1001
 
 `crates/rumiga-core/src/ide.rs` stores the entire HDF in
