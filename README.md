@@ -149,7 +149,8 @@ npm run dev
 ```
 
 Both application lockfiles are tracked. CI rejects stale Rust or npm locks;
-routine updates follow the [dependency policy](DEPENDENCY_POLICY.md).
+routine updates follow the [dependency policy](DEPENDENCY_POLICY.md). Exact host
+and embedded build inputs are documented in the [toolchain baseline](TOOLCHAIN.md).
 
 ### D1001 / ESP32-P4
 
@@ -160,16 +161,22 @@ riscv32imafc-esp-espidf
 ```
 
 It is not an Xtensa target. The ESP platform and firmware are now regular
-workspace packages and pass host-side checks. They still contain no drivers or
-configured ESP-IDF dependencies, so there is intentionally no claim that the
-command below works at this revision. M0-005, M0-008, and M2 establish the
-pinned toolchain, cross-build, and hardware evidence, expected to follow this
-shape:
+workspace packages and pass host-side checks. M0-005 pins their Rust nightly,
+ESP-IDF commit, ESP Rust crates, Seeed BSP revision, linker, and flash tooling.
+The packages still contain no drivers and have no ESP32-P4 build artifact, so
+there is intentionally no claim that the command below works at this revision.
+M0-008 and M2 establish cross-build and hardware evidence, expected to follow
+this shape from the firmware directory:
 
 ```sh
-cargo build --locked -p rumiga-firmware --release \
+env -u IDF_PATH cargo build --locked --release \
   --target riscv32imafc-esp-espidf
 ```
+
+ESP-IDF 6.0.2 is tracked as the upgrade candidate. The reproducible baseline
+remains IDF 5.4.2 because the current official Seeed BSP names that version and
+contains component constraints below IDF 6. Promotion requires a separate
+compile and D1001 HIL gate; see [Toolchain](TOOLCHAIN.md#esp-idf-6).
 
 The implementation will use the official Seeed D1001 ESP-IDF BSP through a
 narrow audited Rust FFI adapter. Emulator/product logic remains in Rust, while
@@ -182,14 +189,14 @@ Current host baseline on 2026-08-14:
 
 | Check | Result |
 | --- | --- |
-| `cargo test --locked --workspace` | Pass; 450 discovered tests |
+| `cargo test --locked --workspace` | Pass; 452 discovered tests |
 | Clippy with `-D warnings` | Pass without warnings |
 | `cargo fmt --all --check` | Pass |
 | Cargo/npm lockfile integrity | Pass |
 | Web ESLint | Pass |
 | Web production build | Pass |
 | npm audit | Pass; no known vulnerabilities reported |
-| ESP platform/firmware host checks | Pass; topology and strict lints only |
+| ESP platform/firmware host checks | Pass; topology, pins, and strict lints only |
 | ESP32-P4 firmware cross-build | Not yet available |
 
 Do not interpret the CI badge as D1001 readiness. The current workflow does not
@@ -203,6 +210,7 @@ cross-build firmware, compile RISC-V `no_std`, or build the web app.
 - [Implementation Plan](IMPLEMENTATION_PLAN.md): stable task IDs and functional
   commit sequence.
 - [Architecture](ARCHITECTURE.md): current and target boundaries.
+- [Toolchain](TOOLCHAIN.md): exact host/ESP pins and IDF compatibility policy.
 - [Audit](AUDIT.md): prioritized findings and remediation mapping.
 - [Dependency Policy](DEPENDENCY_POLICY.md): lockfiles, update cadence, review,
   and rollback rules.

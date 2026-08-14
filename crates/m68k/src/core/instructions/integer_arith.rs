@@ -11,7 +11,7 @@ use crate::core::types::Size;
 impl CpuCore {
     /// Execute ADD instruction.
     ///
-    /// ADD <ea>, Dn  or  ADD Dn, <ea>
+    /// `ADD <ea>, Dn` or `ADD Dn, <ea>`
     pub fn exec_add<B: AddressBus>(
         &mut self,
         _bus: &mut B,
@@ -44,7 +44,7 @@ impl CpuCore {
 
     /// Execute ADDQ instruction.
     ///
-    /// ADDQ #<data>, <ea>
+    /// `ADDQ #<data>, <ea>`
     pub fn exec_addq<B: AddressBus>(
         &mut self,
         bus: &mut B,

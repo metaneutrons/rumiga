@@ -2606,8 +2606,8 @@ fn push_viewport_json(json: &mut String, context: &CaptureManifestContext<'_>) {
     let _ = writeln!(
         json,
         "  \"viewport\": {{ \"mode\": {}, \"preset\": {}, \"vertical_stretch\": {}, \"source_width\": {}, \"source_height\": {}, \"source_x_start\": {}, \"source_x_end\": {}, \"source_y_start\": {}, \"source_y_end\": {}, \"output_width\": {}, \"output_height\": {} }},",
-        json_string(&format!("{:?}", &context.display.viewport.mode)),
-        json_string(&format!("{:?}", &context.display.viewport.preset)),
+        json_string(&format!("{:?}", context.display.viewport.mode)),
+        json_string(&format!("{:?}", context.display.viewport.preset)),
         context.display.viewport.vertical_stretch,
         WIDTH,
         HEIGHT,
@@ -2625,7 +2625,7 @@ fn push_presentation_json(json: &mut String, context: &CaptureManifestContext<'_
         json,
         "  \"presentation\": {{ \"capture_kind\": {}, \"scaling\": {}, \"window_scale\": {}, \"orientation_landscape\": {} }},",
         json_string(screenshot_kind_label(&context.args.capture_kind)),
-        json_string(&format!("{:?}", &context.display.scaling)),
+        json_string(&format!("{:?}", context.display.scaling)),
         context.args.scale,
         context.display.orientation_landscape
     );

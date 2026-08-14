@@ -9,7 +9,7 @@ use crate::core::memory::AddressBus;
 impl CpuCore {
     /// 68040 FPU "op0" entrypoint (opcode pattern 0xF2xx in Musashi: `040fpu0`).
     ///
-    /// For now this is a stub (future: ALU ops, FMOVE FP,<ea>, FMOVEM, FScc/FBcc, etc.).
+    /// For now this is a stub (future: ALU ops, `FMOVE FP,<ea>`, FMOVEM, FScc/FBcc, etc.).
     pub fn exec_fpu_op0<B: AddressBus>(&mut self, bus: &mut B, opcode: u16) -> i32 {
         use crate::core::types::CpuType;
 
@@ -1276,7 +1276,7 @@ fn perform_fsave<B: AddressBus>(bus: &mut B, cpu: &mut CpuCore, addr: u32, inc: 
 // They will be wired up when we complete FPU support.
 #[allow(dead_code)]
 impl CpuCore {
-    /// FMOVE.L <ea>, FPn - move 32-bit integer to FP register
+    /// `FMOVE.L <ea>, FPn` - move 32-bit integer to FP register
     fn exec_fmove_ea_long_to_fp<B: AddressBus>(
         &mut self,
         bus: &mut B,
@@ -1358,7 +1358,7 @@ impl CpuCore {
         4
     }
 
-    /// FMOVE.S <ea>, FPn - move 32-bit single precision float to FP register
+    /// `FMOVE.S <ea>, FPn` - move 32-bit single precision float to FP register
     fn exec_fmove_ea_single_to_fp<B: AddressBus>(
         &mut self,
         bus: &mut B,

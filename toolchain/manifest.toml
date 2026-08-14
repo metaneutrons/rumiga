@@ -1,0 +1,67 @@
+schema_version = 1
+profile = "d1001-espidf"
+status = "pinned-not-cross-built"
+
+[target]
+board = "seeed-reterminal-d1001"
+soc = "esp32p4"
+rust = "riscv32imafc-esp-espidf"
+cargo_package = "rumiga-firmware"
+
+[host]
+rust = "1.97.1"
+rust_msrv = "1.85.0"
+node = "24.19.0"
+npm = "11.17.0"
+
+[embedded_rust]
+channel = "nightly-2026-07-27"
+components = ["rust-src"]
+build_std = ["std", "panic_abort"]
+
+[esp_idf]
+version = "5.4.2"
+git_reference = "commit:f5c3654a1c2d2a01f7f67def7a0dc48e691f63c0"
+commit = "f5c3654a1c2d2a01f7f67def7a0dc48e691f63c0"
+repository = "https://github.com/espressif/esp-idf.git"
+tools_install_dir = "workspace"
+compatibility = "seeed-supported-baseline"
+
+[esp_idf_upgrade_candidate]
+version = "6.0.2"
+commit = "7101770dc6db2667b3c477cc31365dd1acd6db4e"
+repository = "https://github.com/espressif/esp-idf.git"
+status = "blocked"
+blockers = [
+    "Seeed D1001 audio components declare ESP-IDF <6.0",
+    "The audited esp-rs template does not offer ESP-IDF 6.0",
+    "No D1001 BSP compile or hardware evidence exists for ESP-IDF 6.0",
+]
+
+[seeed_bsp]
+commit = "5074d3b2f45626b261298e305aaf792036febc5a"
+repository = "https://github.com/Seeed-Studio/reTerminal-D1001.git"
+esp_idf_version = "5.4.2"
+license = "Apache-2.0"
+
+[esp_rust_crates]
+esp_idf_svc = "0.52.1"
+esp_idf_hal = "0.46.2"
+esp_idf_sys = "0.37.2"
+embuild = "0.33.3"
+
+[tools]
+rustup = "1.29.0"
+ldproxy = "0.3.5"
+espflash = "4.5.0"
+
+[build]
+builder = "esp-idf-sys-native"
+sdkconfig = "firmware/sdkconfig"
+sdkconfig_defaults = "firmware/sdkconfig.defaults"
+idf_path_policy = "must-be-unset"
+profile = "release"
+
+[audit]
+checked_on = "2026-08-14"
+esp_idf_template_commit = "08115a069d167a5ee37363e84f168a565f17bbca"

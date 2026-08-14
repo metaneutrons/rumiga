@@ -11,7 +11,7 @@ use crate::core::types::Size;
 impl CpuCore {
     /// Execute MULU (unsigned 16x16 -> 32 multiply).
     ///
-    /// MULU <ea>, Dn
+    /// `MULU <ea>, Dn`
     pub fn exec_mulu<B: AddressBus>(
         &mut self,
         bus: &mut B,
@@ -40,7 +40,7 @@ impl CpuCore {
 
     /// Execute MULS (signed 16x16 -> 32 multiply).
     ///
-    /// MULS <ea>, Dn
+    /// `MULS <ea>, Dn`
     pub fn exec_muls<B: AddressBus>(
         &mut self,
         bus: &mut B,
@@ -68,8 +68,8 @@ impl CpuCore {
 
     /// Execute DIVU (unsigned 32÷16 -> 16Q + 16R).
     ///
-    /// DIVU <ea>, Dn
-    /// Result: Dn[31:16] = remainder, Dn[15:0] = quotient
+    /// `DIVU <ea>, Dn`
+    /// Result: `Dn[31:16]` = remainder, `Dn[15:0]` = quotient
     pub fn exec_divu<B: AddressBus>(
         &mut self,
         bus: &mut B,
@@ -115,8 +115,8 @@ impl CpuCore {
 
     /// Execute DIVS (signed 32÷16 -> 16Q + 16R).
     ///
-    /// DIVS <ea>, Dn
-    /// Result: Dn[31:16] = remainder, Dn[15:0] = quotient
+    /// `DIVS <ea>, Dn`
+    /// Result: `Dn[31:16]` = remainder, `Dn[15:0]` = quotient
     pub fn exec_divs<B: AddressBus>(
         &mut self,
         bus: &mut B,

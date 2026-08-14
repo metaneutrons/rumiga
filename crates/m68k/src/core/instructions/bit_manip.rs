@@ -10,7 +10,7 @@ use crate::core::types::Size;
 impl CpuCore {
     /// Execute BTST instruction.
     ///
-    /// BTST Dn/<#data>, <ea>
+    /// `BTST Dn/<#data>, <ea>`
     pub fn exec_btst<B: AddressBus>(
         &mut self,
         bus: &mut B,
@@ -32,7 +32,7 @@ impl CpuCore {
 
     /// Execute BSET instruction.
     ///
-    /// BSET Dn/<#data>, <ea>
+    /// `BSET Dn/<#data>, <ea>`
     pub fn exec_bset<B: AddressBus>(
         &mut self,
         bus: &mut B,
@@ -56,7 +56,7 @@ impl CpuCore {
 
     /// Execute BCLR instruction.
     ///
-    /// BCLR Dn/<#data>, <ea>
+    /// `BCLR Dn/<#data>, <ea>`
     pub fn exec_bclr<B: AddressBus>(
         &mut self,
         bus: &mut B,
@@ -80,7 +80,7 @@ impl CpuCore {
 
     /// Execute BCHG instruction.
     ///
-    /// BCHG Dn/<#data>, <ea>
+    /// `BCHG Dn/<#data>, <ea>`
     pub fn exec_bchg<B: AddressBus>(
         &mut self,
         bus: &mut B,
@@ -104,7 +104,7 @@ impl CpuCore {
 
     /// Execute TAS instruction.
     ///
-    /// TAS <ea>
+    /// `TAS <ea>`
     pub fn exec_tas<B: AddressBus>(&mut self, bus: &mut B, mode: AddressingMode) -> i32 {
         let ea = self.resolve_ea(bus, mode, Size::Byte);
         let value = self.read_resolved_ea(bus, ea, Size::Byte);

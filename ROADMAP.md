@@ -68,6 +68,9 @@ BSP through a narrow Rust FFI adapter. This is the lowest-risk route to MIPI-DSI
 GSL3670 touch, ES8311 audio, SD/MMC, ESP32-C6 connectivity, and USB host support.
 The emulator and product behavior remain Rust-owned. A future pure-Rust driver
 path may replace individual vendor services after equivalent HIL evidence exists.
+ESP-IDF 6.0.2 is the tracked upgrade candidate, but promotion is blocked until
+the Seeed components that declare `<6.0` are ported and the complete D1001 HIL
+gate passes.
 
 ## Delivery Tracks
 
@@ -134,7 +137,8 @@ without unpublished sibling repositories or machine-specific paths.
 - Track and enforce the Cargo/npm lockfiles (completed by M0-003).
 - Put the ESP platform and firmware in an explicit workspace topology
   (completed by M0-004).
-- Pin Rust, Node, ESP-IDF, ESP Rust crates, Seeed BSP revision, and build tools.
+- Pin Rust, Node, ESP-IDF, ESP Rust crates, Seeed BSP revision, and build tools
+  (completed by M0-005).
 - Add CI jobs for macOS/Linux Rust, web lint/build, `no_std` compile, and
   ESP32-P4 firmware compile.
 - Add dependency license, advisory, and duplicate-version policy.

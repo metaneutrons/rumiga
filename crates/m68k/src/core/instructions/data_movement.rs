@@ -10,7 +10,7 @@ use crate::core::types::Size;
 impl CpuCore {
     /// Execute MOVE instruction.
     ///
-    /// MOVE <ea>, <ea>
+    /// `MOVE <ea>, <ea>`
     #[inline]
     pub fn exec_move<B: AddressBus>(
         &mut self,
@@ -34,7 +34,7 @@ impl CpuCore {
 
     /// Execute MOVEA instruction.
     ///
-    /// MOVEA <ea>, An (no flags affected)
+    /// `MOVEA <ea>, An` (no flags affected)
     pub fn exec_movea<B: AddressBus>(
         &mut self,
         bus: &mut B,
@@ -57,7 +57,7 @@ impl CpuCore {
 
     /// Execute LEA instruction.
     ///
-    /// LEA <ea>, An
+    /// `LEA <ea>, An`
     pub fn exec_lea<B: AddressBus>(
         &mut self,
         bus: &mut B,
@@ -72,7 +72,7 @@ impl CpuCore {
 
     /// Execute PEA instruction.
     ///
-    /// PEA <ea>
+    /// `PEA <ea>`
     pub fn exec_pea<B: AddressBus>(&mut self, bus: &mut B, src_mode: AddressingMode) -> i32 {
         let ea = self.get_ea_address(bus, src_mode, Size::Long);
         self.push_32(bus, ea);
@@ -113,7 +113,7 @@ impl CpuCore {
 
     /// Execute LINK instruction.
     ///
-    /// LINK An, #<displacement>
+    /// `LINK An, #<displacement>`
     pub fn exec_link<B: AddressBus>(&mut self, bus: &mut B, reg: usize) -> i32 {
         // Push An
         let an = self.a(reg);
@@ -131,7 +131,7 @@ impl CpuCore {
 
     /// Execute LINK.L instruction (68020+).
     ///
-    /// LINK.L An, #<displacement> (32-bit displacement)
+    /// `LINK.L An, #<displacement>` (32-bit displacement)
     pub fn exec_link_long<B: AddressBus>(&mut self, bus: &mut B, reg: usize) -> i32 {
         // Push An
         let an = self.a(reg);
@@ -163,7 +163,7 @@ impl CpuCore {
 
     /// Execute MOVEM instruction (register to memory).
     ///
-    /// MOVEM <register list>, <ea>
+    /// `MOVEM <register list>, <ea>`
     pub fn exec_movem_to_mem<B: AddressBus>(
         &mut self,
         bus: &mut B,
@@ -222,7 +222,7 @@ impl CpuCore {
 
     /// Execute MOVEM instruction (memory to register).
     ///
-    /// MOVEM <ea>, <register list>
+    /// `MOVEM <ea>, <register list>`
     pub fn exec_movem_to_reg<B: AddressBus>(
         &mut self,
         bus: &mut B,

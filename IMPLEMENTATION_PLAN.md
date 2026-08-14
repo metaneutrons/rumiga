@@ -64,8 +64,8 @@ milestone.
 | M0-002 | DONE | Replace unpublished `../r68k` dependencies with a tracked `m68000` differential fixture and frozen checkpoints | Cargo metadata, formatting, Clippy, and all 450 tests pass without sibling directories |
 | M0-003 | DONE | Track the root `Cargo.lock`, enforce both application lockfiles, and automate the documented update cadence | Repeated locked Rust and npm resolution leaves both lockfiles byte-identical |
 | M0-004 | DONE | Integrate `rumiga-platform-esp` and `firmware` as unpublished workspace packages with centralized metadata, dependencies, and lints | Both manifests pass locked host checks; the full workspace remains green |
-| M0-005 | NEXT | Pin Rust, Node, ESP-IDF, ESP Rust crates, Seeed BSP SHA, and required tools | Machine-readable toolchain files and build manifest |
-| M0-006 | PLANNED | Replace hard-coded REST storage path with configured root and canonical path policy | Unit tests for traversal, symlink escape, upload limits, and error responses |
+| M0-005 | DONE | Pin Rust, Node, ESP-IDF, ESP Rust crates, Seeed BSP SHA, and required tools | Machine-readable toolchain files, immutable source revisions, locked ESP crates, and cross-file Rust tests |
+| M0-006 | NEXT | Replace hard-coded REST storage path with configured root and canonical path policy | Unit tests for traversal, symlink escape, upload limits, and error responses |
 | M0-007 | PLANNED | Add host CI matrix for Linux/macOS, Rust fmt/Clippy/test/doc, and web lint/build | Required checks run on pull requests and publish summaries |
 | M0-008 | PLANNED | Add RISC-V `no_std` compile job and ESP32-P4 firmware compile job | CI artifacts include core target check and firmware ELF/map |
 | M0-009 | PLANNED | Add advisory, license, source, and dependency-policy checks | No unreviewed critical/high advisory or incompatible license |
@@ -105,15 +105,34 @@ M0-004 evidence (2026-08-14):
 - `cargo clippy --locked --workspace --all-targets -- -D warnings`
 - `cargo test --locked --workspace` (450 discovered tests)
 
+M0-005 evidence (2026-08-14):
+
+- `toolchain/manifest.toml`, root and firmware `rust-toolchain.toml` files,
+  `.node-version`, `.cargo/config.toml`, and exact Cargo/npm manifests
+- `cargo test --locked -p rumiga-firmware --test toolchain_manifest`
+- resolved `esp-idf-svc 0.52.1`, `esp-idf-hal 0.46.2`, `esp-idf-sys 0.37.2`,
+  and `embuild 0.33.3` entries in `Cargo.lock`
+- installed `nightly-2026-07-27` with `rust-src`
+- `cargo clippy --locked --workspace --all-targets -- -D warnings` under Rust
+  1.97.1
+- `cargo test --locked --workspace` (452 discovered tests)
+- repeated resolution preserves `Cargo.lock`
+  (`a46297571a43f0612a267fbb860192b9dbd4975c3ec91848a1d2bcda0319ac8d`)
+  and `web/package-lock.json`
+  (`9cc4ae0079f8fb3126e7a80a43b5cb7e8460a79608f66440214d756ee1712074`)
+- IDF 5.4.2 and 6.0.2 tag commits plus the current Seeed BSP SHA independently
+  verified against their official Git repositories
+
 ### M0 functional commits
 
 1. `docs(project): establish embedded-first roadmap and status`
 2. `chore(workspace): remove sibling r68k dependency`
 3. `chore(deps): enforce reproducible dependency resolution`
 4. `chore(esp): make firmware workspace topology explicit`
-5. `fix(api): sandbox desktop media storage root`
-6. `ci: add host web and riscv build matrix`
-7. `ci: publish quality and evidence summaries`
+5. `chore(toolchain): pin host and ESP build inputs`
+6. `fix(api): sandbox desktop media storage root`
+7. `ci: add host web and riscv build matrix`
+8. `ci: publish quality and evidence summaries`
 
 ### M0 promotion command set
 

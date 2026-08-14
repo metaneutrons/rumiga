@@ -10,7 +10,7 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-14 |
 | Audited baseline revision | `c66069059a5c` |
-| Latest completed task | M0-004: explicit ESP workspace topology |
+| Latest completed task | M0-005: pinned host and ESP build inputs |
 | Development host | macOS, Apple Silicon |
 | Product target | Seeed reTerminal D1001, ESP32-P4 |
 | Product maturity | Desktop compatibility prototype |
@@ -77,18 +77,19 @@ No feature is called done merely because it compiled or booted once.
 - `rumiga-core` is not currently `no_std`; it directly uses host files,
   `std::thread`, `JoinHandle`, and `core_affinity`.
 - `rumiga-platform-esp` and `firmware` are host-checkable workspace members, but
-  every ESP platform module and the firmware entry point remain stubs. There is
-  no ESP32-P4 cross-build, flash, boot, display, touch, USB, audio, SD, Wi-Fi, or
-  performance artifact.
+  every ESP platform module and the firmware entry point remain stubs. Their
+  toolchain and SDK inputs are pinned, but there is no ESP32-P4 cross-build,
+  flash, boot, display, touch, USB, audio, SD, Wi-Fi, or performance artifact.
 - HDF media is loaded into one `Vec<u8>`. The local 2 GiB images cannot fit in
   the D1001's 32 MiB PSRAM. Sector-based block I/O is a release blocker.
 - The A2065/SLIRP evidence proves link/configuration only. Guest TX/RX counters
   are zero, so guest TCP/IP is not yet proven.
 - Full OCS/ECS/AGA compatibility is not proven by the current Workbench and
   Kickstart scenarios.
-- The repository is not fully hermetic yet because toolchain/BSP pins and
-  ESP32-P4 cross-build automation are incomplete. The host graph, application
-  dependency resolution, and package topology are repository-owned and locked.
+- The repository is not fully hermetic yet because ESP32-P4 cross-build
+  provisioning and automation are incomplete. The host graph, application
+  dependency resolution, package topology, toolchains, ESP-IDF commit, ESP Rust
+  crates, and BSP revision are repository-owned or immutably pinned.
 
 ## Current Capability Matrix
 
@@ -119,11 +120,12 @@ The following commands were run during this audit:
 | Check | Result | Interpretation |
 | --- | --- | --- |
 | `cargo metadata --locked --no-deps --format-version 1 --quiet` | Pass | Root Cargo manifest and lockfile agree |
-| `cargo test --locked --workspace` | Pass | 450 workspace tests pass locally, including host builds of both ESP packages |
+| `cargo test --locked --workspace` | Pass | 452 workspace tests pass locally, including host builds of both ESP packages and two toolchain consistency tests |
 | `cargo clippy --locked --workspace --all-targets -- -D warnings` | Pass | All workspace targets pass without warnings |
 | `cargo fmt --all --check` | Pass | Formatting is confined to repository-owned workspace sources |
 | `cargo check --locked --manifest-path firmware/Cargo.toml` | Pass | Firmware is a valid host-side workspace build unit; this is not target evidence |
 | `cargo check --locked --manifest-path crates/rumiga-platform-esp/Cargo.toml` | Pass | ESP adapter is a valid host-side workspace build unit; drivers remain stubs |
+| `cargo test --locked -p rumiga-firmware --test toolchain_manifest` | Pass | Rust, Node/npm, ESP-IDF, BSP, Cargo config, and locked ESP crate pins agree |
 | `npm run lint` | Pass | Web static lint baseline is green |
 | `npm run build` | Pass | Next.js 16.3.1 production build is green |
 | `(cd web && npm ci --ignore-scripts)` | Pass | npm manifest and tracked lockfile agree |
@@ -168,7 +170,9 @@ The official Seeed material establishes the following target:
 The official Seeed BSP is cloned locally for analysis at revision
 `5074d3b2f45626b261298e305aaf792036febc5a`. It targets ESP-IDF 5.4.2 and
 contains board support for display, touch, audio, SD/MMC, and Wi-Fi. It is a
-reference dependency, not part of Rumiga's current build.
+reference dependency, not part of Rumiga's current build. ESP-IDF 6.0.2 is
+tracked as an upgrade candidate, but Seeed's bundled audio manifests declare
+`<6.0`; promotion requires a BSP port plus compile and HIL evidence.
 
 ## Critical Risks
 
@@ -176,7 +180,7 @@ reference dependency, not part of Rumiga's current build.
 | --- | --- | --- | --- |
 | R-001 | Critical | Whole HDF images are resident in RAM | Introduce a bounded sector `BlockDevice` contract before A1200 device integration |
 | R-003 | Critical | Core owns host threads and files | Move host services behind adapters and make the deterministic core `no_std + alloc` in M1 |
-| R-004 | High | No D1001 firmware has booted | Pin toolchain/BSP and produce serial boot evidence in M2 |
+| R-004 | High | No D1001 firmware has booted | Produce a pinned firmware artifact and serial boot evidence in M0-008/M2 |
 | R-005 | High | USB-C host wiring and VBUS behavior are not qualified | Verify schematic and actual board before promising direct USB-C peripherals; document required adapter/hub |
 | R-006 | High | Performance on ESP32-P4 is unknown | Add cycle, frame, PSRAM bandwidth, and memory benchmarks before compatibility expansion |
 | R-007 | High | API file handling is hard-coded to a developer path and device security is undefined | Add a configured storage root, canonical path checks, size limits, authentication, and local-safe defaults |
@@ -219,7 +223,7 @@ Detailed gates are in `ROADMAP.md`; task IDs are in `IMPLEMENTATION_PLAN.md`.
 | Milestone | Status | Promotion evidence |
 | --- | --- | --- |
 | BASE: Desktop evidence foundation | Verified | Six current host scenarios and versioned evidence tooling |
-| M0: Hermetic engineering baseline | Active | Host graph, lockfiles, and package topology are self-contained; toolchain pins and broader CI gates remain |
+| M0: Hermetic engineering baseline | Active | Host graph, lockfiles, package topology, and toolchains are pinned; broader CI and target compile gates remain |
 | M1: Portable deterministic core | Planned | `no_std` RISC-V compile and deterministic replay parity |
 | M2: D1001 board bring-up | Planned | Flashable firmware, serial manifest, memory/display smoke |
 | M3: Bounded media and memory | Planned | 2 GiB HDF boots through bounded sector cache |

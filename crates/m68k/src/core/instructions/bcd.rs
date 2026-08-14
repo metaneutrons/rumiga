@@ -84,7 +84,7 @@ impl CpuCore {
 
     /// Execute NBCD (negate BCD).
     ///
-    /// NBCD <ea>
+    /// `NBCD <ea>`
     pub fn exec_nbcd<B: AddressBus>(&mut self, bus: &mut B, mode: AddressingMode) -> i32 {
         let is_reg = mode.is_register_direct();
         let ea = self.resolve_ea(bus, mode, Size::Byte);
@@ -262,7 +262,7 @@ impl CpuCore {
     /// Execute PACK register-to-register (68020+).
     ///
     /// PACK Ds, Dd, #adj
-    /// Result = ((src[11:8] << 4) | src[3:0]) + adj
+    /// Result = `((src[11:8] << 4) | src[3:0]) + adj`
     pub fn exec_pack_rr(&mut self, src_reg: usize, dst_reg: usize, adj: u16) -> i32 {
         let src = self.d(src_reg) & 0xFFFF;
         let packed = (((src >> 8) & 0xF) << 4) | (src & 0xF);
@@ -299,7 +299,7 @@ impl CpuCore {
     /// Execute UNPK register-to-register (68020+).
     ///
     /// UNPK Ds, Dd, #adj
-    /// Result = ((src[7:4] << 8) | src[3:0]) + adj
+    /// Result = `((src[7:4] << 8) | src[3:0]) + adj`
     pub fn exec_unpk_rr(&mut self, src_reg: usize, dst_reg: usize, adj: u16) -> i32 {
         let src = self.d(src_reg) & 0xFF;
         let unpacked = (((src >> 4) & 0xF) << 8) | (src & 0xF);

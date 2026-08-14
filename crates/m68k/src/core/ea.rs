@@ -32,7 +32,7 @@ pub enum AddressingMode {
     PcDisplacement,
     /// PC with Index: (d8,PC,Xn)
     PcIndex,
-    /// Immediate: #<data>
+    /// Immediate: `#<data>`
     Immediate,
 }
 

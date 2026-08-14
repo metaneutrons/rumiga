@@ -97,12 +97,16 @@ fn snapshot_bitplane_words(
         return words;
     }
 
-    for plane in 0..num_planes.min(playfield::MAX_PLANES) {
+    for (plane, plane_words) in words
+        .iter_mut()
+        .enumerate()
+        .take(num_planes.min(playfield::MAX_PLANES))
+    {
         let base = bplpt[plane] as usize;
-        for word_index in 0..VIDEO_SCANLINE_WORD_DUMP {
+        for (word_index, word) in plane_words.iter_mut().enumerate() {
             let addr = (base + word_index * 2) % chip_ram.len();
             if addr + 1 < chip_ram.len() {
-                words[plane][word_index] = u16::from_be_bytes([chip_ram[addr], chip_ram[addr + 1]]);
+                *word = u16::from_be_bytes([chip_ram[addr], chip_ram[addr + 1]]);
             }
         }
     }

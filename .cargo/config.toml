@@ -1,0 +1,13 @@
+[target.riscv32imafc-esp-espidf]
+linker = "ldproxy"
+runner = "espflash flash --monitor"
+rustflags = ["--cfg", "espidf_time64"]
+
+[env]
+CARGO_WORKSPACE_DIR = { value = "", relative = true, force = true }
+ESP_IDF_REPOSITORY = { value = "https://github.com/espressif/esp-idf.git", force = true }
+ESP_IDF_SDKCONFIG = { value = "firmware/sdkconfig", relative = true, force = true }
+ESP_IDF_SDKCONFIG_DEFAULTS = { value = "firmware/sdkconfig.defaults", relative = true, force = true }
+ESP_IDF_TOOLS_INSTALL_DIR = { value = "workspace", force = true }
+ESP_IDF_VERSION = { value = "commit:f5c3654a1c2d2a01f7f67def7a0dc48e691f63c0", force = true }
+MCU = { value = "esp32p4", force = true }

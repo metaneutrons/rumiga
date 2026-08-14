@@ -11,7 +11,7 @@
 //!     - remaining bits unused in our fixtures
 //!
 //! Semantics (as required by the fixture):
-//! - Reads a lower and upper bound from <ea> (two consecutive sized values).
+//! - Reads a lower and upper bound from `<ea>` (two consecutive sized values).
 //! - Compares the specified register value against the bounds.
 //! - Sets C=1 when the value is out of range, else C=0.
 //! - For CHK2, triggers CHK exception (vector 6) when out of range.

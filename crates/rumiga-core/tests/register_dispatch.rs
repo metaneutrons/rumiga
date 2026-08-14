@@ -207,7 +207,7 @@ mod register_dispatch_golden_vectors {
         let mut emu = make_emulator();
         emu.chipset.vpos = 44; // line 44
         emu.chipset.hpos = 100; // hpos 100
-        let expected = (44 << 8) | 100;
+        let expected = (44 << 8) | 0x64;
         assert_eq!(emu.chipset.read_register(custom::VHPOSR), expected);
     }
 

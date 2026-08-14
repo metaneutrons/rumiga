@@ -14,6 +14,7 @@
 .DS_Store
 
 # ESP-IDF build artifacts
+/.embuild/
 /firmware/build/
 /firmware/sdkconfig
 /firmware/sdkconfig.old

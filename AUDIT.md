@@ -62,9 +62,10 @@ Remediation: M0-004, M0-005, M0-008, then M2.
 
 Resolution update (2026-08-14): M0-004 makes both packages unpublished members
 of the root workspace with inherited metadata, dependencies, and strict lints.
-Their locked host checks now pass. ESP-IDF toolchain pinning, ESP32-P4
-cross-compilation, drivers, firmware artifacts, and hardware boot evidence
-remain open under M0-005, M0-008, and M2.
+Their locked host checks now pass. M0-005 additionally pins the host and
+embedded Rust toolchains, ESP-IDF commit, ESP Rust crates, Seeed BSP revision,
+and required tools. ESP32-P4 cross-compilation, drivers, firmware artifacts,
+and hardware boot evidence remain open under M0-008 and M2.
 
 #### A-002: HDF design cannot fit the D1001
 
@@ -193,8 +194,9 @@ Remediation: M0-003 and M0-005.
 
 Resolution update (2026-08-14): M0-003 tracks the root `Cargo.lock`, enforces
 locked Cargo resolution and npm `ci` in CI, and defines monthly update, review,
-exception, and rollback rules in `DEPENDENCY_POLICY.md`. Exact toolchain and BSP
-pinning remains M0-005.
+exception, and rollback rules in `DEPENDENCY_POLICY.md`. M0-005 closes the
+remaining pin gap with machine-readable host, ESP Rust, ESP-IDF, BSP, and tool
+versions plus a Rust consistency test. Target-build CI remains M0-008.
 
 #### A-012: CI covers only the default desktop workspace
 

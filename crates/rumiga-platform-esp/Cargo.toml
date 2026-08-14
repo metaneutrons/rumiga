@@ -15,11 +15,7 @@ publish = false
 rumiga-platform = { workspace = true }
 
 [target.'cfg(target_os = "espidf")'.dependencies]
-# ESP-IDF dependencies are added here once M0-005 pins the target toolchain.
-# esp-idf-svc = "0.49"
-# esp-idf-hal = "0.44"
-# tokio = { version = "1", features = ["rt", "macros"] }
-# axum = "0.7"
+esp-idf-svc = { workspace = true, features = ["std"] }
 
 [lints]
 workspace = true

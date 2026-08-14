@@ -2,6 +2,11 @@
   "name": "rumiga-web",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "npm@11.17.0",
+  "engines": {
+    "node": "24.19.0",
+    "npm": "11.17.0"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",

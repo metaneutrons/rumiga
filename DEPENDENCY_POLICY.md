@@ -1,8 +1,8 @@
 # Rumiga Dependency Policy
 
 This policy makes dependency resolution reproducible and reviewable for the
-host workspace and web control surface. Toolchain and ESP-IDF pinning are
-tracked separately by M0-005.
+host workspace, web control surface, and embedded build inputs. M0-005
+establishes the canonical compatibility matrix in `toolchain/manifest.toml`.
 
 ## Authoritative Files
 
@@ -10,6 +10,7 @@ tracked separately by M0-005.
 | --- | --- | --- | --- |
 | Rust workspace | Root and member `Cargo.toml` files | `/Cargo.lock` | Cargo with `--locked` |
 | Web application | `web/package.json` | `web/package-lock.json` | `npm ci` |
+| Host/embedded toolchains | `rust-toolchain.toml`, `firmware/rust-toolchain.toml`, `.node-version`, `.cargo/config.toml` | `toolchain/manifest.toml` | Exact channels, versions, and immutable Git commits |
 
 The root `Cargo.lock` is committed because Rumiga ships applications and
 firmware, not only reusable libraries. Member-local Cargo lockfiles are ignored
@@ -28,6 +29,10 @@ manager and are never edited manually.
 - Wildcard versions and unpublished machine-local sources are prohibited.
 - npm dependency lifecycle scripts are denied unless their source and purpose
   are reviewed and the approval is recorded explicitly in `allowScripts`.
+- Firmware release/evidence builds must have `IDF_PATH` unset; the pinned
+  `ESP_IDF_VERSION=commit:<sha>` must not be replaced by a local SDK clone.
+- ESP-IDF 6 is an upgrade candidate, not the baseline, until the BSP compile and
+  D1001 hardware gates in `TOOLCHAIN.md` pass.
 
 Standard verification commands:
 
@@ -52,8 +57,8 @@ npm run build
 - Critical or high-severity advisories are triaged within one business day.
   A fix, compensating control, or documented exception is required within seven
   calendar days.
-- Toolchain, ESP-IDF, Seeed BSP, and GitHub Actions updates follow their pinned
-  compatibility matrix once M0-005 establishes it.
+- Toolchain, ESP-IDF, Seeed BSP, and GitHub Actions updates follow the pinned
+  compatibility matrix and its cross-file consistency test.
 
 An update window may be deferred while a release candidate is frozen, but the
 reason and new review date must be recorded in the tracking issue.

@@ -731,9 +731,9 @@ mod tests {
         let adf = vec![0u8; (TRACK_SIZE * 160) as usize];
         ctrl.insert_disk(0, adf);
         ctrl.selected = 0x0E; // DF0 selected
-        ctrl.write_dsklen(0x8000 | 100, 0x0400);
+        ctrl.write_dsklen(0x8000 | 0x64, 0x0400);
         assert_eq!(ctrl.dma_state, DskDmaState::Off);
-        ctrl.write_dsklen(0x8000 | 100, 0x0400);
+        ctrl.write_dsklen(0x8000 | 0x64, 0x0400);
         assert_eq!(ctrl.dma_state, DskDmaState::Read);
     }
 
@@ -790,8 +790,8 @@ mod tests {
     fn no_disk_no_sync_no_dma() {
         let mut ctrl = FloppyController::new();
         ctrl.selected = 0x0E; // DF0 selected
-        ctrl.write_dsklen(0x8000 | 100, 0x0400);
-        ctrl.write_dsklen(0x8000 | 100, 0x0400);
+        ctrl.write_dsklen(0x8000 | 0x64, 0x0400);
+        ctrl.write_dsklen(0x8000 | 0x64, 0x0400);
 
         let mut ram = vec![0u8; 65536];
         // Run many cycles — no sync should be found
@@ -811,8 +811,8 @@ mod tests {
         ctrl.selected = 0x0E; // DF0 selected
         ctrl.drives[0].motor = true;
         ctrl.dskpt = 0x1000;
-        ctrl.write_dsklen(0x8000 | 10, 0x0400); // 10 words
-        ctrl.write_dsklen(0x8000 | 10, 0x0400);
+        ctrl.write_dsklen(0x8000 | 0x0A, 0x0400); // 10 words
+        ctrl.write_dsklen(0x8000 | 0x0A, 0x0400);
 
         let mut ram = vec![0u8; 65536];
         let mut cycles = 0;

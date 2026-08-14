@@ -8,7 +8,7 @@ use crate::core::memory::AddressBus;
 use crate::core::types::Size;
 
 impl CpuCore {
-    /// CAS.<size> Dc,Du,<ea>
+    /// `CAS.<size> Dc,Du,<ea>`
     ///
     /// Musashi fixtures only use CAS.L (opcode pattern 0x0EC0..0x0EFF).
     pub fn exec_cas<B: AddressBus>(&mut self, bus: &mut B, opcode: u16) -> i32 {
@@ -56,7 +56,7 @@ impl CpuCore {
         20
     }
 
-    /// CAS2.<size> Dc1:Dc2,Du1:Du2,(Rn1):(Rn2)
+    /// `CAS2.<size> Dc1:Dc2,Du1:Du2,(Rn1):(Rn2)`
     ///
     /// Musashi fixtures use CAS2.L with two extension words.
     pub fn exec_cas2<B: AddressBus>(&mut self, bus: &mut B, opcode: u16) -> i32 {

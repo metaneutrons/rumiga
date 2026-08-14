@@ -163,36 +163,26 @@ impl Default for AudioConfig {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 pub enum ScalingMode {
+    #[default]
     Integer,
     AspectFit,
     Stretch,
 }
 
-impl Default for ScalingMode {
-    fn default() -> Self {
-        Self::Integer
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 pub enum ViewportMode {
     /// Use the emulator's raw framebuffer.
     Raw,
     /// Derive a sane viewport from the active Amiga display.
+    #[default]
     Auto,
     /// Use the explicit viewport rectangle.
     Manual,
 }
 
-impl Default for ViewportMode {
-    fn default() -> Self {
-        Self::Auto
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 pub enum ViewportPreset {
     /// Keep the complete native framebuffer, including chipset border.
     NativeFullBorder,
@@ -201,13 +191,8 @@ pub enum ViewportPreset {
     /// Keep the full overscan-capable native framebuffer.
     Overscan,
     /// Center the active display while preserving native frame evidence.
+    #[default]
     AutoCenter,
-}
-
-impl Default for ViewportPreset {
-    fn default() -> Self {
-        Self::AutoCenter
-    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -272,16 +257,11 @@ impl Default for DisplayConfig {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 pub enum ScreenshotKind {
     NativeFramebuffer,
+    #[default]
     ViewportPresentation,
-}
-
-impl Default for ScreenshotKind {
-    fn default() -> Self {
-        Self::ViewportPresentation
-    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -332,9 +312,10 @@ pub const fn is_supported_floppy_speed_percent(percent: u16) -> bool {
     matches!(percent, 0 | 100 | 200 | 400 | 800)
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum HdfWritePolicy {
     /// Keep guest writes in the session buffer and protect the source file.
+    #[default]
     ReadOnly,
     /// Persist dirty sectors back to the source HDF on exit.
     Writeback,
@@ -350,23 +331,12 @@ impl HdfWritePolicy {
     }
 }
 
-impl Default for HdfWritePolicy {
-    fn default() -> Self {
-        Self::ReadOnly
-    }
-}
-
 pub const DEFAULT_NETWORK_MAC_ADDRESS: &str = "00:80:10:4d:49:47";
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum NetworkDevice {
+    #[default]
     A2065,
-}
-
-impl Default for NetworkDevice {
-    fn default() -> Self {
-        Self::A2065
-    }
 }
 
 impl NetworkDevice {
@@ -378,16 +348,11 @@ impl NetworkDevice {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum NetworkBackend {
+    #[default]
     Disabled,
     Slirp,
-}
-
-impl Default for NetworkBackend {
-    fn default() -> Self {
-        Self::Disabled
-    }
 }
 
 impl NetworkBackend {

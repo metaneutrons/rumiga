@@ -160,7 +160,7 @@ fn test_kickstart_13_boots_past_memory_test_without_crashing() {
 }
 
 #[test]
-#[ignore] // Blocked on CIA timer init bug — see fix_initcode investigation
+#[ignore = "blocked on CIA timer init bug; see fix_initcode investigation"]
 fn boot_kickstart_13_graphics_library_initializes_display_planes() {
     let rom_file = dirs_next().join("kick.a500.34.005.rom");
     if !rom_file.exists() {

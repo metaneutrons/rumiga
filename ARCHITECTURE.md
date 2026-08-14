@@ -35,10 +35,10 @@ m68000  (tracked independent 68000 test oracle)
 ```
 
 `rumiga-platform-esp` and `firmware` are workspace members and pass host-side
-manifest, check, and lint gates. They still contain stubs and have no configured
-ESP-IDF dependencies or ESP32-P4 build evidence. The ESP adapter depends only on
-the platform contracts; firmware is the composition root that also owns the
-emulator core.
+manifest, check, lint, and toolchain-pin gates. ESP-IDF Rust dependencies and
+immutable SDK/BSP inputs are configured, but the modules remain stubs and there
+is no ESP32-P4 build evidence. The ESP adapter depends only on the platform
+contracts; firmware is the composition root that also owns the emulator core.
 
 Important current constraints:
 
