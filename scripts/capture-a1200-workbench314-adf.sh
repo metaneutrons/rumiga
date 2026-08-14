@@ -35,7 +35,7 @@ run_capture() {
   local png_path="$2"
   local manifest_path="$3"
 
-  cargo run --release -p rumiga-desktop --bin rumiga-desktop -- \
+  cargo run --locked --release -p rumiga-desktop --bin rumiga-desktop -- \
     --model a1200 \
     --cpu "$cpu" \
     --capture "$png_path" \

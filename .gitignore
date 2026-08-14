@@ -1,6 +1,8 @@
 # Rust
 /target/
-Cargo.lock
+# The workspace root lockfile is tracked; member-local locks are not authoritative.
+**/Cargo.lock
+!/Cargo.lock
 
 # IDE
 .idea/

@@ -10,7 +10,7 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-14 |
 | Audited baseline revision | `c66069059a5c` |
-| Latest completed task | M0-002: hermetic host dependency graph |
+| Latest completed task | M0-003: reproducible dependency resolution |
 | Development host | macOS, Apple Silicon |
 | Product target | Seeed reTerminal D1001, ESP32-P4 |
 | Product maturity | Desktop compatibility prototype |
@@ -50,11 +50,15 @@ No feature is called done merely because it compiled or booted once.
 
 ### What is verified
 
-- The Rust workspace builds and `cargo test --workspace` passes on the audited
-  Mac. Cargo discovers 450 Rust unit, integration, and documentation tests.
+- The Rust workspace builds and `cargo test --locked --workspace` passes on the
+  audited Mac. Cargo discovers 450 Rust unit, integration, and documentation
+  tests.
 - The host Cargo graph contains no unpublished sibling dependency. A synthetic
   boot trace compares the active 68000 core with the tracked independent
   `m68000` implementation and frozen architectural checkpoints.
+- Root Cargo and web npm lockfiles are tracked. CI, Git hooks, and evidence
+  commands reject stale Rust resolution; CI verifies npm with `npm ci` and a
+  high-severity advisory gate.
 - The desktop runner supports A500, A500+, A600, and A1200 profiles and exposes
   68000 through 68040 CPU selections.
 - Native and presentation screenshots, versioned manifests, support bundles,
@@ -82,9 +86,9 @@ No feature is called done merely because it compiled or booted once.
   are zero, so guest TCP/IP is not yet proven.
 - Full OCS/ECS/AGA compatibility is not proven by the current Workbench and
   Kickstart scenarios.
-- The repository is not fully hermetic yet: the application `Cargo.lock` is
-  ignored, and the ESP crates still fail workspace discovery. The web npm
-  lockfile is tracked; the host Cargo graph no longer requires sibling repos.
+- The repository is not fully hermetic yet because the ESP crates still fail
+  workspace discovery and toolchain/BSP pins are incomplete. The host graph and
+  application dependency resolution are now repository-owned and locked.
 
 ## Current Capability Matrix
 
@@ -114,17 +118,20 @@ The following commands were run during this audit:
 
 | Check | Result | Interpretation |
 | --- | --- | --- |
-| `cargo test --workspace` | Pass | Desktop workspace tests pass locally |
-| `cargo clippy --workspace --all-targets -- -D warnings` | Pass | All workspace targets pass without warnings after M0-002 |
+| `cargo metadata --locked --no-deps --format-version 1 --quiet` | Pass | Root Cargo manifest and lockfile agree |
+| `cargo test --locked --workspace` | Pass | 450 desktop workspace tests pass locally |
+| `cargo clippy --locked --workspace --all-targets -- -D warnings` | Pass | All workspace targets pass without warnings |
 | `cargo fmt --all --check` | Pass | Formatting is confined to repository-owned workspace sources |
 | `cargo check --manifest-path firmware/Cargo.toml` | Fail | Firmware is neither included in nor excluded from the root workspace |
 | `cargo check --manifest-path crates/rumiga-platform-esp/Cargo.toml` | Fail | ESP platform crate has the same workspace topology failure |
 | `npm run lint` | Pass | Web static lint baseline is green |
-| `npm run build` | Pass | Web production build is green; Node emits one dependency deprecation warning |
+| `npm run build` | Pass | Next.js 16.3.1 production build is green |
+| `(cd web && npm ci --ignore-scripts)` | Pass | npm manifest and tracked lockfile agree |
+| `(cd web && npm audit --audit-level=high)` | Pass | No known npm vulnerabilities reported |
 
-The CI workflow does not build the web app or compile the ESP32-P4 target. A
-green badge must therefore not be used as evidence of an embedded-ready
-product until milestone M0 closes.
+The CI workflow validates both lockfiles but does not yet lint/build the web app
+or compile the ESP32-P4 target. A green badge must therefore not be used as
+evidence of an embedded-ready product until milestone M0 closes.
 
 ## Evidence Baseline
 
@@ -174,7 +181,6 @@ reference dependency, not part of Rumiga's current build.
 | R-006 | High | Performance on ESP32-P4 is unknown | Add cycle, frame, PSRAM bandwidth, and memory benchmarks before compatibility expansion |
 | R-007 | High | API file handling is hard-coded to a developer path and device security is undefined | Add a configured storage root, canonical path checks, size limits, authentication, and local-safe defaults |
 | R-008 | High | Network evidence has no guest packets | Require guest ping, DNS, HTTP checksum, and sustained transfer evidence |
-| R-010 | Medium | The Rust application lockfile is ignored | Track `Cargo.lock` and define an intentional Rust/npm dependency update policy |
 | R-011 | Medium | Platform traits cannot report backpressure or capability limits | Version richer contracts before D1001 drivers are implemented |
 | R-012 | Medium | Existing docs contain implemented/target-state confusion | Keep claims tied to this status file and evidence levels |
 
@@ -183,6 +189,7 @@ Retired risks:
 | ID | Retired | Evidence |
 | --- | --- | --- |
 | R-009 | 2026-08-14 by M0-002 | External `../r68k` paths removed; tracked `m68000` differential fixture passes in the 450-test workspace run |
+| R-010 | 2026-08-14 by M0-003 | Both application lockfiles are tracked and enforced; monthly update automation and review policy exist |
 
 ## Engineering Decisions
 
@@ -211,7 +218,7 @@ Detailed gates are in `ROADMAP.md`; task IDs are in `IMPLEMENTATION_PLAN.md`.
 | Milestone | Status | Promotion evidence |
 | --- | --- | --- |
 | BASE: Desktop evidence foundation | Verified | Six current host scenarios and versioned evidence tooling |
-| M0: Hermetic engineering baseline | Active | Host graph is self-contained; lockfiles, ESP topology, and CI gates remain |
+| M0: Hermetic engineering baseline | Active | Host graph and lockfiles are self-contained; ESP topology and broader CI gates remain |
 | M1: Portable deterministic core | Planned | `no_std` RISC-V compile and deterministic replay parity |
 | M2: D1001 board bring-up | Planned | Flashable firmware, serial manifest, memory/display smoke |
 | M3: Bounded media and memory | Planned | 2 GiB HDF boots through bounded sector cache |

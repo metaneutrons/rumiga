@@ -38,7 +38,7 @@ run_capture() {
   local include_hdf_snapshot="$4"
 
   local cmd=(
-    cargo run --release -p rumiga-desktop --bin rumiga-desktop --
+    cargo run --locked --release -p rumiga-desktop --bin rumiga-desktop --
     --model a1200
     --cpu "$cpu"
     --hdf "$hdf"

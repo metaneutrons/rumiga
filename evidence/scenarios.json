@@ -11,7 +11,7 @@
       "cpu": "68000",
       "video_standard": "pal",
       "milestone": "Kickstart 1.3 no-disk insert-hand screen renders without distortion.",
-      "command": "cargo run --release -p rumiga-desktop --bin rumiga-desktop -- --model a500 --cpu 68000 --capture target/evidence/a500-kick13-insert-screen/rumiga.png --capture-manifest target/evidence/a500-kick13-insert-screen/rumiga.json --capture-frames 1200 $RUMIGA_A500_KICK13_ROM",
+      "command": "cargo run --locked --release -p rumiga-desktop --bin rumiga-desktop -- --model a500 --cpu 68000 --capture target/evidence/a500-kick13-insert-screen/rumiga.png --capture-manifest target/evidence/a500-kick13-insert-screen/rumiga.json --capture-frames 1200 $RUMIGA_A500_KICK13_ROM",
       "required_assets": [
         "RUMIGA_A500_KICK13_ROM"
       ],
@@ -28,7 +28,7 @@
       "cpu": "68000",
       "video_standard": "pal",
       "milestone": "Workbench 1.3 boots from DF0 ADF to a usable desktop.",
-      "command": "cargo run --release -p rumiga-desktop --bin rumiga-desktop -- --model a500 --cpu 68000 --capture target/evidence/a500-workbench13-adf/rumiga.png --capture-manifest target/evidence/a500-workbench13-adf/rumiga.json --capture-frames 6000 $RUMIGA_A500_KICK13_ROM $RUMIGA_WORKBENCH13_ADF",
+      "command": "cargo run --locked --release -p rumiga-desktop --bin rumiga-desktop -- --model a500 --cpu 68000 --capture target/evidence/a500-workbench13-adf/rumiga.png --capture-manifest target/evidence/a500-workbench13-adf/rumiga.json --capture-frames 6000 $RUMIGA_A500_KICK13_ROM $RUMIGA_WORKBENCH13_ADF",
       "required_assets": [
         "RUMIGA_A500_KICK13_ROM",
         "RUMIGA_WORKBENCH13_ADF"
@@ -63,7 +63,7 @@
       "cpu": "68000",
       "video_standard": "pal",
       "milestone": "Workbench 2.x boots from ADF with ECS display behavior.",
-      "command": "cargo run --release -p rumiga-desktop --bin rumiga-desktop -- --model a500plus --cpu 68000 --capture target/evidence/a500plus-workbench2x-adf/rumiga.png --capture-manifest target/evidence/a500plus-workbench2x-adf/rumiga.json --capture-frames 6000 $RUMIGA_A500PLUS_ROM $RUMIGA_WORKBENCH2X_ADF",
+      "command": "cargo run --locked --release -p rumiga-desktop --bin rumiga-desktop -- --model a500plus --cpu 68000 --capture target/evidence/a500plus-workbench2x-adf/rumiga.png --capture-manifest target/evidence/a500plus-workbench2x-adf/rumiga.json --capture-frames 6000 $RUMIGA_A500PLUS_ROM $RUMIGA_WORKBENCH2X_ADF",
       "required_assets": [
         "RUMIGA_A500PLUS_ROM",
         "RUMIGA_WORKBENCH2X_ADF"
@@ -80,7 +80,7 @@
       "cpu": "68000",
       "video_standard": "pal",
       "milestone": "A600 profile boots a Gayle IDE HDF and reports safe geometry/write policy.",
-      "command": "cargo run --release -p rumiga-desktop --bin rumiga-desktop -- --model a600 --cpu 68000 --hdf $RUMIGA_A600_HDF --capture target/evidence/a600-hdf/rumiga.png --capture-manifest target/evidence/a600-hdf/rumiga.json --capture-frames 6000 $RUMIGA_A600_ROM",
+      "command": "cargo run --locked --release -p rumiga-desktop --bin rumiga-desktop -- --model a600 --cpu 68000 --hdf $RUMIGA_A600_HDF --capture target/evidence/a600-hdf/rumiga.png --capture-manifest target/evidence/a600-hdf/rumiga.json --capture-frames 6000 $RUMIGA_A600_ROM",
       "required_assets": [
         "RUMIGA_A600_ROM",
         "RUMIGA_A600_HDF"
@@ -97,7 +97,7 @@
       "cpu": "68020",
       "video_standard": "pal",
       "milestone": "A1200 Kickstart 3.x no-disk insert screen renders without edge wrap.",
-      "command": "cargo run --release -p rumiga-desktop --bin rumiga-desktop -- --model a1200 --cpu 68020 --capture target/evidence/a1200-kick3x-insert-screen/rumiga.png --capture-manifest target/evidence/a1200-kick3x-insert-screen/rumiga.json --capture-frames 1200 $RUMIGA_A1200_ROM",
+      "command": "cargo run --locked --release -p rumiga-desktop --bin rumiga-desktop -- --model a1200 --cpu 68020 --capture target/evidence/a1200-kick3x-insert-screen/rumiga.png --capture-manifest target/evidence/a1200-kick3x-insert-screen/rumiga.json --capture-frames 1200 $RUMIGA_A1200_ROM",
       "required_assets": [
         "RUMIGA_A1200_ROM"
       ],
@@ -113,7 +113,7 @@
       "cpu": "68020",
       "video_standard": "pal",
       "milestone": "Workbench 3.1 boots from ADF and presents correct native geometry.",
-      "command": "cargo run --release -p rumiga-desktop --bin rumiga-desktop -- --model a1200 --cpu 68020 --capture target/evidence/a1200-workbench31-adf/rumiga.png --capture-manifest target/evidence/a1200-workbench31-adf/rumiga.json --capture-frames 8000 $RUMIGA_A1200_ROM $RUMIGA_WORKBENCH31_ADF",
+      "command": "cargo run --locked --release -p rumiga-desktop --bin rumiga-desktop -- --model a1200 --cpu 68020 --capture target/evidence/a1200-workbench31-adf/rumiga.png --capture-manifest target/evidence/a1200-workbench31-adf/rumiga.json --capture-frames 8000 $RUMIGA_A1200_ROM $RUMIGA_WORKBENCH31_ADF",
       "required_assets": [
         "RUMIGA_A1200_ROM",
         "RUMIGA_WORKBENCH31_ADF"

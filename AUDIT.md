@@ -177,13 +177,18 @@ Remediation: M2-005, M2-012, M4-006, M5-008, M9-006, M10-008.
 
 #### A-011: Dependency versions are not reproducible
 
-The root ignores `Cargo.lock`. The web app does track `package-lock.json`, but
-the documented workflow uses `npm install` instead of locked `npm ci`. The
-current Next.js build also reports a Node API deprecation warning.
+At the audited revision, the root ignored `Cargo.lock`. The web app tracked
+`package-lock.json`, but the documented workflow used `npm install` instead of
+locked `npm ci`. The Next.js build also reported a Node API deprecation warning.
 
 Impact: local, CI, and release builds can resolve different dependency graphs.
 
 Remediation: M0-003 and M0-005.
+
+Resolution update (2026-08-14): M0-003 tracks the root `Cargo.lock`, enforces
+locked Cargo resolution and npm `ci` in CI, and defines monthly update, review,
+exception, and rollback rules in `DEPENDENCY_POLICY.md`. Exact toolchain and BSP
+pinning remains M0-005.
 
 #### A-012: CI covers only the default desktop workspace
 

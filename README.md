@@ -78,15 +78,15 @@ sibling repository is required for that gate.
 
 ```sh
 git config core.hooksPath .githooks
-cargo build --workspace
-cargo test --workspace
-cargo run -p rumiga-desktop -- --help
+cargo build --locked --workspace
+cargo test --locked --workspace
+cargo run --locked -p rumiga-desktop -- --help
 ```
 
 Run a stock A1200 host session:
 
 ```sh
-cargo run --release -p rumiga-desktop --bin rumiga-desktop -- \
+cargo run --locked --release -p rumiga-desktop --bin rumiga-desktop -- \
   --model a1200 \
   --cpu 68020 \
   --hdf /path/to/workbench.hdf \
@@ -101,7 +101,7 @@ do not expose this server beyond localhost.
 ### Headless Evidence
 
 ```sh
-cargo run --release -p rumiga-desktop --bin rumiga-desktop -- \
+cargo run --locked --release -p rumiga-desktop --bin rumiga-desktop -- \
   --model a1200 \
   --cpu 68020 \
   --capture target/evidence/a1200-local/rumiga.png \
@@ -148,8 +148,8 @@ npm run build
 npm run dev
 ```
 
-The npm lockfile is tracked. M0 adds web CI coverage and also starts tracking the
-currently ignored Rust application `Cargo.lock`.
+Both application lockfiles are tracked. CI rejects stale Rust or npm locks;
+routine updates follow the [dependency policy](DEPENDENCY_POLICY.md).
 
 ### D1001 / ESP32-P4
 
@@ -166,7 +166,7 @@ establish the pinned toolchain and final commands, expected to follow this
 shape:
 
 ```sh
-cargo build -p rumiga-firmware --release \
+cargo build --locked -p rumiga-firmware --release \
   --target riscv32imafc-esp-espidf
 ```
 
@@ -181,11 +181,13 @@ Current host baseline on 2026-08-14:
 
 | Check | Result |
 | --- | --- |
-| `cargo test --workspace` | Pass; 450 discovered tests |
+| `cargo test --locked --workspace` | Pass; 450 discovered tests |
 | Clippy with `-D warnings` | Pass without warnings |
 | `cargo fmt --all --check` | Pass |
+| Cargo/npm lockfile integrity | Pass |
 | Web ESLint | Pass |
 | Web production build | Pass |
+| npm audit | Pass; no known vulnerabilities reported |
 | D1001 firmware check | Fail before compile; workspace integration missing |
 
 Do not interpret the CI badge as D1001 readiness. The current workflow does not
@@ -200,6 +202,8 @@ build firmware, RISC-V `no_std`, or the web app.
   commit sequence.
 - [Architecture](ARCHITECTURE.md): current and target boundaries.
 - [Audit](AUDIT.md): prioritized findings and remediation mapping.
+- [Dependency Policy](DEPENDENCY_POLICY.md): lockfiles, update cadence, review,
+  and rollback rules.
 
 ## Legal Inputs
 

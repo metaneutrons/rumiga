@@ -131,7 +131,7 @@ without unpublished sibling repositories or machine-specific paths.
 ### Deliverables
 
 - Use a repository-owned CPU comparison oracle (completed by M0-002).
-- Track `Cargo.lock`; retain and enforce the existing npm lockfile for web builds.
+- Track and enforce the Cargo/npm lockfiles (completed by M0-003).
 - Put `rumiga-platform-esp` and `firmware` in an explicit workspace topology.
 - Pin Rust, Node, ESP-IDF, ESP Rust crates, Seeed BSP revision, and build tools.
 - Add CI jobs for macOS/Linux Rust, web lint/build, `no_std` compile, and

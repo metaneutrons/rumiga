@@ -62,8 +62,8 @@ milestone.
 | --- | --- | --- | --- |
 | M0-001 | DONE | Replace aspirational project docs with current-state, roadmap, and execution sources of truth | `PROJECT_STATUS.md`, `ROADMAP.md`, this plan, updated audit/architecture/README |
 | M0-002 | DONE | Replace unpublished `../r68k` dependencies with a tracked `m68000` differential fixture and frozen checkpoints | Cargo metadata, formatting, Clippy, and all 450 tests pass without sibling directories |
-| M0-003 | NEXT | Commit `Cargo.lock`; enforce the existing npm lockfile; document dependency update cadence | Repeated locked builds resolve identical versions |
-| M0-004 | PLANNED | Define workspace topology for `rumiga-platform-esp` and `firmware` | Both manifests pass metadata/check without workspace-membership errors |
+| M0-003 | DONE | Track the root `Cargo.lock`, enforce both application lockfiles, and automate the documented update cadence | Repeated locked Rust and npm resolution leaves both lockfiles byte-identical |
+| M0-004 | NEXT | Define workspace topology for `rumiga-platform-esp` and `firmware` | Both manifests pass metadata/check without workspace-membership errors |
 | M0-005 | PLANNED | Pin Rust, Node, ESP-IDF, ESP Rust crates, Seeed BSP SHA, and required tools | Machine-readable toolchain files and build manifest |
 | M0-006 | PLANNED | Replace hard-coded REST storage path with configured root and canonical path policy | Unit tests for traversal, symlink escape, upload limits, and error responses |
 | M0-007 | PLANNED | Add host CI matrix for Linux/macOS, Rust fmt/Clippy/test/doc, and web lint/build | Required checks run on pull requests and publish summaries |
@@ -81,12 +81,28 @@ M0-002 evidence (2026-08-14):
 - `cargo test --workspace` (450 discovered tests)
 - `crates/rumiga-core/tests/cpu_differential.rs`
 
+M0-003 evidence (2026-08-14):
+
+- `cargo metadata --locked --no-deps --format-version 1 --quiet`
+- `cargo clippy --locked --workspace --all-targets -- -D warnings`
+- `cargo test --locked --workspace` (450 discovered tests)
+- `(cd web && npm ci --ignore-scripts)`
+- repeated SHA-256 checks leave `Cargo.lock`
+  (`500e663dc114a147811cbe3661990fed6131830d333ccd5d840e667fb752fb4a`)
+  and `web/package-lock.json`
+  (`22359de2367abab4b83c7ccd3e58c5300fee4fcf27ca9d7697434c487652c1dc`)
+  unchanged
+- `npm audit --audit-level=high`, web lint, and production build pass after
+  compatible security updates
+- `.github/workflows/ci.yml`, `.github/dependabot.yml`, and
+  `DEPENDENCY_POLICY.md`
+
 ### M0 functional commits
 
 1. `docs(project): establish embedded-first roadmap and status`
-2. `build(workspace): remove sibling r68k dependency from default graph`
-3. `build(deps): lock Rust and web application dependencies`
-4. `build(esp): make firmware workspace topology explicit`
+2. `chore(workspace): remove sibling r68k dependency`
+3. `chore(deps): enforce reproducible dependency resolution`
+4. `chore(esp): make firmware workspace topology explicit`
 5. `fix(api): sandbox desktop media storage root`
 6. `ci: add host web and riscv build matrix`
 7. `ci: publish quality and evidence summaries`
@@ -95,13 +111,13 @@ M0-002 evidence (2026-08-14):
 
 ```sh
 cargo fmt --all --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-cargo doc --workspace --no-deps
+cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo test --locked --workspace
+cargo doc --locked --workspace --no-deps
 (cd web && npm ci && npm run lint && npm run build)
-cargo check -p rumiga-core --no-default-features \
+cargo check --locked -p rumiga-core --no-default-features \
   --target riscv32imafc-unknown-none-elf
-cargo build -p rumiga-firmware --release \
+cargo build --locked -p rumiga-firmware --release \
   --target riscv32imafc-esp-espidf
 ```
 

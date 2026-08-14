@@ -8,7 +8,7 @@ cargo fmt -- --check || {
 }
 
 # Clippy
-cargo clippy --workspace --all-targets -- -D warnings || {
+cargo clippy --locked --workspace --all-targets -- -D warnings || {
   echo "ERROR: Clippy warnings found. Fix them before committing."
   exit 1
 }

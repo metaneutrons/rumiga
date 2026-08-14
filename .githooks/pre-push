@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
 set -e
 
-cargo test --workspace
-cargo clippy --workspace --all-targets -- -D warnings
+cargo test --locked --workspace
+cargo clippy --locked --workspace --all-targets -- -D warnings
