@@ -28,10 +28,11 @@ the exact version recorded in `toolchain/manifest.toml`.
 | `Firmware / ESP32-P4 release evidence` | Cross-build, inspect, package, checksum, and upload the pinned D1001 firmware evidence |
 | `Required Quality Gate` | Run unconditionally, summarize every prerequisite, and fail unless all required jobs succeeded |
 
-The protected `main` branch requires the stable `CI / Required Quality Gate`
-check. Requiring the aggregate instead of every matrix-generated name keeps
-branch protection stable while the matrix evolves; the aggregate fails when
-any required job fails, is cancelled, or is skipped.
+The protected `main` branch requires the stable `Required Quality Gate` check
+from the GitHub Actions app (`app_id 15368`). Requiring the aggregate instead
+of every matrix-generated name keeps branch protection stable while the matrix
+evolves; the aggregate fails when any required job fails, is cancelled, or is
+skipped.
 
 ## Host Matrix Contract
 
