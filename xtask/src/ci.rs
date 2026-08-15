@@ -13,16 +13,17 @@ use anyhow::{Context, Result, bail, ensure};
 use yaml_rust2::{Yaml, YamlLoader};
 
 use super::{
-    ToolchainManifest, capture, capture_git, read_toolchain_manifest, run_checked, sha256_bytes,
-    sha256_file, supply_chain, workspace_root,
+    ToolchainManifest, capture, capture_git, compatibility, read_toolchain_manifest, run_checked,
+    sha256_bytes, sha256_file, supply_chain, workspace_root,
 };
 
 const FIRMWARE_EVIDENCE_DIRECTORY: &str = "target/m0-008-firmware-evidence";
 const SUPPLY_CHAIN_EVIDENCE_DIRECTORY: &str = "target/m0-009-supply-chain-evidence";
 
-const ALL_GATES: [Gate; 5] = [
+const ALL_GATES: [Gate; 6] = [
     Gate::Lockfiles,
     Gate::Host,
+    Gate::Compatibility,
     Gate::SupplyChain,
     Gate::Portable,
     Gate::Firmware,
@@ -32,6 +33,7 @@ const ALL_GATES: [Gate; 5] = [
 enum Gate {
     Lockfiles,
     Host,
+    Compatibility,
     SupplyChain,
     Portable,
     Firmware,
@@ -42,6 +44,7 @@ impl Gate {
         match self {
             Self::Lockfiles => "lockfiles",
             Self::Host => "host",
+            Self::Compatibility => "compatibility",
             Self::SupplyChain => "supply-chain",
             Self::Portable => "portable",
             Self::Firmware => "firmware",
@@ -52,6 +55,7 @@ impl Gate {
         match self {
             Self::Lockfiles => "lockfiles",
             Self::Host => "host",
+            Self::Compatibility => "compatibility",
             Self::SupplyChain => "supply-chain",
             Self::Portable => "portable",
             Self::Firmware => "firmware",
@@ -62,6 +66,7 @@ impl Gate {
         match self {
             Self::Lockfiles => "Lockfile integrity",
             Self::Host => "Host validation",
+            Self::Compatibility => "Public compatibility evidence",
             Self::SupplyChain => "Supply-chain policy",
             Self::Portable => "Portable Rust boundary",
             Self::Firmware => "ESP32-P4 firmware evidence",
@@ -230,6 +235,7 @@ fn run_guarded_gate(root: &Path, manifest: &ToolchainManifest, gate: Gate) -> Re
     let result = match gate {
         Gate::Lockfiles => run_lockfile_gate(root, manifest),
         Gate::Host => run_host_gate(root, manifest),
+        Gate::Compatibility => run_compatibility_gate(root, manifest),
         Gate::SupplyChain => run_supply_chain_gate(root, manifest),
         Gate::Portable => run_portable_gate(root, manifest),
         Gate::Firmware => run_firmware_gate(root, manifest),
@@ -413,6 +419,12 @@ fn run_supply_chain_gate(root: &Path, manifest: &ToolchainManifest) -> Result<()
     verify_host_tools(root, manifest, true)?;
     supply_chain::build_evidence()?;
     verify_checksum_manifest(&root.join(SUPPLY_CHAIN_EVIDENCE_DIRECTORY))
+}
+
+fn run_compatibility_gate(root: &Path, manifest: &ToolchainManifest) -> Result<()> {
+    verify_host_tools(root, manifest, false)?;
+    compatibility::build_evidence()?;
+    verify_checksum_manifest(&root.join(compatibility::EVIDENCE_DIRECTORY))
 }
 
 fn run_portable_gate(root: &Path, manifest: &ToolchainManifest) -> Result<()> {
@@ -700,7 +712,14 @@ mod tests {
         let names = gate_names();
         assert_eq!(
             names,
-            ["lockfiles", "host", "supply-chain", "portable", "firmware"]
+            [
+                "lockfiles",
+                "host",
+                "compatibility",
+                "supply-chain",
+                "portable",
+                "firmware"
+            ]
         );
         assert_eq!(
             names
