@@ -13,6 +13,7 @@ use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+mod ci;
 mod supply_chain;
 
 const BUILD_DIRECTORY: &str = "m0-008-firmware-build";
@@ -21,11 +22,18 @@ const EVIDENCE_DIRECTORY: &str = "m0-008-firmware-evidence";
 #[derive(Debug, Deserialize)]
 struct ToolchainManifest {
     target: TargetConfiguration,
+    portable_rust: PortableRustConfiguration,
     host: HostConfiguration,
     embedded_rust: EmbeddedRustConfiguration,
     esp_idf: EspIdfConfiguration,
     tools: ToolConfiguration,
     build: BuildConfiguration,
+}
+
+#[derive(Debug, Deserialize)]
+struct PortableRustConfiguration {
+    target: String,
+    packages: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -171,10 +179,16 @@ struct BuildOutputs {
 
 fn main() -> Result<()> {
     let mut arguments = env::args().skip(1);
-    match (arguments.next().as_deref(), arguments.next()) {
-        (Some("firmware-evidence"), None) => build_firmware_evidence(),
-        (Some("supply-chain-evidence"), None) => supply_chain::build_evidence(),
-        _ => bail!("usage: cargo xtask <firmware-evidence|supply-chain-evidence>"),
+    match arguments.next().as_deref() {
+        Some("ci") => {
+            let arguments = arguments.collect::<Vec<_>>();
+            ci::run(&arguments)
+        }
+        Some("firmware-evidence") if arguments.next().is_none() => build_firmware_evidence(),
+        Some("supply-chain-evidence") if arguments.next().is_none() => {
+            supply_chain::build_evidence()
+        }
+        _ => bail!("usage: cargo xtask <ci|firmware-evidence|supply-chain-evidence> [options]"),
     }
 }
 
