@@ -70,7 +70,7 @@ milestone.
 | M0-008 | DONE | Add current RISC-V `no_std` boundary and ESP32-P4 firmware evidence jobs | Local and hosted portable checks pass; hosted CI publishes and independently validates the full checksummed evidence bundle |
 | M0-009 | DONE | Add advisory, license, source, and dependency-policy checks | Hosted policy evidence has no unreviewed vulnerability, yanked package, incompatible license, or source drift |
 | M0-010 | DONE | Add `xtask` or equivalent single entry point for local/CI quality gates | One documented command runs the same gates as CI |
-| M0-011 | NEXT | Export current compatibility report and test counts as CI artifacts without private media | Artifact contains schema, revision, skipped reasons, and commands |
+| M0-011 | IN PROGRESS | Export current compatibility report and test counts as CI artifacts without private media | Local gate passes; hosted artifact and independent checksum verification pending |
 | M0-012 | PLANNED | Add contribution, review, release-note, and architecture-decision templates | A sample change is traceable from task to tests and evidence |
 
 M0-002 evidence (2026-08-14):
@@ -247,6 +247,21 @@ M0-010 evidence (2026-08-15):
   all 7 and 9 payload hashes and both clean-revision claims pass independent
   download verification
 
+M0-011 local evidence (2026-08-15):
+
+- `cargo +1.97.1 xtask ci --gate compatibility` emits and verifies
+  `rumiga.public-evidence.bundle.v1` without reading `target/evidence`
+- all 16 catalog scenarios are classified: 1 asset-free REST/web contract
+  passes, 12 private-media scenarios have explicit skipped reason codes, and 3
+  roadmap exclusions are unsupported
+- Cargo-built harness and rustdoc discovery reports 482 tests: 478 runnable
+  and 4 ignored with exact entries, reasons, and tracking IDs in
+  `evidence/ignored-tests.json`
+- all six payload files are regular UTF-8 files; `SHA256SUMS` has exact
+  directory coverage and the builder rejects leaked home/workspace paths
+- hosted run, artifact ID/archive hash, clean revision, and independent payload
+  checksum verification remain required before task promotion
+
 ### M0 functional commits
 
 1. `docs(project): establish embedded-first roadmap and status`
@@ -265,6 +280,10 @@ M0-010 evidence (2026-08-15):
 14. `feat(quality): unify local and CI gates`
 15. `docs(quality): document unified validation entry point`
 16. `docs(project): close M0-010 with hosted evidence`
+17. `feat(evidence): build public compatibility reports`
+18. `ci(evidence): publish compatibility baseline`
+19. `docs(evidence): document public CI baseline`
+20. `docs(project): close M0-011 with hosted evidence`
 
 ### M0 promotion command set
 

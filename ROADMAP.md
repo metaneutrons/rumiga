@@ -122,8 +122,8 @@ embedded port begins.
 
 ### Remaining debt carried into M0
 
-- Compatibility evidence output remains local; M0-008 firmware build evidence
-  is now a checksummed CI artifact.
+- Public CI now emits a checksummed, private-media-free compatibility and test
+  baseline; media-backed screenshots and boot evidence remain local by design.
 - Several legally provided media scenarios are skipped.
 - No reference image metadata is pinned to an FS-UAE/WinUAE version.
 - No D1001 HIL evidence exists; only compile, link, layout, and image-generation
@@ -156,7 +156,8 @@ without unpublished sibling repositories or machine-specific paths.
   M0-010).
 - Eliminate hard-coded developer filesystem roots from the REST file service
   (completed by M0-006).
-- Publish machine-readable test and evidence summaries as CI artifacts.
+- Publish machine-readable test and evidence summaries as CI artifacts
+  (implemented by M0-011; hosted promotion evidence pending).
 
 ### Exit gate G0
 
