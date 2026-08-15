@@ -51,8 +51,8 @@ No feature is called done merely because it compiled or booted once.
 ### What is verified
 
 - The Rust workspace builds and `cargo test --locked --workspace` passes on the
-  audited Mac. Cargo discovers 475 Rust unit, integration, and documentation
-  tests.
+  audited Mac. The Cargo-backed inventory discovers 482 Rust unit, integration,
+  and documentation tests: 478 runnable and 4 reviewed ignored.
 - The host Cargo graph contains no unpublished sibling dependency. A synthetic
   boot trace compares the active 68000 core with the tracked independent
   `m68000` implementation and frozen architectural checkpoints.
@@ -68,10 +68,14 @@ No feature is called done merely because it compiled or booted once.
 - The host CI contract uses pinned Ubuntu x86_64 and macOS arm64 runners,
   immutable action revisions, minimal token permissions, complete Rust/web
   gates, per-job summaries, and one fail-closed aggregate result.
-- `cargo +1.97.1 xtask ci` is the single complete local entry point for all five
+- `cargo +1.97.1 xtask ci` is the single complete local entry point for all six
   required gate categories. GitHub uses the same implementations in parallel;
   repository tests reject workflow topology drift, and each gate rejects tool
   drift, tracked-file mutation, or incomplete evidence checksums.
+- The public compatibility gate emits a private-media-free, checksummed
+  `rumiga.public-evidence.bundle.v1` baseline: 1 asset-free REST/web scenario
+  passes, 12 media scenarios are explicitly skipped, and 3 roadmap exclusions
+  are unsupported. Hosted artifact promotion remains pending.
 - GitHub Actions run
   [`31899884533`](https://github.com/metaneutrons/rumiga/actions/runs/31899884533)
   passes every M0-010 gate on Linux x86_64 and macOS arm64 and publishes both
@@ -268,7 +272,7 @@ Detailed gates are in `ROADMAP.md`; task IDs are in `IMPLEMENTATION_PLAN.md`.
 | Milestone | Status | Promotion evidence |
 | --- | --- | --- |
 | BASE: Desktop evidence foundation | Verified | Six current host scenarios and versioned evidence tooling |
-| M0: Hermetic engineering baseline | Active | Host gates are protected and hosted target evidence passes; policy and compatibility-evidence tasks remain |
+| M0: Hermetic engineering baseline | Active | Host, target, and policy gates are protected; M0-011 hosted artifact proof and M0-012 governance templates remain |
 | M1: Portable deterministic core | Planned | `no_std` RISC-V compile and deterministic replay parity |
 | M2: D1001 board bring-up | Planned | Flashable firmware, serial manifest, memory/display smoke |
 | M3: Bounded media and memory | Planned | 2 GiB HDF boots through bounded sector cache |

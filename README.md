@@ -136,6 +136,18 @@ scripts/generate-compatibility-report.py \
   --output target/evidence/current-report.md
 ```
 
+Generate the public, private-media-free compatibility and test-inventory bundle:
+
+```sh
+cargo +1.97.1 xtask compatibility-evidence
+```
+
+The checksummed bundle under `target/m0-011-compatibility-evidence` classifies
+every catalog scenario with stable reasons, verifies the asset-free REST/web
+contract, inventories Cargo-built tests, and rejects unreviewed ignored tests.
+It does not read local `target/evidence` or promote missing ROM/ADF/HDF
+scenarios to passes.
+
 Check Rust/TypeScript API contract parity:
 
 ```sh
@@ -227,7 +239,7 @@ Current baseline on 2026-08-15:
 
 | Check | Result |
 | --- | --- |
-| `cargo test --locked --workspace` | Pass; 475 discovered unit, integration, and documentation tests |
+| Cargo test inventory | Pass; 482 discovered, 4 reviewed ignored, and 478 runnable unit, integration, and documentation tests |
 | Clippy with `-D warnings` | Pass without warnings |
 | `cargo fmt --all --check` | Pass |
 | Cargo/npm lockfile integrity | Pass |
@@ -238,7 +250,8 @@ Current baseline on 2026-08-15:
 | Bare-metal RISC-V boundaries | Pass locally for `m68000`, `rumiga-api`, and `rumiga-platform`; full core portability remains M1 |
 | ESP32-P4 firmware evidence | Pass locally and on GitHub for locked IDF 6.0.0; checksummed artifact published by run [`31890919057`](https://github.com/metaneutrons/rumiga/actions/runs/31890919057) |
 | Linux/macOS host CI | Pass on GitHub-hosted x86_64 and arm64 runners |
-| Unified local quality command | Pass; all five canonical gates complete through `cargo +1.97.1 xtask ci` |
+| Public compatibility evidence | Pass locally; 1 asset-free scenario passes, 12 private-media scenarios are explicitly skipped, and 3 roadmap exclusions are unsupported |
+| Unified local quality command | Pass; all six canonical gates complete through `cargo +1.97.1 xtask ci` |
 | Protected branch gate | `Required Quality Gate` from GitHub Actions required on `main` |
 
 Do not interpret the CI badge as D1001 runtime readiness. M0-008 proves portable

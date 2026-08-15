@@ -185,6 +185,41 @@ list them under "Filtered Manifests", and classify catalog entries with no
 current manifest as skipped. Use `--git-sha <sha-or-prefix>` to reproduce the
 same filtering for a specific build.
 
+## Public CI Evidence
+
+Generate the public baseline without reading private local evidence:
+
+```sh
+cargo +1.97.1 xtask compatibility-evidence
+```
+
+The command emits a checksummed bundle under
+`target/m0-011-compatibility-evidence`:
+
+- `manifest.json`: bundle schema, source revision, input hashes, commands,
+  claims, exclusions, and aggregate counts.
+- `compatibility.json`: every catalog scenario with a stable status, reason,
+  required-asset labels, and reproduction command.
+- `compatibility.md`: human-readable summary and reproduction commands.
+- `control-plane.json`: Rust/TypeScript DTO, enum, and endpoint parity.
+- `test-inventory.json`: Cargo-built harness and rustdoc test IDs, counts, and
+  reviewed ignore reasons.
+- `SHA256SUMS`: exact coverage for every other regular bundle file.
+
+Only catalog scenarios with an explicit asset-free `public_ci` runner can pass
+in this report. Scenarios requiring ROMs, ADFs, HDFs, local corpora,
+screenshots, or packet captures are `skipped` with reason code
+`private-assets-unavailable-in-public-ci`; roadmap exclusions are
+`unsupported`. The builder never reads `target/evidence`, rejects leaked home
+or workspace paths, and fails when the actual ignored-test set differs from
+`evidence/ignored-tests.json`.
+
+Run the same required gate used by hosted CI with:
+
+```sh
+cargo +1.97.1 xtask ci --gate compatibility
+```
+
 ## REST/Web Control-Plane Evidence
 
 Generate the no-media API/Web contract scenario with:

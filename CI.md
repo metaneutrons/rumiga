@@ -1,7 +1,7 @@
 # Rumiga Continuous Integration Contract
 
 This document defines the required host, supply-chain, and target-build checks
-implemented by M0-007 through M0-010. Gate behavior is owned by
+implemented by M0-007 through M0-011. Gate behavior is owned by
 `xtask/src/ci.rs`, orchestration is defined in `.github/workflows/ci.yml`, and
 tool versions remain canonical in `toolchain/manifest.toml` and its consuming
 files.
@@ -26,6 +26,7 @@ versions recorded in `toolchain/manifest.toml`.
 | `Lockfile Integrity` | Verify locked Cargo metadata, install npm dependencies from the lockfile without lifecycle scripts, and reject lockfile mutation |
 | `Host / Linux x86_64` | Run the complete Rust and web host command set on `ubuntu-24.04` |
 | `Host / macOS arm64` | Run the complete Rust and web host command set on `macos-15` |
+| `Public Compatibility Evidence` | Classify every scenario, verify the asset-free REST/web contract, inventory Cargo tests and reviewed ignores, and upload a private-media-free checksummed bundle |
 | `Supply Chain Policy` | Enforce Cargo/npm source, checksum, license, duplicate, advisory, lifecycle-script, and immutable-Action policy; upload checksummed scanner evidence |
 | `Portable Rust / RISC-V no_std` | Compile the current `no_std` package boundary for bare-metal 32-bit RISC-V |
 | `Firmware / ESP32-P4 release evidence` | Cross-build, inspect, package, checksum, and upload the pinned D1001 firmware evidence |
@@ -45,8 +46,8 @@ The complete local entry point is:
 cargo +1.97.1 xtask ci
 ```
 
-It runs `lockfiles`, `host`, `supply-chain`, `portable`, and `firmware` in that
-order. GitHub jobs preserve matrix parallelism by calling the same
+It runs `lockfiles`, `host`, `compatibility`, `supply-chain`, `portable`, and
+`firmware` in that order. GitHub jobs preserve matrix parallelism by calling the same
 implementation with `--gate <name>`. The repository test suite structurally
 parses the workflow and rejects missing, extra, relocated, or version-drifted
 gate invocations as well as aggregate dependency drift.
@@ -83,6 +84,33 @@ generated `web/out` directory in its binary.
 
 GitHub's Rust and npm caches may improve runtime but are never build inputs:
 every install and Cargo command remains lockfile-enforced.
+
+## Public Compatibility Contract
+
+The public compatibility job runs:
+
+```sh
+cargo +1.97.1 xtask ci --gate compatibility
+```
+
+The Rust task validates `evidence/scenarios.json`, compares 25 shared DTO
+structs, 10 enums, and 20 REST endpoint contracts, and discovers tests from
+Cargo-built libtest harnesses plus rustdoc. Every framework-level ignored test
+must exactly match `evidence/ignored-tests.json`; unknown and stale entries
+both fail the gate.
+
+The resulting `target/m0-011-compatibility-evidence` directory contains
+versioned JSON reports, a Markdown report, input and payload hashes, source
+revision, stable skipped reasons, and exact reproduction/validation commands.
+The builder never reads `target/evidence`, scans output for local workspace and
+home paths, and explicitly excludes ROMs, ADFs, HDFs, screenshots, packet
+captures, and local media hashes. CI uploads `compatibility-<commit>` for 30
+days only after exact `SHA256SUMS` coverage passes.
+
+The compatibility job inventories tests; the required host matrix executes
+them. The aggregate requires both jobs, so an inventory is never presented as
+test execution. Likewise, a private-media scenario skipped in public CI is not
+a compatibility pass.
 
 ## Supply-Chain Contract
 
@@ -183,7 +211,8 @@ manifest explicitly excludes flashing, boot, peripherals, and performance.
 
 The following remain separate milestones:
 
-- M0-011: machine-readable compatibility and evidence artifacts.
+- Media-backed compatibility and differential reference evidence remain local
+  or require a controlled private runner.
 - M2 and later: flash, boot, peripheral, browser, and hardware-in-loop proof.
 
 ## Local Validation
