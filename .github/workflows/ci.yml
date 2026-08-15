@@ -16,6 +16,7 @@ concurrency:
 
 env:
   CARGO_AUDIT_VERSION: "0.22.2"
+  CARGO_DENY_VERSION: "0.20.2"
   CARGO_INCREMENTAL: "0"
   CARGO_TERM_COLOR: always
   EMBEDDED_RUST_CHANNEL: "nightly-2026-07-27"
@@ -65,10 +66,6 @@ jobs:
         working-directory: web
         run: npm ci --ignore-scripts --no-audit --no-fund
 
-      - name: Verify npm advisories
-        working-directory: web
-        run: npm audit --audit-level=high
-
       - name: Verify lockfiles are unchanged
         run: git diff --exit-code -- Cargo.lock web/package-lock.json
 
@@ -83,7 +80,7 @@ jobs:
             echo "| Gate | Result |"
             echo "| --- | --- |"
             echo "| Cargo locked resolution | ${JOB_STATUS} |"
-            echo "| npm clean install and high advisory threshold | ${JOB_STATUS} |"
+            echo "| npm clean install without lifecycle scripts | ${JOB_STATUS} |"
           } >> "${GITHUB_STEP_SUMMARY}"
 
   host:
@@ -210,10 +207,10 @@ jobs:
             echo "Rust format, Clippy, tests, documentation, web lint, and web build are required."
           } >> "${GITHUB_STEP_SUMMARY}"
 
-  audit:
-    name: Rust Security Audit
+  supply-chain:
+    name: Supply Chain Policy
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -224,23 +221,60 @@ jobs:
         run: >-
           rustup toolchain install 1.97.1 --profile minimal --no-self-update
 
-      - name: Install pinned cargo-audit
-        run: >-
-          cargo install --locked --version "${CARGO_AUDIT_VERSION}"
-          cargo-audit
+      - name: Install pinned Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: web/package-lock.json
 
-      - name: Audit Rust dependencies
-        run: cargo audit --file Cargo.lock
+      - name: Install pinned npm
+        run: |
+          npm_version="$(node -p "require('./web/package.json').packageManager.split('@').at(-1)")"
+          npm install --global --ignore-scripts --no-audit --no-fund "npm@${npm_version}"
+          test "$(npm --version)" = "${npm_version}"
 
-      - name: Publish audit summary
+      - name: Install pinned supply-chain tools
+        run: |
+          cargo +1.97.1 install --locked --version "${CARGO_AUDIT_VERSION}" cargo-audit
+          cargo +1.97.1 install --locked --version "${CARGO_DENY_VERSION}" cargo-deny
+
+      - name: Build and verify supply-chain evidence
+        run: cargo +1.97.1 xtask supply-chain-evidence
+
+      - name: Verify artifact checksums
+        working-directory: target/m0-009-supply-chain-evidence
+        run: sha256sum --check SHA256SUMS
+
+      - name: Verify repository remains clean
+        run: git diff --exit-code
+
+      - name: Upload supply-chain evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: supply-chain-${{ github.sha }}
+          path: target/m0-009-supply-chain-evidence
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 9
+
+      - name: Publish supply-chain summary
         if: always()
         env:
           JOB_STATUS: ${{ job.status }}
         run: |
+          manifest=target/m0-009-supply-chain-evidence/manifest.json
           {
-            echo "## Rust dependency audit"
+            echo "## Supply-chain policy"
             echo
-            echo "Result: **${JOB_STATUS}**"
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Rust packages | \`$(jq -r '.rust.packages // "unavailable"' "${manifest}" 2>/dev/null || echo unavailable)\` |"
+            echo "| npm packages | \`$(jq -r '.npm.packages // "unavailable"' "${manifest}" 2>/dev/null || echo unavailable)\` |"
+            echo "| Action references | \`$(jq -r '.github_actions.references // "unavailable"' "${manifest}" 2>/dev/null || echo unavailable)\` |"
+            echo "| Active reviewed exceptions | \`$(jq -r '.active_exception_ids | length' "${manifest}" 2>/dev/null || echo unavailable)\` |"
+            echo "| Artifact | \`supply-chain-${GITHUB_SHA}\` |"
+            echo "| Result | ${JOB_STATUS} |"
           } >> "${GITHUB_STEP_SUMMARY}"
 
   portable:
@@ -375,21 +409,21 @@ jobs:
   quality-gate:
     name: Required Quality Gate
     if: always()
-    needs: [lockfiles, host, audit, portable, firmware]
+    needs: [lockfiles, host, supply-chain, portable, firmware]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}
     steps:
       - name: Publish and enforce aggregate result
         env:
-          AUDIT_RESULT: ${{ needs.audit.result }}
           FIRMWARE_RESULT: ${{ needs.firmware.result }}
           HOST_RESULT: ${{ needs.host.result }}
           LOCKFILE_RESULT: ${{ needs.lockfiles.result }}
           PORTABLE_RESULT: ${{ needs.portable.result }}
+          SUPPLY_CHAIN_RESULT: ${{ needs.supply-chain.result }}
         run: |
           aggregate=success
-          if [[ "${LOCKFILE_RESULT}" != success || "${HOST_RESULT}" != success || "${AUDIT_RESULT}" != success || "${PORTABLE_RESULT}" != success || "${FIRMWARE_RESULT}" != success ]]; then
+          if [[ "${LOCKFILE_RESULT}" != success || "${HOST_RESULT}" != success || "${SUPPLY_CHAIN_RESULT}" != success || "${PORTABLE_RESULT}" != success || "${FIRMWARE_RESULT}" != success ]]; then
             aggregate=failure
           fi
 
@@ -400,7 +434,7 @@ jobs:
             echo "| --- | --- |"
             echo "| Lockfile Integrity | ${LOCKFILE_RESULT} |"
             echo "| Host matrix (Linux x86_64, macOS arm64) | ${HOST_RESULT} |"
-            echo "| Rust Security Audit | ${AUDIT_RESULT} |"
+            echo "| Supply Chain Policy | ${SUPPLY_CHAIN_RESULT} |"
             echo "| Portable Rust / RISC-V no_std | ${PORTABLE_RESULT} |"
             echo "| Firmware / ESP32-P4 release evidence | ${FIRMWARE_RESULT} |"
             echo "| Aggregate | **${aggregate}** |"
