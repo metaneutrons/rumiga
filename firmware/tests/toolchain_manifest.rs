@@ -109,7 +109,7 @@ fn assert_ci_tool_pins(root: &Path, manifest: &toml::Value) {
     assert!(ci_workflow.contains("cargo +1.97.1 xtask firmware-evidence"));
     assert!(
         ci_workflow
-            .contains("actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2")
+            .contains("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1")
     );
 }
 
