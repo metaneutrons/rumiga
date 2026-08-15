@@ -10,7 +10,7 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-15 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M0-007: pinned Linux/macOS host CI matrix |
+| Latest completed task | M0-007: hosted CI and protected `main` gate |
 | Development host | macOS, Apple Silicon |
 | Product target | Seeed reTerminal D1001, ESP32-P4 |
 | Product maturity | Desktop compatibility prototype |
@@ -51,7 +51,7 @@ No feature is called done merely because it compiled or booted once.
 ### What is verified
 
 - The Rust workspace builds and `cargo test --locked --workspace` passes on the
-  audited Mac. Cargo discovers 462 Rust unit, integration, and documentation
+  audited Mac. Cargo discovers 465 Rust unit, integration, and documentation
   tests.
 - The host Cargo graph contains no unpublished sibling dependency. A synthetic
   boot trace compares the active 68000 core with the tracked independent
@@ -62,10 +62,16 @@ No feature is called done merely because it compiled or booted once.
 - The host CI contract uses pinned Ubuntu x86_64 and macOS arm64 runners,
   immutable action revisions, minimal token permissions, complete Rust/web
   gates, per-job summaries, and one fail-closed aggregate result.
+- GitHub Actions run `31889431633` passes both host architectures, lockfile
+  integrity, and RustSec at `b83dd51`; protected `main` requires the strict
+  aggregate check through pull requests.
 - ESP platform and firmware manifests are regular unpublished workspace
   packages and pass locked host checks under the same strict lint policy.
-- The locked ESP-IDF 6.0.0 and esp-rs matrix produces a statically linked
-  32-bit RISC-V firmware ELF for ESP32-P4 on the audited Mac.
+- The locked ESP-IDF 6.0.0 and esp-rs matrix locally produces a checksummed
+  ESP32-P4 evidence bundle with static RISC-V ELF, final map, merged image,
+  bootloader, partition table, resolved configuration, and size report.
+- `m68000`, `rumiga-api`, and `rumiga-platform` compile for bare-metal
+  `riscv32imafc-unknown-none-elf`; this is the genuine `no_std` boundary today.
 - Desktop REST media operations use a configured canonical storage root,
   bounded streaming uploads, atomic no-overwrite publication, stable errors,
   and traversal/symlink escape tests.
@@ -94,17 +100,11 @@ No feature is called done merely because it compiled or booted once.
   are zero, so guest TCP/IP is not yet proven.
 - Full OCS/ECS/AGA compatibility is not proven by the current Workbench and
   Kickstart scenarios.
-- The repository is not fully hermetic yet because ESP32-P4 cross-build CI,
-  source-tag validation, and artifact publication are incomplete. The host graph, application
-  dependency resolution, package topology, toolchains, ESP-IDF commit, ESP Rust
-  crates, and BSP revision are repository-owned or immutably pinned.
-- The M0-007 workflow definition is locally syntax- and host-validated. A
-  GitHub-hosted Linux/macOS result for this exact revision cannot exist until
-  the commit is pushed; hosted evidence must cite that run separately.
-- The remote `main` branch has no branch-protection rule at the status date.
-  After the first hosted run, repository administration must require
-  `CI / Required Quality Gate`; that remote policy is not claimed by this
-  repository commit.
+- M0-008 target jobs and artifact publication are implemented and locally
+  validated but do not become hosted evidence until the pull-request run passes.
+- The 32 MB physical flash is intentionally configured as a conservative 16 MB
+  firmware geometry matching the pinned Seeed and Vellum baselines. Accessing
+  the upper half is not qualified without a D1001 HIL flash/boot test.
 
 ## Current Capability Matrix
 
@@ -125,7 +125,7 @@ No feature is called done merely because it compiled or booted once.
 | Web UI | Partial | Lint/build and static contract parity pass; browser workflow and device evidence are missing |
 | A2065 networking | Partial | Device model and desktop SLIRP link exist; guest packet flow and D1001 Wi-Fi bridge are missing |
 | Platform abstraction | Partial | A small `no_std` trait crate exists; contracts lack backpressure, capabilities, clock, block media, network, lifecycle, and telemetry |
-| D1001 firmware | Partial | Locked IDF 6.0.0 target build produces an ELF; firmware services are stubs and no hardware evidence exists |
+| D1001 firmware | Partial | Locked IDF 6.0.0 build produces a validated, checksummed release bundle; firmware services are stubs and no hardware evidence exists |
 | Release operations | Planned | No device image, signed release, OTA rollback, HIL, SBOM, or soak evidence |
 
 ## Verification Baseline
@@ -135,13 +135,14 @@ The following commands were run during this audit:
 | Check | Result | Interpretation |
 | --- | --- | --- |
 | `cargo metadata --locked --no-deps --format-version 1 --quiet` | Pass | Root Cargo manifest and lockfile agree |
-| `cargo test --locked --workspace` | Pass | 462 workspace tests pass locally, including storage confinement, host builds of both ESP packages, and two toolchain consistency tests |
+| `cargo test --locked --workspace` | Pass | 465 tests are discovered locally, including storage confinement, ESP pin consistency, and firmware-evidence tooling |
 | `cargo clippy --locked --workspace --all-targets -- -D warnings` | Pass | All workspace targets pass without warnings |
 | `cargo fmt --all --check` | Pass | Formatting is confined to repository-owned workspace sources |
 | `cargo check --locked --manifest-path firmware/Cargo.toml` | Pass | Firmware is a valid host-side workspace build unit; this is not target evidence |
 | `cargo check --locked --manifest-path crates/rumiga-platform-esp/Cargo.toml` | Pass | ESP adapter is a valid host-side workspace build unit; drivers remain stubs |
 | `cargo test --locked -p rumiga-firmware --test toolchain_manifest` | Pass | Rust, Node/npm, ESP-IDF, BSP, Cargo config, and locked ESP crate pins agree |
-| `env -u IDF_PATH CARGO_BUILD_RUSTC_WRAPPER= cargo build --locked --release --target riscv32imafc-esp-espidf` from `firmware` | Pass | IDF 6.0.0 Rust firmware links as a 32-bit RISC-V ELF; this is not boot evidence |
+| Bare-metal RISC-V package check | Pass | Current `no_std` packages compile for `riscv32imafc-unknown-none-elf`; core portability remains M1 |
+| `cargo +1.97.1 xtask firmware-evidence` | Pass | IDF 6.0.0 firmware compile, link, board configuration, image generation, and all artifact checksums pass locally; this is not boot evidence |
 | `npm run lint` | Pass | Web static lint baseline is green |
 | `npm run build` | Pass | Next.js 16.3.1 production build is green |
 | `(cd web && npm ci --ignore-scripts)` | Pass | npm manifest and tracked lockfile agree |
@@ -149,10 +150,10 @@ The following commands were run during this audit:
 | `actionlint .github/workflows/ci.yml` | Pass | Workflow syntax, matrix expressions, and action inputs are structurally valid |
 | Clean Ubuntu 24.04 arm64 Git-archive validation | Pass | Private-asset-free web build, Rust format, Clippy, 462 tests, and Rustdoc pass with explicit SLIRP/GLib prerequisites |
 
-The CI workflow validates both lockfiles and runs the complete host Rust/web
-matrix. It does not yet compile the `no_std` core or ESP32-P4 target. A green
-badge must therefore not be used as evidence of an embedded-ready product until
-milestone M0 closes.
+The CI workflow validates both lockfiles, the complete host Rust/web matrix, the
+current portable Rust boundary, and ESP32-P4 firmware evidence. The new target
+jobs still need their first hosted pass to close M0-008. Even after that, a green
+badge proves no D1001 runtime behavior; flash, boot, and peripherals require HIL.
 
 ## Evidence Baseline
 
@@ -195,13 +196,17 @@ holder has authorized reuse of their Vellum board code in Rumiga under
 through Rust-first adapters with transfer provenance, third-party license
 review, and Rumiga HIL evidence.
 
+Both the pinned Seeed BSP and Vellum select a 16 MB firmware flash geometry even
+though the board physically exposes 32 MB. Rumiga preserves that proven baseline
+until an explicit HIL test qualifies the larger geometry.
+
 ## Critical Risks
 
 | ID | Severity | Risk | Required response |
 | --- | --- | --- | --- |
 | R-001 | Critical | Whole HDF images are resident in RAM | Introduce a bounded sector `BlockDevice` contract before A1200 device integration |
 | R-003 | Critical | Core owns host threads and files | Move host services behind adapters and make the deterministic core `no_std + alloc` in M1 |
-| R-004 | High | No D1001 firmware has booted | Publish the pinned firmware artifact and capture serial boot evidence in M0-008/M2 |
+| R-004 | High | No D1001 firmware has booted | Publish the pinned build artifact in M0-008, then capture serial boot evidence in M2 |
 | R-005 | High | USB-C host wiring and VBUS behavior are not qualified | Verify schematic and actual board before promising direct USB-C peripherals; document required adapter/hub |
 | R-006 | High | Performance on ESP32-P4 is unknown | Add cycle, frame, PSRAM bandwidth, and memory benchmarks before compatibility expansion |
 | R-007 | High | Device API authentication, authorization, CSRF, and provisioning security are undefined | Preserve the completed desktop storage sandbox and close the remote threat model in M8-005 through M8-007 |
@@ -246,7 +251,7 @@ Detailed gates are in `ROADMAP.md`; task IDs are in `IMPLEMENTATION_PLAN.md`.
 | Milestone | Status | Promotion evidence |
 | --- | --- | --- |
 | BASE: Desktop evidence foundation | Verified | Six current host scenarios and versioned evidence tooling |
-| M0: Hermetic engineering baseline | Active | Host graph, lockfiles, package topology, toolchains, host CI definition, and local IDF 6 target compile pass; target CI artifacts and remaining gates remain |
+| M0: Hermetic engineering baseline | Active | Host gates are protected and target evidence passes locally; hosted M0-008 plus policy/evidence tasks remain |
 | M1: Portable deterministic core | Planned | `no_std` RISC-V compile and deterministic replay parity |
 | M2: D1001 board bring-up | Planned | Flashable firmware, serial manifest, memory/display smoke |
 | M3: Bounded media and memory | Planned | 2 GiB HDF boots through bounded sector cache |

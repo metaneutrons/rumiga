@@ -1,8 +1,8 @@
 # Rumiga Continuous Integration Contract
 
-This document defines the required host checks implemented by M0-007. The
-workflow source is `.github/workflows/ci.yml`; tool versions remain canonical in
-`toolchain/manifest.toml` and its consuming version files.
+This document defines the required host and target-build checks implemented by
+M0-007 and M0-008. The workflow source is `.github/workflows/ci.yml`; tool
+versions remain canonical in `toolchain/manifest.toml` and its consuming files.
 
 ## Trigger And Concurrency Policy
 
@@ -24,12 +24,14 @@ the exact version recorded in `toolchain/manifest.toml`.
 | `Host / Linux x86_64` | Run the complete Rust and web host command set on `ubuntu-24.04` |
 | `Host / macOS arm64` | Run the complete Rust and web host command set on `macos-15` |
 | `Rust Security Audit` | Check the locked Cargo graph against the RustSec advisory database |
+| `Portable Rust / RISC-V no_std` | Compile the current `no_std` package boundary for bare-metal 32-bit RISC-V |
+| `Firmware / ESP32-P4 release evidence` | Cross-build, inspect, package, checksum, and upload the pinned D1001 firmware evidence |
 | `Required Quality Gate` | Run unconditionally, summarize every prerequisite, and fail unless all required jobs succeeded |
 
-Repository branch protection should require the stable
-`CI / Required Quality Gate` check. Requiring the aggregate instead of every
-matrix-generated name keeps branch protection stable while the matrix evolves;
-the aggregate fails when any matrix leg fails, is cancelled, or is skipped.
+The protected `main` branch requires the stable `CI / Required Quality Gate`
+check. Requiring the aggregate instead of every matrix-generated name keeps
+branch protection stable while the matrix evolves; the aggregate fails when
+any required job fails, is cancelled, or is skipped.
 
 ## Host Matrix Contract
 
@@ -59,6 +61,40 @@ inputs: every install and Cargo command remains lockfile-enforced. The web build
 runs before Rust compilation because `rumiga-desktop` embeds the generated
 `web/out` directory in its binary.
 
+## Target Build Contract
+
+The portable gate compiles only the packages that are genuinely `no_std` today:
+
+```sh
+cargo +1.97.1 check --locked \
+  --target riscv32imafc-unknown-none-elf \
+  -p m68000 -p rumiga-api -p rumiga-platform
+```
+
+It deliberately does not claim that `rumiga-core` or `m68k` is `no_std`; that
+conversion and its deterministic replay gate are M1.
+
+The firmware gate installs the exact nightly, `ldproxy`, and `espflash` pins,
+then runs:
+
+```sh
+cargo +1.97.1 xtask firmware-evidence
+```
+
+The repository-owned task builds a clean release target directory, verifies the
+resolved ESP-IDF checkout commit and native compiler, rejects a dynamic or
+non-RISC-V ELF, checks the D1001 SDK configuration and flash layout, creates an
+unpadded merged image, and emits `rumiga.firmware.build.v1` evidence under
+`target/m0-008-firmware-evidence`. `SHA256SUMS` covers the ELF, final linker map,
+merged image, bootloader, partition table, resolved `sdkconfig`, flash arguments,
+size report, and JSON manifest. CI validates those hashes before uploading
+`firmware-esp32p4-<commit>` for 30 days.
+
+The physical board has 32 MB flash and 32 MB PSRAM. M0-008 intentionally keeps
+the 16 MB flash geometry used by the pinned Seeed BSP and the hardware-proven
+Vellum baseline. The generated evidence records both values; expanding the
+firmware geometry requires D1001 flash and boot evidence.
+
 ## Summaries And Evidence
 
 Every job appends a concise Markdown result to `GITHUB_STEP_SUMMARY`. The
@@ -66,13 +102,13 @@ aggregate summary is the human-readable promotion record for the run. A local
 commit cannot claim a GitHub-hosted result; hosted evidence must cite the run
 URL and immutable commit after the commit reaches GitHub.
 
-Host CI intentionally uses only synthetic and repository-owned fixtures. It
-does not access private Kickstart, Workbench, ADF, HDF, packet capture, or D1001
-assets.
+CI intentionally uses only synthetic and repository-owned fixtures. It does not
+access private Kickstart, Workbench, ADF, HDF, packet capture, or D1001 assets.
+Firmware evidence proves compile, link, layout, and image generation only. Its
+manifest explicitly excludes flashing, boot, peripherals, and performance.
 
 The following remain separate milestones:
 
-- M0-008: RISC-V `no_std` and ESP32-P4 firmware target builds.
 - M0-009: complete advisory, license, source, and dependency policy.
 - M0-011: machine-readable compatibility and evidence artifacts.
 - M2 and later: flash, boot, peripheral, browser, and hardware-in-loop proof.
@@ -83,6 +119,10 @@ Before changing CI, run the host commands above and validate workflow syntax:
 
 ```sh
 actionlint .github/workflows/ci.yml
+cargo +1.97.1 check --locked --target riscv32imafc-unknown-none-elf \
+  -p m68000 -p rumiga-api -p rumiga-platform
+cargo +1.97.1 xtask firmware-evidence
+(cd target/m0-008-firmware-evidence && shasum -a 256 -c SHA256SUMS)
 git diff --check
 ```
 

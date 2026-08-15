@@ -64,8 +64,10 @@ Resolution update (2026-08-14): M0-004 makes both packages unpublished members
 of the root workspace with inherited metadata, dependencies, and strict lints.
 Their locked host checks now pass. M0-005 additionally pins the host and
 embedded Rust toolchains, ESP-IDF commit, ESP Rust crates, Seeed BSP revision,
-and required tools. ESP32-P4 cross-compilation, drivers, firmware artifacts,
-and hardware boot evidence remain open under M0-008 and M2.
+and required tools. M0-008 now adds a repository-owned local pipeline for
+ESP32-P4 compile, link, configuration validation, image generation, and
+checksummed artifacts; its hosted publication remains open until CI passes.
+Drivers and hardware boot evidence remain M2 work.
 
 #### A-002: HDF design cannot fit the D1001
 
@@ -204,7 +206,8 @@ Resolution update (2026-08-14): M0-003 tracks the root `Cargo.lock`, enforces
 locked Cargo resolution and npm `ci` in CI, and defines monthly update, review,
 exception, and rollback rules in `DEPENDENCY_POLICY.md`. M0-005 closes the
 remaining pin gap with machine-readable host, ESP Rust, ESP-IDF, BSP, and tool
-versions plus a Rust consistency test. Target-build CI remains M0-008.
+versions plus a Rust consistency test. M0-008 target jobs are implemented and
+await their hosted promotion run.
 
 #### A-012: CI covers only the default desktop workspace
 
@@ -220,9 +223,10 @@ Remediation: M0-007 through M0-011.
 Resolution update (2026-08-15): M0-007 adds pinned Linux x86_64 and macOS
 arm64 host legs covering the complete Rust workspace, warning-free Rustdoc,
 web lint, and the production web build. All required host results feed one
-fail-closed summary check. Firmware target builds, `no_std`, evidence artifacts,
-and release outputs remain open under M0-008 through M0-011, so the product
-target portion of this finding is intentionally not retired.
+fail-closed summary check. M0-008 adds the current genuine `no_std` boundary and
+a pinned ESP32-P4 evidence build to that aggregate, including a checksummed
+firmware artifact. Hosted target proof, compatibility evidence publication, and
+release outputs remain open, so the product-target portion is not yet retired.
 
 #### A-013: Compatibility evidence is narrow
 

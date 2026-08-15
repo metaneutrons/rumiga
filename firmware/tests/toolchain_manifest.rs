@@ -90,8 +90,44 @@ fn assert_vellum_reuse_policy(root: &Path, manifest: &toml::Value, destination_l
 fn assert_ci_tool_pins(root: &Path, manifest: &toml::Value) {
     let ci_workflow = read(&root.join(".github/workflows/ci.yml"));
     let cargo_audit = manifest_string(manifest, "tools", "cargo_audit");
+    let embedded_rust = manifest_string(manifest, "embedded_rust", "channel");
+    let espflash = manifest_string(manifest, "tools", "espflash");
+    let ldproxy = manifest_string(manifest, "tools", "ldproxy");
+    let portable_target = manifest_string(manifest, "portable_rust", "target");
 
     assert!(ci_workflow.contains(&format!("CARGO_AUDIT_VERSION: \"{cargo_audit}\"")));
+    assert!(ci_workflow.contains(&format!("EMBEDDED_RUST_CHANNEL: \"{embedded_rust}\"")));
+    assert!(ci_workflow.contains(&format!("ESPFLASH_VERSION: \"{espflash}\"")));
+    assert!(ci_workflow.contains(&format!("LDPROXY_VERSION: \"{ldproxy}\"")));
+    assert!(ci_workflow.contains(&format!("PORTABLE_RUST_TARGET: \"{portable_target}\"")));
+    for package in string_array(&manifest["portable_rust"]["packages"]) {
+        assert!(
+            ci_workflow.contains(&format!("-p {package}")),
+            "CI must check portable package {package}"
+        );
+    }
+    assert!(ci_workflow.contains("cargo +1.97.1 xtask firmware-evidence"));
+    assert!(
+        ci_workflow
+            .contains("actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2")
+    );
+}
+
+fn assert_target_baseline(manifest: &toml::Value) {
+    assert_eq!(manifest["target"]["physical_flash"].as_str(), Some("32MB"));
+    assert_eq!(
+        manifest["target"]["configured_flash"].as_str(),
+        Some("16MB")
+    );
+    assert_eq!(manifest["target"]["physical_psram"].as_str(), Some("32MB"));
+    assert_eq!(
+        manifest["portable_rust"]["scope"].as_str(),
+        Some("current-no-std-boundary")
+    );
+    assert_eq!(
+        manifest["build"]["evidence_schema"].as_str(),
+        Some("rumiga.firmware.build.v1")
+    );
 }
 
 #[test]
@@ -180,6 +216,7 @@ fn pins_match_their_consuming_manifests() {
         cargo_config["env"]["ESP_IDF_SYS_ROOT_CRATE"]["value"].as_str(),
         manifest["target"]["cargo_package"].as_str()
     );
+    assert_target_baseline(&manifest);
     assert_ci_tool_pins(&root, &manifest);
     assert_eq!(
         string_array(&cargo_config["unstable"]["build-std"]),

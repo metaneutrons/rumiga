@@ -66,8 +66,8 @@ milestone.
 | M0-004 | DONE | Integrate `rumiga-platform-esp` and `firmware` as unpublished workspace packages with centralized metadata, dependencies, and lints | Both manifests pass locked host checks; the full workspace remains green |
 | M0-005 | DONE | Pin Rust, Node, ESP-IDF, ESP Rust crates, Seeed BSP SHA, and required tools | Machine-readable toolchain files, immutable source revisions, locked ESP crates, and cross-file Rust tests |
 | M0-006 | DONE | Replace hard-coded REST storage path with configured root and canonical path policy | Unit tests cover traversal, symlink escape, bounded atomic uploads, deletion, REST media insertion, CLI limits, and stable HTTP errors |
-| M0-007 | DONE | Add host CI matrix for Linux/macOS, Rust fmt/Clippy/test/doc, and web lint/build | Pinned pull-request matrix, fail-closed aggregate check, job summaries, actionlint validation, and local host gates |
-| M0-008 | ACTIVE | Add RISC-V `no_std` compile job and ESP32-P4 firmware compile job | Local locked IDF 6 firmware ELF passes; CI artifacts must add core target check and firmware ELF/map |
+| M0-007 | DONE | Add host CI matrix for Linux/macOS, Rust fmt/Clippy/test/doc, and web lint/build | Hosted x86_64/arm64 matrix and RustSec audit pass; protected `main` requires the fail-closed aggregate |
+| M0-008 | ACTIVE | Add current RISC-V `no_std` boundary and ESP32-P4 firmware evidence jobs | Local portable check and full evidence bundle pass; hosted target jobs and artifact publication must pass before closure |
 | M0-009 | PLANNED | Add advisory, license, source, and dependency-policy checks | No unreviewed critical/high advisory or incompatible license |
 | M0-010 | PLANNED | Add `xtask` or equivalent single entry point for local/CI quality gates | One documented command runs the same gates as CI |
 | M0-011 | PLANNED | Export current compatibility report and test counts as CI artifacts without private media | Artifact contains schema, revision, skipped reasons, and commands |
@@ -161,18 +161,31 @@ M0-007 evidence (2026-08-15):
 - full locked macOS host command set and npm advisory gate pass locally
 - a private-asset-free Git archive passes web install/lint/build and the full
   locked Rust command set in a clean Ubuntu 24.04 arm64 container
-- first GitHub-hosted result for this revision must be recorded after push; it
-  is not represented as local evidence
+- GitHub Actions run
+  [`31889431633`](https://github.com/metaneutrons/rumiga/actions/runs/31889431633)
+  passes lockfile, Linux x86_64, macOS arm64, RustSec, and aggregate jobs at
+  `b83dd51`
+- `main` requires strict `CI / Required Quality Gate`, pull requests, linear
+  history, resolved conversations, and forbids force pushes and deletion
 
 M0-008 local evidence (2026-08-15):
 
-- `env -u IDF_PATH CARGO_BUILD_RUSTC_WRAPPER= cargo build --locked --release
-  --target riscv32imafc-esp-espidf` passes from `firmware`
-- output is a 438,436-byte statically linked 32-bit RISC-V ELF using the
-  single-float ABI
-- local artifact SHA-256:
-  `2a22b83675cf7e78d102be70b652339d526ca06add4609186b57f96a7d77764b`
-- CI publication, map/flash image, `no_std` core compile, and HIL remain open
+- `cargo +1.97.1 check --locked --target
+  riscv32imafc-unknown-none-elf -p m68000 -p rumiga-api -p rumiga-platform`
+  passes for the packages that are genuinely `no_std` today
+- `cargo +1.97.1 xtask firmware-evidence` builds from a dedicated clean target,
+  verifies ESP-IDF `6.0.0` at the pinned commit, validates the static 32-bit
+  RISC-V single-float ELF and final Rust linker map, and enforces the D1001
+  board configuration
+- `target/m0-008-firmware-evidence` contains the ELF, map, merged flash image,
+  bootloader, partition table, resolved `sdkconfig`, flash layout, size report,
+  `rumiga.firmware.build.v1` manifest, and independently passing `SHA256SUMS`
+- evidence distinguishes the 32 MB physical flash from the conservative 16 MB
+  Seeed/Vellum firmware geometry and records QIO runtime versus DIO bootloader
+  flashing
+- hosted target-job publication remains the only M0-008 closure gate; conversion
+  of `rumiga-core` and `m68k` to `no_std + alloc` remains M1, while flash, boot,
+  peripherals, and performance remain M2+
 
 ### M0 functional commits
 
@@ -194,10 +207,10 @@ cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace
 cargo doc --locked --workspace --no-deps
 (cd web && npm ci && npm run lint && npm run build)
-cargo check --locked -p rumiga-core --no-default-features \
-  --target riscv32imafc-unknown-none-elf
-cargo build --locked -p rumiga-firmware --release \
-  --target riscv32imafc-esp-espidf
+cargo +1.97.1 check --locked --target riscv32imafc-unknown-none-elf \
+  -p m68000 -p rumiga-api -p rumiga-platform
+cargo +1.97.1 xtask firmware-evidence
+(cd target/m0-008-firmware-evidence && shasum -a 256 -c SHA256SUMS)
 ```
 
 Commands may move behind `cargo xtask ci`, but the individual operations remain

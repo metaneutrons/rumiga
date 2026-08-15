@@ -4,9 +4,10 @@
 manifest. The Rust, Cargo, npm, and target configuration files consume its
 values; `firmware/tests/toolchain_manifest.rs` rejects drift between them.
 
-This baseline pins inputs and has produced a local ESP32-P4 firmware ELF. It
-does not yet prove CI reproducibility, flashing, booting, or D1001 peripherals.
-Those claims require the remaining M0-008 automation and M2 HIL evidence.
+This baseline pins inputs and drives the repository-owned M0-008 evidence build.
+The local pipeline produces and verifies a complete ESP32-P4 build bundle. A
+hosted run is required to close M0-008; flashing, booting, and D1001 peripherals
+remain M2 HIL claims.
 
 ## Rust-First Boundary
 
@@ -28,6 +29,7 @@ their own licenses.
 | Declared Rust MSRV | `1.85.0` | Minimum workspace language/tooling contract |
 | Embedded Rust | `nightly-2026-07-27` with `rust-src` | ESP-IDF `std` build for the tier-3 RISC-V target |
 | Rust target | `riscv32imafc-esp-espidf` | ESP32-P4 application target |
+| Portable Rust target | `riscv32imafc-unknown-none-elf` | Current genuine `no_std` package boundary |
 | Node.js | `24.19.0` | Web build LTS runtime |
 | npm | `11.17.0` | Locked web installer |
 | ESP-IDF | `6.0.0` at `662a3be354759d9487bf4b1a629fadb766cb1800` | Cross-built D1001 firmware baseline |
@@ -40,13 +42,21 @@ their own licenses.
 | `espflash` | `4.5.0` | Image and serial tooling |
 
 `esp-idf-sys` receives the release tag `v6.0`, while the canonical manifest
-records its expected commit. A tag is required because `embuild 0.33.3` checks
-out raw commits after its recursive clone without refreshing submodules. Source
-verification in M0-008 must reject a `v6.0` resolution other than the recorded
-commit.
-Native IDF tools are installed under the ignored workspace `.embuild`
+records its expected commit. M0-008 verification rejects any other resolved
+commit. A tag is required because `embuild 0.33.3` checks out raw commits after
+its recursive clone without refreshing submodules. Native IDF tools are
+installed under the ignored workspace `.embuild`
 directory. Release and evidence builds must have `IDF_PATH` unset so a local
 clone cannot override the repository selection.
+
+The [official D1001 specification](https://wiki.seeedstudio.com/getting_started_with_reterminal_d1001/)
+lists 32 MB QSPI flash and 32 MB PSRAM. The M0 build uses the conservative 16 MB
+flash geometry selected by both the
+[pinned Seeed BSP](https://github.com/Seeed-Studio/reTerminal-D1001/blob/5074d3b2f45626b261298e305aaf792036febc5a/examples/factory_firmware/sdkconfig.defaults)
+and the hardware-proven Vellum configuration. ESP-IDF writes the QIO
+bootloader image in DIO mode and switches to quad mode during initialization;
+the evidence task validates both values. Using the upper physical flash region
+requires a later on-device qualification.
 
 ## ESP-IDF 6
 
@@ -93,16 +103,28 @@ Verify all cross-file pins without downloading ESP-IDF:
 cargo test --locked -p rumiga-firmware --test toolchain_manifest
 ```
 
-The following locked command produced a RISC-V firmware ELF locally on
-2026-08-15. M0-008 must run it in CI and publish the ELF, map, binary, size, and
-checksum artifacts:
+Compile the current real `no_std` boundary with:
 
 ```sh
-cd firmware
-env -u IDF_PATH CARGO_BUILD_RUSTC_WRAPPER= \
-  cargo build --locked --release \
-  --target riscv32imafc-esp-espidf
+cargo +1.97.1 check --locked \
+  --target riscv32imafc-unknown-none-elf \
+  -p m68000 -p rumiga-api -p rumiga-platform
 ```
+
+`rumiga-core` and `m68k` are not included because they still depend on `std`;
+M1 owns that conversion. Build and package the full ESP-IDF firmware with:
+
+```sh
+cargo +1.97.1 xtask firmware-evidence
+(cd target/m0-008-firmware-evidence && shasum -a 256 -c SHA256SUMS)
+```
+
+The task owns a clean target directory, unsets ambient linker and IDF overrides,
+checks the actual IDF commit and GCC path from CMake, validates the static
+RISC-V ELF and final Rust linker map, enforces the D1001 configuration, and
+creates the merged flash image. Its JSON manifest records source revision,
+tool versions, input and artifact hashes, target metadata, and explicit negative
+claims. Local dirty-worktree evidence is marked as such; CI rejects it.
 
 ## Update Rule
 

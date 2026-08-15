@@ -7,6 +7,14 @@ board = "seeed-reterminal-d1001"
 soc = "esp32p4"
 rust = "riscv32imafc-esp-espidf"
 cargo_package = "rumiga-firmware"
+physical_flash = "32MB"
+configured_flash = "16MB"
+physical_psram = "32MB"
+
+[portable_rust]
+target = "riscv32imafc-unknown-none-elf"
+packages = ["m68000", "rumiga-api", "rumiga-platform"]
+scope = "current-no-std-boundary"
 
 [host]
 rust = "1.97.1"
@@ -84,6 +92,7 @@ cargo_audit = "0.22.2"
 builder = "esp-idf-sys-native"
 sdkconfig = "firmware/sdkconfig"
 sdkconfig_defaults = "firmware/sdkconfig.defaults"
+evidence_schema = "rumiga.firmware.build.v1"
 idf_path_policy = "must-be-unset"
 idf_reference_policy = "tag-with-verified-commit"
 profile = "release"
