@@ -165,8 +165,9 @@ M0-007 evidence (2026-08-15):
   [`31889431633`](https://github.com/metaneutrons/rumiga/actions/runs/31889431633)
   passes lockfile, Linux x86_64, macOS arm64, RustSec, and aggregate jobs at
   `b83dd51`
-- `main` requires strict `CI / Required Quality Gate`, pull requests, linear
-  history, resolved conversations, and forbids force pushes and deletion
+- `main` requires the strict, GitHub-Actions-bound `Required Quality Gate`, pull
+  requests, linear history, resolved conversations, and forbids force pushes
+  and deletion
 
 M0-008 evidence (2026-08-15):
 

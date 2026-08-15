@@ -167,7 +167,7 @@ formatting, Clippy, all workspace tests, warning-free documentation, web lint,
 and the production web build. Separate jobs compile the current bare-metal
 RISC-V `no_std` boundary and produce checksummed ESP32-P4 release evidence.
 Lockfile, advisory, host, portable, and firmware jobs feed one stable
-`CI / Required Quality Gate` result and publish GitHub job summaries.
+`Required Quality Gate` result and publish GitHub job summaries.
 
 Actions are pinned to immutable revisions, credentials are not persisted, and
 the workflow token is read-only. See the [continuous integration contract](CI.md)
@@ -223,7 +223,7 @@ Current baseline on 2026-08-15:
 | Bare-metal RISC-V boundaries | Pass locally for `m68000`, `rumiga-api`, and `rumiga-platform`; full core portability remains M1 |
 | ESP32-P4 firmware evidence | Pass locally and on GitHub for locked IDF 6.0.0; checksummed artifact published by run [`31890919057`](https://github.com/metaneutrons/rumiga/actions/runs/31890919057) |
 | Linux/macOS host CI | Pass on GitHub-hosted x86_64 and arm64 runners |
-| Protected branch gate | `CI / Required Quality Gate` required on `main` |
+| Protected branch gate | `Required Quality Gate` from GitHub Actions required on `main` |
 
 Do not interpret the CI badge as D1001 runtime readiness. M0-008 proves portable
 package compilation plus firmware compile, link, configuration, and image
