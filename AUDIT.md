@@ -210,8 +210,9 @@ remaining pin gap with machine-readable host, ESP Rust, ESP-IDF, BSP, and tool
 versions plus a Rust consistency test. M0-008 target jobs pass locally and on a
 GitHub-hosted runner and publish a checksummed firmware bundle. M0-009 now
 enforces exact source, integrity, license, duplicate-version, advisory,
-lifecycle-script, and Action policies locally; hosted M0-009 evidence remains
-the final closure condition for this finding.
+lifecycle-script, and Action policies. GitHub Actions run `31894500079` and
+independently revalidated artifact `9249484883` close the dependency-policy
+portion of this finding.
 
 #### A-012: CI covers only the default desktop workspace
 

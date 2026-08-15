@@ -9,7 +9,10 @@ M0-009 supply-chain evidence builds. The local and hosted pipelines produce and
 verify a complete ESP32-P4 build bundle. GitHub Actions run
 [`31890919057`](https://github.com/metaneutrons/rumiga/actions/runs/31890919057)
 closes the M0-008 build-evidence gate; flashing, booting, and D1001 peripherals
-remain M2 HIL claims.
+remain M2 HIL claims. GitHub Actions run
+[`31894500079`](https://github.com/metaneutrons/rumiga/actions/runs/31894500079)
+closes the M0-009 supply-chain gate with independently verified scanner
+evidence.
 
 ## Rust-First Boundary
 

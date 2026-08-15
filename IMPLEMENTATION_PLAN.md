@@ -68,8 +68,8 @@ milestone.
 | M0-006 | DONE | Replace hard-coded REST storage path with configured root and canonical path policy | Unit tests cover traversal, symlink escape, bounded atomic uploads, deletion, REST media insertion, CLI limits, and stable HTTP errors |
 | M0-007 | DONE | Add host CI matrix for Linux/macOS, Rust fmt/Clippy/test/doc, and web lint/build | Hosted x86_64/arm64 matrix and RustSec audit pass; protected `main` requires the fail-closed aggregate |
 | M0-008 | DONE | Add current RISC-V `no_std` boundary and ESP32-P4 firmware evidence jobs | Local and hosted portable checks pass; hosted CI publishes and independently validates the full checksummed evidence bundle |
-| M0-009 | ACTIVE | Add advisory, license, source, and dependency-policy checks | Local policy evidence passes; hosted artifact and aggregate gate are required for `DONE` |
-| M0-010 | PLANNED | Add `xtask` or equivalent single entry point for local/CI quality gates | One documented command runs the same gates as CI |
+| M0-009 | DONE | Add advisory, license, source, and dependency-policy checks | Hosted policy evidence has no unreviewed vulnerability, yanked package, incompatible license, or source drift |
+| M0-010 | NEXT | Add `xtask` or equivalent single entry point for local/CI quality gates | One documented command runs the same gates as CI |
 | M0-011 | PLANNED | Export current compatibility report and test counts as CI artifacts without private media | Artifact contains schema, revision, skipped reasons, and commands |
 | M0-012 | PLANNED | Add contribution, review, release-note, and architecture-decision templates | A sample change is traceable from task to tests and evidence |
 
@@ -194,7 +194,7 @@ M0-008 evidence (2026-08-15):
 - conversion of `rumiga-core` and `m68k` to `no_std + alloc` remains M1, while
   flash, boot, peripherals, and performance remain M2+
 
-M0-009 local evidence (2026-08-15; hosted closure pending):
+M0-009 evidence (2026-08-15):
 
 - `supply-chain-policy.toml` records exact Cargo/npm/Action sources, SPDX
   allowlists, duplicate baselines, owners, reasons, compensating controls, and
@@ -211,6 +211,14 @@ M0-009 local evidence (2026-08-15; hosted closure pending):
   protected bundle parent, and all script-bearing npm packages are denied
 - `target/m0-009-supply-chain-evidence/SHA256SUMS` validates every scanner
   report and the manifest
+- GitHub Actions run
+  [`31894500079`](https://github.com/metaneutrons/rumiga/actions/runs/31894500079)
+  passes every prerequisite and the `Required Quality Gate` for branch head
+  `53e154d8cecc0d3f9359ba023be6e5803c251b87`
+- hosted artifact `supply-chain-055b0ae3ed36a44c44aa7314ac928545dc7262ae`
+  (ID `9249484883`) has archive SHA-256
+  `2c477e759400e0d12e7139b3613fd7bd10f4f0dd07d20f4016c5edc48387f0c9`;
+  all seven payload hashes pass after independent download
 
 ### M0 functional commits
 
@@ -224,8 +232,9 @@ M0-009 local evidence (2026-08-15; hosted closure pending):
 8. `ci: add pinned host quality matrix`
 9. `ci: publish quality and evidence summaries`
 10. `ci(embedded): publish ESP32-P4 build evidence`
-11. `build(deps): enforce reviewed supply-chain policy`
+11. `feat(supply-chain): enforce reviewed dependency policy`
 12. `ci(security): publish supply-chain evidence`
+13. `docs(project): close M0-009 with hosted evidence`
 
 ### M0 promotion command set
 

@@ -133,6 +133,16 @@ merge revision `fb273fca2fa8c52cb42c8e2738d11418a288ddbc` produced artifact
 `a49535d56c0be4740ce6711a99e28829608044e99ada9be66e7b5cf593c5cc7e`).
 All nine payload checksums were independently revalidated after download.
 
+The first M0-009 hosted baseline is GitHub Actions run
+[`31894500079`](https://github.com/metaneutrons/rumiga/actions/runs/31894500079)
+for branch head `53e154d8cecc0d3f9359ba023be6e5803c251b87`. Pull-request merge
+revision `055b0ae3ed36a44c44aa7314ac928545dc7262ae` produced artifact
+`supply-chain-055b0ae3ed36a44c44aa7314ac928545dc7262ae` (artifact ID
+`9249484883`, archive SHA-256
+`2c477e759400e0d12e7139b3613fd7bd10f4f0dd07d20f4016c5edc48387f0c9`).
+All seven payload checksums and the clean-revision claim were independently
+revalidated after download.
+
 CI intentionally uses only synthetic and repository-owned fixtures. It does not
 access private Kickstart, Workbench, ADF, HDF, packet capture, or D1001 assets.
 Firmware evidence proves compile, link, layout, and image generation only. Its

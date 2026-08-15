@@ -10,7 +10,7 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-15 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M0-008: hosted RISC-V and ESP32-P4 build evidence |
+| Latest completed task | M0-009: hosted supply-chain policy and evidence |
 | Development host | macOS, Apple Silicon |
 | Product target | Seeed reTerminal D1001, ESP32-P4 |
 | Product maturity | Desktop compatibility prototype |
@@ -51,17 +51,20 @@ No feature is called done merely because it compiled or booted once.
 ### What is verified
 
 - The Rust workspace builds and `cargo test --locked --workspace` passes on the
-  audited Mac. Cargo discovers 465 Rust unit, integration, and documentation
+  audited Mac. Cargo discovers 469 Rust unit, integration, and documentation
   tests.
 - The host Cargo graph contains no unpublished sibling dependency. A synthetic
   boot trace compares the active 68000 core with the tracked independent
   `m68000` implementation and frozen architectural checkpoints.
 - Root Cargo and web npm lockfiles are tracked. CI, Git hooks, and evidence
-  commands reject stale Rust resolution; CI verifies npm with `npm ci` and a
-  high-severity advisory gate.
-- M0-009 supply-chain policy is implemented and passes locally across 350 Rust
-  packages, 440 npm packages, and all workflow Action references. Hosted
-  evidence is still required before it becomes verified project status.
+  commands reject stale resolution; the hosted supply-chain gate enforces
+  source, integrity, SPDX license, duplicate, advisory, lifecycle-script, and
+  immutable-Action policy.
+- GitHub Actions run
+  [`31894500079`](https://github.com/metaneutrons/rumiga/actions/runs/31894500079)
+  verifies 350 Rust packages, 440 npm packages, and 13 Action references with
+  zero vulnerabilities and publishes the independently revalidated M0-009
+  evidence artifact.
 - The host CI contract uses pinned Ubuntu x86_64 and macOS arm64 runners,
   immutable action revisions, minimal token permissions, complete Rust/web
   gates, per-job summaries, and one fail-closed aggregate result.
