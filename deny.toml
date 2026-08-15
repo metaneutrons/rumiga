@@ -1,0 +1,67 @@
+[graph]
+all-features = true
+
+[advisories]
+db-urls = ["https://github.com/RustSec/advisory-db"]
+yanked = "deny"
+unmaintained = "all"
+unsound = "all"
+unused-ignored-advisory = "deny"
+ignore = [
+    { id = "RUSTSEC-2020-0016", reason = "mio 0.6 is required by the reviewed libslirp event-loop adapter; tracked as RUMIGA-ADV-001" },
+    { id = "RUSTSEC-2024-0384", reason = "minifb 0.28 retains instant for web targets; tracked as RUMIGA-ADV-002" },
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+highlight = "all"
+
+[bans.workspace-dependencies]
+duplicates = "deny"
+include-path-dependencies = true
+unused = "warn"
+
+[licenses]
+include-dev = true
+include-build = true
+confidence-threshold = 0.93
+unused-allowed-license = "warn"
+unused-license-exception = "deny"
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "GPL-3.0-only",
+    "ISC",
+    "MIT",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+
+[[licenses.clarify]]
+crate = "libslirp@4.3.2"
+expression = "MIT"
+license-files = [{ path = "LICENSE", hash = 0x5dbf8c29 }]
+
+[[licenses.clarify]]
+crate = "libslirp-sys@4.2.1"
+expression = "MIT"
+license-files = [{ path = "LICENSE", hash = 0x5dbf8c29 }]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+required-git-spec = "rev"
+unused-allowed-source = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = [
+    "https://github.com/esp-rs/esp-idf-hal",
+    "https://github.com/esp-rs/esp-idf-svc",
+    "https://github.com/esp-rs/esp-idf-sys",
+]

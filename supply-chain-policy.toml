@@ -1,0 +1,165 @@
+schema = "rumiga.supply-chain-policy.v1"
+reviewed_on = "2026-08-15"
+
+[rust]
+registry_source = "registry+https://github.com/rust-lang/crates.io-index"
+max_advisory_database_age_days = 7
+allowed_licenses = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "GPL-3.0-only",
+    "ISC",
+    "MIT",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+
+[[rust.git_sources]]
+package = "esp-idf-hal"
+repository = "https://github.com/esp-rs/esp-idf-hal.git"
+revision = "c2dac82f5243b0b7036c392f8218e6a2b4f7e375"
+
+[[rust.git_sources]]
+package = "esp-idf-svc"
+repository = "https://github.com/esp-rs/esp-idf-svc.git"
+revision = "f59ffada5638cf582fe8cab1771fa38873ef6d73"
+
+[[rust.git_sources]]
+package = "esp-idf-sys"
+repository = "https://github.com/esp-rs/esp-idf-sys.git"
+revision = "8369f610a31e9c90a5479ed7f366f983589dfa0a"
+
+[[rust.advisory_exceptions]]
+id = "RUMIGA-ADV-001"
+advisory = "RUSTSEC-2020-0016"
+package = "net2"
+version = "0.2.39"
+owner = "Rumiga maintainers"
+reason = "The desktop libslirp adapter currently requires mio 0.6, whose socket layer uses net2."
+compensating_control = "The adapter binds only the process-local SLIRP event loop; RustSec vulnerability advisories remain fail-closed and M8 owns migration from the legacy event API."
+expires_on = "2027-02-15"
+
+[[rust.advisory_exceptions]]
+id = "RUMIGA-ADV-002"
+advisory = "RUSTSEC-2024-0384"
+package = "instant"
+version = "0.1.13"
+owner = "Rumiga maintainers"
+reason = "minifb 0.28 retains instant only for its wasm target support and has no newer release."
+compensating_control = "Rumiga does not ship the minifb wasm backend; every minifb update is reviewed and hosted host builds remain mandatory."
+expires_on = "2027-02-15"
+
+[[rust.duplicate_approvals]]
+id = "RUMIGA-DUP-001"
+owner = "Rumiga maintainers"
+reason = "The desktop window and SLIRP stacks bridge legacy mio/Wayland APIs with the current Tokio host stack."
+compensating_control = "The exact duplicate name/version sets are locked below; any addition or version drift fails the repository policy checker."
+expires_on = "2027-02-15"
+packages = [
+    { name = "bitflags", versions = ["1.3.2", "2.11.1"] },
+    { name = "cfg-if", versions = ["0.1.10", "1.0.4"] },
+    { name = "mio", versions = ["0.6.23", "1.2.1"] },
+    { name = "nix", versions = ["0.24.3", "0.29.0"] },
+    { name = "winapi", versions = ["0.2.8", "0.3.9"] },
+]
+
+[[rust.duplicate_approvals]]
+id = "RUMIGA-DUP-002"
+owner = "Rumiga maintainers"
+reason = "The pinned ESP-IDF 6 esp-rs stack is in a coordinated embedded-hal and embedded-io major-version transition."
+compensating_control = "The ESP crate commits are immutable and the complete locked firmware graph must compile and produce checked evidence."
+expires_on = "2027-02-15"
+packages = [
+    { name = "embedded-hal", versions = ["0.2.7", "1.0.0"] },
+    { name = "embedded-io", versions = ["0.6.1", "0.7.1"] },
+    { name = "embedded-io-async", versions = ["0.6.1", "0.7.0"] },
+    { name = "heapless", versions = ["0.8.0", "0.9.1"] },
+    { name = "nb", versions = ["0.1.3", "1.1.0"] },
+    { name = "strum", versions = ["0.24.1", "0.27.2"] },
+    { name = "strum_macros", versions = ["0.24.3", "0.27.2"] },
+]
+
+[[rust.duplicate_approvals]]
+id = "RUMIGA-DUP-003"
+owner = "Rumiga maintainers"
+reason = "Current ESP build tooling, host tooling, proc macros, and cross-platform support crates require parallel semver-major lines."
+compensating_control = "The lockfile is immutable in CI and this approval matches every accepted name and version exactly."
+expires_on = "2027-02-15"
+packages = [
+    { name = "foldhash", versions = ["0.1.5", "0.2.0"] },
+    { name = "hashbrown", versions = ["0.15.5", "0.16.1", "0.17.0"] },
+    { name = "heck", versions = ["0.4.1", "0.5.0"] },
+    { name = "linux-raw-sys", versions = ["0.4.15", "0.12.1"] },
+    { name = "redox_syscall", versions = ["0.5.18", "0.7.4"] },
+    { name = "rustix", versions = ["0.38.44", "1.1.4"] },
+    { name = "serde_spanned", versions = ["0.6.9", "1.1.1"] },
+    { name = "syn", versions = ["1.0.109", "2.0.117", "3.0.3"] },
+    { name = "thiserror", versions = ["1.0.69", "2.0.20"] },
+    { name = "thiserror-impl", versions = ["1.0.69", "2.0.20"] },
+    { name = "toml", versions = ["0.8.23", "1.1.4+spec-1.1.0"] },
+    { name = "toml_datetime", versions = ["0.6.11", "1.1.1+spec-1.1.0"] },
+    { name = "toml_edit", versions = ["0.22.27", "0.25.13+spec-1.1.0"] },
+    { name = "windows-sys", versions = ["0.52.0", "0.59.0", "0.61.2"] },
+    { name = "winnow", versions = ["0.7.15", "1.0.4"] },
+    { name = "wit-bindgen", versions = ["0.46.0", "0.51.0"] },
+]
+
+[npm]
+registry_prefix = "https://registry.npmjs.org/"
+allowed_licenses = [
+    "0BSD",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "ISC",
+    "LGPL-3.0-or-later",
+    "MIT",
+    "MPL-2.0",
+]
+
+[[npm.license_exceptions]]
+id = "RUMIGA-NPM-LIC-001"
+package = "caniuse-lite"
+version = "1.0.30001809"
+license = "CC-BY-4.0"
+owner = "Rumiga maintainers"
+reason = "This browser compatibility dataset is build input, not executable code, and its attribution license is GPLv3-compatible."
+compensating_control = "The approval is exact-version scoped; Next.js build output and dependency notices are reviewed before distribution."
+expires_on = "2027-02-15"
+
+[[npm.license_exceptions]]
+id = "RUMIGA-NPM-LIC-002"
+package = "argparse"
+version = "2.0.1"
+license = "Python-2.0"
+owner = "Rumiga maintainers"
+reason = "argparse is a development-only ESLint dependency under the GPL-compatible Python-2.0 license."
+compensating_control = "The package is not included in the browser bundle and the approval fails on any version or license change."
+expires_on = "2027-02-15"
+
+[[npm.license_exceptions]]
+id = "RUMIGA-NPM-LIC-003"
+package = "minimatch"
+version = "10.2.5"
+license = "BlueOak-1.0.0"
+owner = "Rumiga maintainers"
+reason = "This development-only TypeScript ESLint dependency uses the permissive Blue Oak Model License."
+compensating_control = "The package is not included in the browser bundle and the approval fails on any version or license change."
+expires_on = "2027-02-15"
+
+[github_actions]
+allowed_repositories = [
+    "Swatinem/rust-cache",
+    "actions/checkout",
+    "actions/setup-node",
+    "actions/upload-artifact",
+]
+require_full_commit = true
+require_release_annotation = true
+allow_local = false

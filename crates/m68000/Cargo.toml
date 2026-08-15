@@ -10,6 +10,7 @@ keywords = ["motorola", "68000", "m68k", "interpreter", "emulator"]
 categories = ["emulators"]
 readme = "README.md"
 rust-version = "1.85.0"
+publish = false
 
 [features]
 default = []

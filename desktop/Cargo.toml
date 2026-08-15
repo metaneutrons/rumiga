@@ -9,22 +9,23 @@ rust-version.workspace = true
 readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
+publish = false
 
 [dependencies]
-minifb = "0.28"
+minifb = { workspace = true }
 m68k = { workspace = true }
 png = "0.17"
-rumiga-core = { path = "../crates/rumiga-core" }
-rumiga-platform = { path = "../crates/rumiga-platform" }
-rumiga-platform-desktop = { path = "../crates/rumiga-platform-desktop" }
-rumiga-api = { path = "../crates/rumiga-api" }
-sha2 = "0.10"
+rumiga-core = { workspace = true }
+rumiga-platform = { workspace = true }
+rumiga-platform-desktop = { workspace = true }
+rumiga-api = { workspace = true }
+sha2 = { workspace = true }
 axum = { version = "0.8", features = ["macros", "multipart", "json"] }
 tokio = { version = "1.52", features = ["full"] }
 rust-embed = "8.11"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-core_affinity = "0.8"
+serde = { workspace = true, features = ["std"] }
+serde_json = { workspace = true }
+core_affinity = { workspace = true }
 fs2 = "0.4.3"
 libslirp = { version = "4.3.2", default-features = false }
 mio = "0.6.23"

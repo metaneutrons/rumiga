@@ -13,12 +13,15 @@ use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+mod supply_chain;
+
 const BUILD_DIRECTORY: &str = "m0-008-firmware-build";
 const EVIDENCE_DIRECTORY: &str = "m0-008-firmware-evidence";
 
 #[derive(Debug, Deserialize)]
 struct ToolchainManifest {
     target: TargetConfiguration,
+    host: HostConfiguration,
     embedded_rust: EmbeddedRustConfiguration,
     esp_idf: EspIdfConfiguration,
     tools: ToolConfiguration,
@@ -41,6 +44,13 @@ struct EmbeddedRustConfiguration {
 }
 
 #[derive(Debug, Deserialize)]
+struct HostConfiguration {
+    rust: String,
+    node: String,
+    npm: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct EspIdfConfiguration {
     version: String,
     commit: String,
@@ -50,6 +60,8 @@ struct EspIdfConfiguration {
 struct ToolConfiguration {
     ldproxy: String,
     espflash: String,
+    cargo_audit: String,
+    cargo_deny: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -161,7 +173,8 @@ fn main() -> Result<()> {
     let mut arguments = env::args().skip(1);
     match (arguments.next().as_deref(), arguments.next()) {
         (Some("firmware-evidence"), None) => build_firmware_evidence(),
-        _ => bail!("usage: cargo xtask firmware-evidence"),
+        (Some("supply-chain-evidence"), None) => supply_chain::build_evidence(),
+        _ => bail!("usage: cargo xtask <firmware-evidence|supply-chain-evidence>"),
     }
 }
 
