@@ -59,6 +59,9 @@ No feature is called done merely because it compiled or booted once.
 - Root Cargo and web npm lockfiles are tracked. CI, Git hooks, and evidence
   commands reject stale Rust resolution; CI verifies npm with `npm ci` and a
   high-severity advisory gate.
+- M0-009 supply-chain policy is implemented and passes locally across 350 Rust
+  packages, 440 npm packages, and all workflow Action references. Hosted
+  evidence is still required before it becomes verified project status.
 - The host CI contract uses pinned Ubuntu x86_64 and macOS arm64 runners,
   immutable action revisions, minimal token permissions, complete Rust/web
   gates, per-job summaries, and one fail-closed aggregate result.

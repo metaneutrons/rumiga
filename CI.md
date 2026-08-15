@@ -1,8 +1,9 @@
 # Rumiga Continuous Integration Contract
 
-This document defines the required host and target-build checks implemented by
-M0-007 and M0-008. The workflow source is `.github/workflows/ci.yml`; tool
-versions remain canonical in `toolchain/manifest.toml` and its consuming files.
+This document defines the required host, supply-chain, and target-build checks
+implemented by M0-007 through M0-009. The workflow source is
+`.github/workflows/ci.yml`; tool versions remain canonical in
+`toolchain/manifest.toml` and its consuming files.
 
 ## Trigger And Concurrency Policy
 
@@ -13,17 +14,18 @@ Git ref cancels the obsolete run. No path filter may bypass required checks.
 The workflow grants read-only repository access. Checkout does not persist
 credentials. Third-party and GitHub-authored actions are referenced by
 immutable commit SHA and annotated with the reviewed release. Dependabot
-proposes action updates monthly. `cargo-audit` is installed with `--locked` at
-the exact version recorded in `toolchain/manifest.toml`.
+proposes action updates monthly. `cargo-audit` and `cargo-deny` are built with
+the pinned host Rust, installed with `--locked`, and checked against the exact
+versions recorded in `toolchain/manifest.toml`.
 
 ## Required Jobs
 
 | Job | Required behavior |
 | --- | --- |
-| `Lockfile Integrity` | Verify locked Cargo metadata, install npm dependencies from the lockfile without lifecycle scripts, reject high npm advisories, and reject lockfile mutation |
+| `Lockfile Integrity` | Verify locked Cargo metadata, install npm dependencies from the lockfile without lifecycle scripts, and reject lockfile mutation |
 | `Host / Linux x86_64` | Run the complete Rust and web host command set on `ubuntu-24.04` |
 | `Host / macOS arm64` | Run the complete Rust and web host command set on `macos-15` |
-| `Rust Security Audit` | Check the locked Cargo graph against the RustSec advisory database |
+| `Supply Chain Policy` | Enforce Cargo/npm source, checksum, license, duplicate, advisory, lifecycle-script, and immutable-Action policy; upload checksummed scanner evidence |
 | `Portable Rust / RISC-V no_std` | Compile the current `no_std` package boundary for bare-metal 32-bit RISC-V |
 | `Firmware / ESP32-P4 release evidence` | Cross-build, inspect, package, checksum, and upload the pinned D1001 firmware evidence |
 | `Required Quality Gate` | Run unconditionally, summarize every prerequisite, and fail unless all required jobs succeeded |
@@ -61,6 +63,25 @@ commands. GitHub's Rust and npm caches may improve runtime but are never build
 inputs: every install and Cargo command remains lockfile-enforced. The web build
 runs before Rust compilation because `rumiga-desktop` embeds the generated
 `web/out` directory in its binary.
+
+## Supply-Chain Contract
+
+The supply-chain job installs exact Node.js, npm, `cargo-audit`, and
+`cargo-deny` versions, then runs:
+
+```sh
+cargo +1.97.1 xtask supply-chain-evidence
+(cd target/m0-009-supply-chain-evidence && sha256sum --check SHA256SUMS)
+git diff --exit-code
+```
+
+The repository task first validates `supply-chain-policy.toml`, `deny.toml`,
+both lockfiles, every workspace package, and every workflow. It then requires
+zero Rust vulnerabilities or yanked packages, a RustSec database at most seven
+days old, and zero high or critical npm advisories. License and informational
+exceptions are exact-scope, owner-assigned, justified, compensated, expiring,
+and fail when unused. CI uploads `supply-chain-<commit>` for 30 days; its
+manifest and every raw scanner report are covered by `SHA256SUMS`.
 
 ## Target Build Contract
 
@@ -119,7 +140,6 @@ manifest explicitly excludes flashing, boot, peripherals, and performance.
 
 The following remain separate milestones:
 
-- M0-009: complete advisory, license, source, and dependency policy.
 - M0-011: machine-readable compatibility and evidence artifacts.
 - M2 and later: flash, boot, peripheral, browser, and hardware-in-loop proof.
 
@@ -129,6 +149,8 @@ Before changing CI, run the host commands above and validate workflow syntax:
 
 ```sh
 actionlint .github/workflows/ci.yml
+cargo +1.97.1 xtask supply-chain-evidence
+(cd target/m0-009-supply-chain-evidence && shasum -a 256 -c SHA256SUMS)
 cargo +1.97.1 check --locked --target riscv32imafc-unknown-none-elf \
   -p m68000 -p rumiga-api -p rumiga-platform
 cargo +1.97.1 xtask firmware-evidence

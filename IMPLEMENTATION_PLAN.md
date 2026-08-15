@@ -68,7 +68,7 @@ milestone.
 | M0-006 | DONE | Replace hard-coded REST storage path with configured root and canonical path policy | Unit tests cover traversal, symlink escape, bounded atomic uploads, deletion, REST media insertion, CLI limits, and stable HTTP errors |
 | M0-007 | DONE | Add host CI matrix for Linux/macOS, Rust fmt/Clippy/test/doc, and web lint/build | Hosted x86_64/arm64 matrix and RustSec audit pass; protected `main` requires the fail-closed aggregate |
 | M0-008 | DONE | Add current RISC-V `no_std` boundary and ESP32-P4 firmware evidence jobs | Local and hosted portable checks pass; hosted CI publishes and independently validates the full checksummed evidence bundle |
-| M0-009 | PLANNED | Add advisory, license, source, and dependency-policy checks | No unreviewed critical/high advisory or incompatible license |
+| M0-009 | ACTIVE | Add advisory, license, source, and dependency-policy checks | Local policy evidence passes; hosted artifact and aggregate gate are required for `DONE` |
 | M0-010 | PLANNED | Add `xtask` or equivalent single entry point for local/CI quality gates | One documented command runs the same gates as CI |
 | M0-011 | PLANNED | Export current compatibility report and test counts as CI artifacts without private media | Artifact contains schema, revision, skipped reasons, and commands |
 | M0-012 | PLANNED | Add contribution, review, release-note, and architecture-decision templates | A sample change is traceable from task to tests and evidence |
@@ -194,6 +194,24 @@ M0-008 evidence (2026-08-15):
 - conversion of `rumiga-core` and `m68k` to `no_std + alloc` remains M1, while
   flash, boot, peripherals, and performance remain M2+
 
+M0-009 local evidence (2026-08-15; hosted closure pending):
+
+- `supply-chain-policy.toml` records exact Cargo/npm/Action sources, SPDX
+  allowlists, duplicate baselines, owners, reasons, compensating controls, and
+  expiring exceptions
+- `deny.toml` checks every Cargo feature for licenses, advisories, sources,
+  wildcard dependencies, and workspace dependency policy
+- `cargo +1.97.1 xtask supply-chain-evidence` validates all repository policy
+  inputs, invokes pinned scanners, and emits `rumiga.supply-chain.evidence.v1`
+- local evidence covers 350 Rust packages, 440 npm packages, and 13 immutable
+  Action references; it reports zero Rust vulnerabilities, zero yanked
+  packages, and zero npm vulnerabilities at every severity
+- the RustSec database freshness limit is seven days; all registry packages
+  have locked checksums, npm packages have exact SHA-512 integrity or a
+  protected bundle parent, and all script-bearing npm packages are denied
+- `target/m0-009-supply-chain-evidence/SHA256SUMS` validates every scanner
+  report and the manifest
+
 ### M0 functional commits
 
 1. `docs(project): establish embedded-first roadmap and status`
@@ -206,6 +224,8 @@ M0-008 evidence (2026-08-15):
 8. `ci: add pinned host quality matrix`
 9. `ci: publish quality and evidence summaries`
 10. `ci(embedded): publish ESP32-P4 build evidence`
+11. `build(deps): enforce reviewed supply-chain policy`
+12. `ci(security): publish supply-chain evidence`
 
 ### M0 promotion command set
 
@@ -219,6 +239,8 @@ cargo +1.97.1 check --locked --target riscv32imafc-unknown-none-elf \
   -p m68000 -p rumiga-api -p rumiga-platform
 cargo +1.97.1 xtask firmware-evidence
 (cd target/m0-008-firmware-evidence && shasum -a 256 -c SHA256SUMS)
+cargo +1.97.1 xtask supply-chain-evidence
+(cd target/m0-009-supply-chain-evidence && shasum -a 256 -c SHA256SUMS)
 ```
 
 Commands may move behind `cargo xtask ci`, but the individual operations remain
