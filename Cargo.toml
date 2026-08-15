@@ -38,13 +38,21 @@ missing_const_for_fn = "allow"
 suboptimal_flops = "allow"
 
 [workspace.dependencies]
+core_affinity = "0.8"
 embuild = "=0.33.3"
 esp-idf-svc = { version = "=0.52.1", default-features = false }
 m68000 = { path = "crates/m68000" }
 m68k = { path = "crates/m68k" }
+minifb = "0.28"
+rumiga-api = { path = "crates/rumiga-api" }
 rumiga-core = { path = "crates/rumiga-core" }
 rumiga-platform = { path = "crates/rumiga-platform" }
+rumiga-platform-desktop = { path = "crates/rumiga-platform-desktop" }
 rumiga-platform-esp = { path = "crates/rumiga-platform-esp" }
+serde = { version = "=1.0.228", default-features = false, features = ["derive"] }
+serde_json = "=1.0.149"
+sha2 = "=0.10.9"
+toml = "=1.1.4"
 
 [patch.crates-io]
 # Temporary upstream IDF 6 fixes; remove after compatible crates.io releases.

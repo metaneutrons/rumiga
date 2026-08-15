@@ -26,6 +26,7 @@ license = "MIT"
 repository = "https://github.com/metaneutrons/rumiga"
 keywords = ["m68k", "68000", "68040", "cpu", "emulator"]
 categories = ["emulators"]
+publish = false
 
 [lib]
 name = "m68k"
@@ -38,8 +39,8 @@ path = "src/main.rs"
 [dependencies]
 
 [dev-dependencies.serde]
-version = "1.0"
+workspace = true
 features = ["derive"]
 
 [dev-dependencies.serde_json]
-version = "1.0"
+workspace = true

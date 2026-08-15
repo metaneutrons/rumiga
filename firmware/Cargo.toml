@@ -20,8 +20,8 @@ rumiga-platform-esp = { workspace = true }
 esp-idf-svc = { workspace = true, features = ["binstart", "std"] }
 
 [dev-dependencies]
-serde_json = "=1.0.149"
-toml = "=1.1.4"
+serde_json = { workspace = true }
+toml = { workspace = true }
 
 [build-dependencies]
 embuild = { workspace = true, features = ["espidf"] }

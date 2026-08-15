@@ -9,10 +9,11 @@ rust-version.workspace = true
 readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
+publish = false
 
 [dependencies]
-minifb = "0.28"
-rumiga-platform = { path = "../rumiga-platform" }
+minifb = { workspace = true }
+rumiga-platform = { workspace = true }
 
 [lints]
 workspace = true
