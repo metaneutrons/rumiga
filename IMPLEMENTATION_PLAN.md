@@ -67,7 +67,7 @@ milestone.
 | M0-005 | DONE | Pin Rust, Node, ESP-IDF, ESP Rust crates, Seeed BSP SHA, and required tools | Machine-readable toolchain files, immutable source revisions, locked ESP crates, and cross-file Rust tests |
 | M0-006 | DONE | Replace hard-coded REST storage path with configured root and canonical path policy | Unit tests cover traversal, symlink escape, bounded atomic uploads, deletion, REST media insertion, CLI limits, and stable HTTP errors |
 | M0-007 | DONE | Add host CI matrix for Linux/macOS, Rust fmt/Clippy/test/doc, and web lint/build | Hosted x86_64/arm64 matrix and RustSec audit pass; protected `main` requires the fail-closed aggregate |
-| M0-008 | ACTIVE | Add current RISC-V `no_std` boundary and ESP32-P4 firmware evidence jobs | Local portable check and full evidence bundle pass; hosted target jobs and artifact publication must pass before closure |
+| M0-008 | DONE | Add current RISC-V `no_std` boundary and ESP32-P4 firmware evidence jobs | Local and hosted portable checks pass; hosted CI publishes and independently validates the full checksummed evidence bundle |
 | M0-009 | PLANNED | Add advisory, license, source, and dependency-policy checks | No unreviewed critical/high advisory or incompatible license |
 | M0-010 | PLANNED | Add `xtask` or equivalent single entry point for local/CI quality gates | One documented command runs the same gates as CI |
 | M0-011 | PLANNED | Export current compatibility report and test counts as CI artifacts without private media | Artifact contains schema, revision, skipped reasons, and commands |
@@ -168,7 +168,7 @@ M0-007 evidence (2026-08-15):
 - `main` requires strict `CI / Required Quality Gate`, pull requests, linear
   history, resolved conversations, and forbids force pushes and deletion
 
-M0-008 local evidence (2026-08-15):
+M0-008 evidence (2026-08-15):
 
 - `cargo +1.97.1 check --locked --target
   riscv32imafc-unknown-none-elf -p m68000 -p rumiga-api -p rumiga-platform`
@@ -183,9 +183,15 @@ M0-008 local evidence (2026-08-15):
 - evidence distinguishes the 32 MB physical flash from the conservative 16 MB
   Seeed/Vellum firmware geometry and records QIO runtime versus DIO bootloader
   flashing
-- hosted target-job publication remains the only M0-008 closure gate; conversion
-  of `rumiga-core` and `m68k` to `no_std + alloc` remains M1, while flash, boot,
-  peripherals, and performance remain M2+
+- GitHub Actions run
+  [`31890919057`](https://github.com/metaneutrons/rumiga/actions/runs/31890919057)
+  passes the portable and firmware jobs plus the aggregate gate for head commit
+  `3cd47ddb3bb02eb9eecde59a651dcebe0badcf99`
+- hosted artifact ID `9248602076` contains all expected files, has archive
+  SHA-256 `a49535d56c0be4740ce6711a99e28829608044e99ada9be66e7b5cf593c5cc7e`,
+  and passes all nine payload checksums after download
+- conversion of `rumiga-core` and `m68k` to `no_std + alloc` remains M1, while
+  flash, boot, peripherals, and performance remain M2+
 
 ### M0 functional commits
 
@@ -198,6 +204,7 @@ M0-008 local evidence (2026-08-15):
 7. `fix(api): sandbox desktop media storage root`
 8. `ci: add pinned host quality matrix`
 9. `ci: publish quality and evidence summaries`
+10. `ci(embedded): publish ESP32-P4 build evidence`
 
 ### M0 promotion command set
 

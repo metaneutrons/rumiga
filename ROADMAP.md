@@ -122,11 +122,12 @@ embedded port begins.
 
 ### Remaining debt carried into M0
 
-- Evidence output is local and not yet a CI artifact.
+- Compatibility evidence output remains local; M0-008 firmware build evidence
+  is now a checksummed CI artifact.
 - Several legally provided media scenarios are skipped.
 - No reference image metadata is pinned to an FS-UAE/WinUAE version.
 - No D1001 HIL evidence exists; only compile, link, layout, and image-generation
-  evidence is proven locally.
+  evidence is proven locally and on a GitHub-hosted runner.
 
 ## M0: Hermetic Engineering Baseline
 
@@ -143,11 +144,11 @@ without unpublished sibling repositories or machine-specific paths.
   (completed by M0-004).
 - Pin Rust, Node, ESP-IDF, ESP Rust crates, Seeed BSP revision, and build tools
   (completed by M0-005).
-- Cross-build, inspect, and package the minimal ESP32-P4 firmware locally on the
-  pinned IDF 6.0.0 stack (local portion of M0-008 completed).
+- Cross-build, inspect, and package the minimal ESP32-P4 firmware locally and in
+  hosted CI on the pinned IDF 6.0.0 stack (completed by M0-008).
 - Add CI jobs for macOS/Linux Rust and web lint/build (completed by M0-007).
 - Add CI jobs for the current genuine RISC-V `no_std` boundary and checksummed
-  ESP32-P4 firmware evidence (implemented; hosted M0-008 proof pending).
+  ESP32-P4 firmware evidence (completed by M0-008).
 - Add dependency license, advisory, and duplicate-version policy.
 - Eliminate hard-coded developer filesystem roots from the REST file service
   (completed by M0-006).

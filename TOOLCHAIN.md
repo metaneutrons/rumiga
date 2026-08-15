@@ -5,8 +5,10 @@ manifest. The Rust, Cargo, npm, and target configuration files consume its
 values; `firmware/tests/toolchain_manifest.rs` rejects drift between them.
 
 This baseline pins inputs and drives the repository-owned M0-008 evidence build.
-The local pipeline produces and verifies a complete ESP32-P4 build bundle. A
-hosted run is required to close M0-008; flashing, booting, and D1001 peripherals
+The local and hosted pipelines produce and verify a complete ESP32-P4 build
+bundle. GitHub Actions run
+[`31890919057`](https://github.com/metaneutrons/rumiga/actions/runs/31890919057)
+closes the M0-008 build-evidence gate; flashing, booting, and D1001 peripherals
 remain M2 HIL claims.
 
 ## Rust-First Boundary

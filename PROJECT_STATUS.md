@@ -10,7 +10,7 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-15 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M0-007: hosted CI and protected `main` gate |
+| Latest completed task | M0-008: hosted RISC-V and ESP32-P4 build evidence |
 | Development host | macOS, Apple Silicon |
 | Product target | Seeed reTerminal D1001, ESP32-P4 |
 | Product maturity | Desktop compatibility prototype |
@@ -67,9 +67,12 @@ No feature is called done merely because it compiled or booted once.
   aggregate check through pull requests.
 - ESP platform and firmware manifests are regular unpublished workspace
   packages and pass locked host checks under the same strict lint policy.
-- The locked ESP-IDF 6.0.0 and esp-rs matrix locally produces a checksummed
-  ESP32-P4 evidence bundle with static RISC-V ELF, final map, merged image,
-  bootloader, partition table, resolved configuration, and size report.
+- The locked ESP-IDF 6.0.0 and esp-rs matrix produces a checksummed ESP32-P4
+  evidence bundle locally and in hosted CI, with static RISC-V ELF, final map,
+  merged image, bootloader, partition table, resolved configuration, and size
+  report. GitHub Actions run
+  [`31890919057`](https://github.com/metaneutrons/rumiga/actions/runs/31890919057)
+  publishes the independently revalidated artifact.
 - `m68000`, `rumiga-api`, and `rumiga-platform` compile for bare-metal
   `riscv32imafc-unknown-none-elf`; this is the genuine `no_std` boundary today.
 - Desktop REST media operations use a configured canonical storage root,
@@ -100,8 +103,6 @@ No feature is called done merely because it compiled or booted once.
   are zero, so guest TCP/IP is not yet proven.
 - Full OCS/ECS/AGA compatibility is not proven by the current Workbench and
   Kickstart scenarios.
-- M0-008 target jobs and artifact publication are implemented and locally
-  validated but do not become hosted evidence until the pull-request run passes.
 - The 32 MB physical flash is intentionally configured as a conservative 16 MB
   firmware geometry matching the pinned Seeed and Vellum baselines. Accessing
   the upper half is not qualified without a D1001 HIL flash/boot test.
@@ -143,6 +144,7 @@ The following commands were run during this audit:
 | `cargo test --locked -p rumiga-firmware --test toolchain_manifest` | Pass | Rust, Node/npm, ESP-IDF, BSP, Cargo config, and locked ESP crate pins agree |
 | Bare-metal RISC-V package check | Pass | Current `no_std` packages compile for `riscv32imafc-unknown-none-elf`; core portability remains M1 |
 | `cargo +1.97.1 xtask firmware-evidence` | Pass | IDF 6.0.0 firmware compile, link, board configuration, image generation, and all artifact checksums pass locally; this is not boot evidence |
+| GitHub Actions run `31890919057` | Pass | Portable RISC-V and ESP32-P4 jobs pass; artifact `9248602076` contains the checksummed firmware bundle built from a clean pull-request merge revision |
 | `npm run lint` | Pass | Web static lint baseline is green |
 | `npm run build` | Pass | Next.js 16.3.1 production build is green |
 | `(cd web && npm ci --ignore-scripts)` | Pass | npm manifest and tracked lockfile agree |
@@ -151,9 +153,9 @@ The following commands were run during this audit:
 | Clean Ubuntu 24.04 arm64 Git-archive validation | Pass | Private-asset-free web build, Rust format, Clippy, 462 tests, and Rustdoc pass with explicit SLIRP/GLib prerequisites |
 
 The CI workflow validates both lockfiles, the complete host Rust/web matrix, the
-current portable Rust boundary, and ESP32-P4 firmware evidence. The new target
-jobs still need their first hosted pass to close M0-008. Even after that, a green
-badge proves no D1001 runtime behavior; flash, boot, and peripherals require HIL.
+current portable Rust boundary, and ESP32-P4 firmware evidence. Its first hosted
+target pass closes M0-008. A green badge still proves no D1001 runtime behavior;
+flash, boot, and peripherals require HIL.
 
 ## Evidence Baseline
 
@@ -206,7 +208,7 @@ until an explicit HIL test qualifies the larger geometry.
 | --- | --- | --- | --- |
 | R-001 | Critical | Whole HDF images are resident in RAM | Introduce a bounded sector `BlockDevice` contract before A1200 device integration |
 | R-003 | Critical | Core owns host threads and files | Move host services behind adapters and make the deterministic core `no_std + alloc` in M1 |
-| R-004 | High | No D1001 firmware has booted | Publish the pinned build artifact in M0-008, then capture serial boot evidence in M2 |
+| R-004 | High | No D1001 firmware has booted | The pinned M0-008 build artifact is published; capture serial boot evidence in M2 |
 | R-005 | High | USB-C host wiring and VBUS behavior are not qualified | Verify schematic and actual board before promising direct USB-C peripherals; document required adapter/hub |
 | R-006 | High | Performance on ESP32-P4 is unknown | Add cycle, frame, PSRAM bandwidth, and memory benchmarks before compatibility expansion |
 | R-007 | High | Device API authentication, authorization, CSRF, and provisioning security are undefined | Preserve the completed desktop storage sandbox and close the remote threat model in M8-005 through M8-007 |
@@ -251,7 +253,7 @@ Detailed gates are in `ROADMAP.md`; task IDs are in `IMPLEMENTATION_PLAN.md`.
 | Milestone | Status | Promotion evidence |
 | --- | --- | --- |
 | BASE: Desktop evidence foundation | Verified | Six current host scenarios and versioned evidence tooling |
-| M0: Hermetic engineering baseline | Active | Host gates are protected and target evidence passes locally; hosted M0-008 plus policy/evidence tasks remain |
+| M0: Hermetic engineering baseline | Active | Host gates are protected and hosted target evidence passes; policy and compatibility-evidence tasks remain |
 | M1: Portable deterministic core | Planned | `no_std` RISC-V compile and deterministic replay parity |
 | M2: D1001 board bring-up | Planned | Flashable firmware, serial manifest, memory/display smoke |
 | M3: Bounded media and memory | Planned | 2 GiB HDF boots through bounded sector cache |
