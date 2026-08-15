@@ -23,7 +23,6 @@ env:
   ESPFLASH_VERSION: "4.5.0"
   LDPROXY_VERSION: "0.3.5"
   NEXT_TELEMETRY_DISABLED: "1"
-  PORTABLE_RUST_TARGET: "riscv32imafc-unknown-none-elf"
   RUST_BACKTRACE: "1"
 
 defaults:
@@ -59,15 +58,8 @@ jobs:
           npm install --global --ignore-scripts --no-audit --no-fund "npm@${npm_version}"
           test "$(npm --version)" = "${npm_version}"
 
-      - name: Verify Cargo lockfile
-        run: cargo metadata --locked --no-deps --format-version 1 > /dev/null
-
-      - name: Verify npm lockfile
-        working-directory: web
-        run: npm ci --ignore-scripts --no-audit --no-fund
-
-      - name: Verify lockfiles are unchanged
-        run: git diff --exit-code -- Cargo.lock web/package-lock.json
+      - name: Run lockfile gate
+        run: cargo +1.97.1 xtask ci --gate lockfiles
 
       - name: Publish lockfile summary
         if: always()
@@ -144,46 +136,8 @@ jobs:
           npm install --global --ignore-scripts --no-audit --no-fund "npm@${npm_version}"
           test "$(npm --version)" = "${npm_version}"
 
-      - name: Verify pinned host tools
-        run: |
-          expected_rust="$(awk -F '"' '/^channel =/ { print $2; exit }' rust-toolchain.toml)"
-          expected_node="$(tr -d '[:space:]' < .node-version)"
-          expected_npm="$(node -p "require('./web/package.json').packageManager.split('@').at(-1)")"
-          test "$(rustc --version | awk '{ print $2 }')" = "${expected_rust}"
-          test "$(node --version)" = "v${expected_node}"
-          test "$(npm --version)" = "${expected_npm}"
-          rustc --version --verbose
-          node --version
-          npm --version
-
-      - name: Install web dependencies
-        working-directory: web
-        run: npm ci --ignore-scripts --no-audit --no-fund
-
-      - name: Lint web application
-        working-directory: web
-        run: npm run lint
-
-      - name: Build web application
-        working-directory: web
-        run: npm run build
-
-      - name: Check Rust formatting
-        run: cargo fmt --all -- --check
-
-      - name: Lint Rust workspace
-        run: cargo clippy --locked --workspace --all-targets -- -D warnings
-
-      - name: Test Rust workspace
-        run: cargo test --locked --workspace
-
-      - name: Build Rust documentation
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc --locked --workspace --no-deps
-
-      - name: Verify repository remains clean
-        run: git diff --exit-code
+      - name: Run host gate
+        run: cargo +1.97.1 xtask ci --gate host
 
       - name: Publish host summary
         if: always()
@@ -239,15 +193,8 @@ jobs:
           cargo +1.97.1 install --locked --version "${CARGO_AUDIT_VERSION}" cargo-audit
           cargo +1.97.1 install --locked --version "${CARGO_DENY_VERSION}" cargo-deny
 
-      - name: Build and verify supply-chain evidence
-        run: cargo +1.97.1 xtask supply-chain-evidence
-
-      - name: Verify artifact checksums
-        working-directory: target/m0-009-supply-chain-evidence
-        run: sha256sum --check SHA256SUMS
-
-      - name: Verify repository remains clean
-        run: git diff --exit-code
+      - name: Run supply-chain gate
+        run: cargo +1.97.1 xtask ci --gate supply-chain
 
       - name: Upload supply-chain evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -290,32 +237,36 @@ jobs:
       - name: Install pinned Rust target
         run: |
           rustup toolchain install 1.97.1 --profile minimal --no-self-update
-          rustup target add --toolchain 1.97.1 "${PORTABLE_RUST_TARGET}"
+          portable_target="$(awk -F '"' '
+            /^\[portable_rust\]$/ { section = 1; next }
+            section && /^target =/ { print $2; exit }
+          ' toolchain/manifest.toml)"
+          test -n "${portable_target}"
+          rustup target add --toolchain 1.97.1 "${portable_target}"
 
       - name: Cache Rust build inputs
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           shared-key: portable-riscv
 
-      - name: Check current no_std boundaries
-        run: >-
-          cargo +1.97.1 check --locked --target "${PORTABLE_RUST_TARGET}"
-          -p m68000 -p rumiga-api -p rumiga-platform
-
-      - name: Verify repository remains clean
-        run: git diff --exit-code
+      - name: Run portable gate
+        run: cargo +1.97.1 xtask ci --gate portable
 
       - name: Publish portable Rust summary
         if: always()
         env:
           JOB_STATUS: ${{ job.status }}
         run: |
+          portable_target="$(awk -F '"' '
+            /^\[portable_rust\]$/ { section = 1; next }
+            section && /^target =/ { print $2; exit }
+          ' toolchain/manifest.toml)"
           {
             echo "## Portable Rust boundary"
             echo
             echo "| Field | Value |"
             echo "| --- | --- |"
-            echo "| Target | \`${PORTABLE_RUST_TARGET}\` |"
+            echo "| Target | \`${portable_target}\` |"
             echo "| Packages | \`m68000\`, \`rumiga-api\`, \`rumiga-platform\` |"
             echo "| Result | ${JOB_STATUS} |"
           } >> "${GITHUB_STEP_SUMMARY}"
@@ -369,15 +320,8 @@ jobs:
           cargo +1.97.1 install --locked --version "${LDPROXY_VERSION}" ldproxy
           cargo +1.97.1 install --locked --version "${ESPFLASH_VERSION}" espflash
 
-      - name: Build and verify firmware evidence
-        run: cargo +1.97.1 xtask firmware-evidence
-
-      - name: Verify artifact checksums
-        working-directory: target/m0-008-firmware-evidence
-        run: sha256sum --check SHA256SUMS
-
-      - name: Verify repository remains clean
-        run: git diff --exit-code
+      - name: Run firmware gate
+        run: cargo +1.97.1 xtask ci --gate firmware
 
       - name: Upload firmware evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

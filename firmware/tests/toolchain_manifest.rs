@@ -89,26 +89,24 @@ fn assert_vellum_reuse_policy(root: &Path, manifest: &toml::Value, destination_l
 
 fn assert_ci_tool_pins(root: &Path, manifest: &toml::Value) {
     let ci_workflow = read(&root.join(".github/workflows/ci.yml"));
+    let host_rust = manifest_string(manifest, "host", "rust");
     let cargo_audit = manifest_string(manifest, "tools", "cargo_audit");
     let cargo_deny = manifest_string(manifest, "tools", "cargo_deny");
     let embedded_rust = manifest_string(manifest, "embedded_rust", "channel");
     let espflash = manifest_string(manifest, "tools", "espflash");
     let ldproxy = manifest_string(manifest, "tools", "ldproxy");
-    let portable_target = manifest_string(manifest, "portable_rust", "target");
 
     assert!(ci_workflow.contains(&format!("CARGO_AUDIT_VERSION: \"{cargo_audit}\"")));
     assert!(ci_workflow.contains(&format!("CARGO_DENY_VERSION: \"{cargo_deny}\"")));
     assert!(ci_workflow.contains(&format!("EMBEDDED_RUST_CHANNEL: \"{embedded_rust}\"")));
     assert!(ci_workflow.contains(&format!("ESPFLASH_VERSION: \"{espflash}\"")));
     assert!(ci_workflow.contains(&format!("LDPROXY_VERSION: \"{ldproxy}\"")));
-    assert!(ci_workflow.contains(&format!("PORTABLE_RUST_TARGET: \"{portable_target}\"")));
-    for package in string_array(&manifest["portable_rust"]["packages"]) {
+    for gate in ["lockfiles", "host", "supply-chain", "portable", "firmware"] {
         assert!(
-            ci_workflow.contains(&format!("-p {package}")),
-            "CI must check portable package {package}"
+            ci_workflow.contains(&format!("cargo +{host_rust} xtask ci --gate {gate}")),
+            "CI must invoke the canonical {gate} gate"
         );
     }
-    assert!(ci_workflow.contains("cargo +1.97.1 xtask firmware-evidence"));
     assert!(
         ci_workflow
             .contains("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1")
