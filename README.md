@@ -168,9 +168,8 @@ and the production web build. Lockfile and advisory jobs feed one stable
 `CI / Required Quality Gate` result and publish GitHub job summaries.
 
 Actions are pinned to immutable revisions, credentials are not persisted, and
-the workflow token is read-only except for the RustSec check. See the
-[continuous integration contract](CI.md) for branch protection, reproduction,
-and evidence rules.
+the workflow token is read-only. See the [continuous integration contract](CI.md)
+for branch protection, reproduction, and evidence rules.
 
 ### D1001 / ESP32-P4
 

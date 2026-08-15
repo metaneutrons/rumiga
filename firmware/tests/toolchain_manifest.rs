@@ -87,6 +87,13 @@ fn assert_vellum_reuse_policy(root: &Path, manifest: &toml::Value, destination_l
     }
 }
 
+fn assert_ci_tool_pins(root: &Path, manifest: &toml::Value) {
+    let ci_workflow = read(&root.join(".github/workflows/ci.yml"));
+    let cargo_audit = manifest_string(manifest, "tools", "cargo_audit");
+
+    assert!(ci_workflow.contains(&format!("CARGO_AUDIT_VERSION: \"{cargo_audit}\"")));
+}
+
 #[test]
 fn pins_match_their_consuming_manifests() {
     let root = workspace_root();
@@ -173,6 +180,7 @@ fn pins_match_their_consuming_manifests() {
         cargo_config["env"]["ESP_IDF_SYS_ROOT_CRATE"]["value"].as_str(),
         manifest["target"]["cargo_package"].as_str()
     );
+    assert_ci_tool_pins(&root, &manifest);
     assert_eq!(
         string_array(&cargo_config["unstable"]["build-std"]),
         string_array(&manifest["embedded_rust"]["build_std"])

@@ -10,11 +10,11 @@ CI runs for every pull request targeting `main`, every push to `main`, and
 manual `workflow_dispatch` requests. A newer run for the same pull request or
 Git ref cancels the obsolete run. No path filter may bypass required checks.
 
-The workflow grants read-only repository access by default. Checkout does not
-persist credentials. The Rust advisory job alone receives `checks: write`, as
-required to publish its GitHub check. Third-party and GitHub-authored actions
-are referenced by immutable commit SHA and annotated with the reviewed release.
-Dependabot proposes action updates monthly.
+The workflow grants read-only repository access. Checkout does not persist
+credentials. Third-party and GitHub-authored actions are referenced by
+immutable commit SHA and annotated with the reviewed release. Dependabot
+proposes action updates monthly. `cargo-audit` is installed with `--locked` at
+the exact version recorded in `toolchain/manifest.toml`.
 
 ## Required Jobs
 

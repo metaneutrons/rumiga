@@ -78,6 +78,7 @@ removal_gate = "compatible crates.io releases pass the locked ESP32-P4 build"
 rustup = "1.29.0"
 ldproxy = "0.3.5"
 espflash = "4.5.0"
+cargo_audit = "0.22.2"
 
 [build]
 builder = "esp-idf-sys-native"
