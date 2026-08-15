@@ -161,21 +161,28 @@ and embedded build inputs are documented in the [toolchain baseline](TOOLCHAIN.m
 
 ### Continuous Integration
 
-Pull requests and pushes to `main` run the complete host command set on pinned
-`ubuntu-24.04` x86_64 and `macos-15` arm64 runners. Both legs enforce Rust
-formatting, Clippy, all workspace tests, warning-free documentation, web lint,
-and the production web build. Separate jobs compile the current bare-metal
-RISC-V `no_std` boundary and produce checksummed ESP32-P4 release evidence.
-Lockfile, supply-chain, host, portable, and firmware jobs feed one stable
-`Required Quality Gate` result and publish GitHub job summaries.
-
-Generate the reviewable dependency-policy evidence locally with the exact tools
-listed in `toolchain/manifest.toml`:
+Run the complete repository quality baseline with one command after installing
+the exact tools from `toolchain/manifest.toml`:
 
 ```sh
-cargo +1.97.1 xtask supply-chain-evidence
-(cd target/m0-009-supply-chain-evidence && shasum -a 256 -c SHA256SUMS)
+cargo +1.97.1 xtask ci
 ```
+
+It runs lockfile, host, supply-chain, portable Rust, and ESP32-P4 firmware gates
+in canonical order. Tool-version drift, workflow drift, evidence checksum
+errors, and tracked-file mutation fail closed. For diagnosis, list or select
+individual gates with `cargo +1.97.1 xtask ci --list` and
+`cargo +1.97.1 xtask ci --gate <name>`; only the command without `--gate`
+constitutes the complete local baseline.
+
+Pull requests and pushes to `main` invoke those same gate implementations in
+parallel on pinned `ubuntu-24.04` x86_64 and `macos-15` arm64 runners. Both host
+legs enforce Rust formatting, Clippy, all workspace tests, warning-free
+documentation, web lint, and the production web build. Separate jobs compile
+the current bare-metal RISC-V `no_std` boundary and produce checksummed
+ESP32-P4 release evidence. Lockfile, supply-chain, host, portable, and firmware
+jobs feed one stable `Required Quality Gate` result and publish GitHub job
+summaries and evidence artifacts.
 
 Actions are pinned to immutable revisions, credentials are not persisted, and
 the workflow token is read-only. See the [continuous integration contract](CI.md)
@@ -198,7 +205,7 @@ and checksum manifest. M0-008 publishes that build evidence in CI; M2 establishe
 flash, boot, and peripheral evidence. Run from the repository root:
 
 ```sh
-cargo +1.97.1 xtask firmware-evidence
+cargo +1.97.1 xtask ci --gate firmware
 ```
 
 ESP-IDF 6.0.0 is the active, cross-built baseline. The separate Vellum project
@@ -220,7 +227,7 @@ Current baseline on 2026-08-15:
 
 | Check | Result |
 | --- | --- |
-| `cargo test --locked --workspace` | Pass; 465 discovered tests |
+| `cargo test --locked --workspace` | Pass; 475 discovered unit, integration, and documentation tests |
 | Clippy with `-D warnings` | Pass without warnings |
 | `cargo fmt --all --check` | Pass |
 | Cargo/npm lockfile integrity | Pass |
@@ -231,6 +238,7 @@ Current baseline on 2026-08-15:
 | Bare-metal RISC-V boundaries | Pass locally for `m68000`, `rumiga-api`, and `rumiga-platform`; full core portability remains M1 |
 | ESP32-P4 firmware evidence | Pass locally and on GitHub for locked IDF 6.0.0; checksummed artifact published by run [`31890919057`](https://github.com/metaneutrons/rumiga/actions/runs/31890919057) |
 | Linux/macOS host CI | Pass on GitHub-hosted x86_64 and arm64 runners |
+| Unified local quality command | Pass; all five canonical gates complete through `cargo +1.97.1 xtask ci` |
 | Protected branch gate | `Required Quality Gate` from GitHub Actions required on `main` |
 
 Do not interpret the CI badge as D1001 runtime readiness. M0-008 proves portable

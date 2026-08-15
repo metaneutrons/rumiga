@@ -4,9 +4,9 @@
 manifest. The Rust, Cargo, npm, and target configuration files consume its
 values; `firmware/tests/toolchain_manifest.rs` rejects drift between them.
 
-This baseline pins inputs and drives the repository-owned M0-008 firmware and
-M0-009 supply-chain evidence builds. The local and hosted pipelines produce and
-verify a complete ESP32-P4 build bundle. GitHub Actions run
+This baseline pins inputs and drives the repository-owned M0-008 firmware,
+M0-009 supply-chain, and M0-010 unified quality gates. The local and hosted
+pipelines produce and verify a complete ESP32-P4 build bundle. GitHub Actions run
 [`31890919057`](https://github.com/metaneutrons/rumiga/actions/runs/31890919057)
 closes the M0-008 build-evidence gate; flashing, booting, and D1001 peripherals
 remain M2 HIL claims. GitHub Actions run
@@ -106,26 +106,39 @@ cargo +1.97.1 install --locked --version 0.22.2 cargo-audit
 cargo +1.97.1 install --locked --version 0.20.2 cargo-deny
 ```
 
+Install the current portable target as a one-time toolchain prerequisite:
+
+```sh
+rustup target add --toolchain 1.97.1 riscv32imafc-unknown-none-elf
+```
+
+The canonical local validation command is then:
+
+```sh
+cargo +1.97.1 xtask ci
+```
+
+It validates exact Rust, Node, npm, scanner, firmware-tool, and target pins
+before their respective gates. It does not install or switch global tools.
+
 Verify all cross-file pins without downloading ESP-IDF:
 
 ```sh
 cargo test --locked -p rumiga-firmware --test toolchain_manifest
 ```
 
-Compile the current real `no_std` boundary with:
+Compile the current real `no_std` boundary through its canonical gate with:
 
 ```sh
-cargo +1.97.1 check --locked \
-  --target riscv32imafc-unknown-none-elf \
-  -p m68000 -p rumiga-api -p rumiga-platform
+cargo +1.97.1 xtask ci --gate portable
 ```
 
 `rumiga-core` and `m68k` are not included because they still depend on `std`;
-M1 owns that conversion. Build and package the full ESP-IDF firmware with:
+M1 owns that conversion. Build, package, and verify the full ESP-IDF firmware
+with:
 
 ```sh
-cargo +1.97.1 xtask firmware-evidence
-(cd target/m0-008-firmware-evidence && shasum -a 256 -c SHA256SUMS)
+cargo +1.97.1 xtask ci --gate firmware
 ```
 
 The task owns a clean target directory, unsets ambient linker and IDF overrides,
@@ -135,12 +148,11 @@ creates the merged flash image. Its JSON manifest records source revision,
 tool versions, input and artifact hashes, target metadata, and explicit negative
 claims. Local dirty-worktree evidence is marked as such; CI rejects it.
 
-Generate the M0-009 policy artifact with the exact host Rust, Node, npm, and
-Cargo scanner versions above:
+Generate and verify the M0-009 policy artifact with the exact host Rust, Node,
+npm, and Cargo scanner versions above:
 
 ```sh
-cargo +1.97.1 xtask supply-chain-evidence
-(cd target/m0-009-supply-chain-evidence && shasum -a 256 -c SHA256SUMS)
+cargo +1.97.1 xtask ci --gate supply-chain
 ```
 
 The task rejects tool drift before scanning and records the actual versions in
