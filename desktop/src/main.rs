@@ -39,7 +39,8 @@ use storage::{
 };
 
 #[derive(rust_embed::RustEmbed)]
-#[folder = "../web/out/"]
+#[cfg_attr(test, folder = "test-assets/")]
+#[cfg_attr(not(test), folder = "../web/out/")]
 struct Asset;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
