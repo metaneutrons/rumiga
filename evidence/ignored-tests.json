@@ -1,0 +1,32 @@
+{
+  "schema": {
+    "id": "rumiga.test-ignore-policy.v1",
+    "version": 1
+  },
+  "entries": [
+    {
+      "id": "documentation:crates/m68000/src/decoder.rs - decoder::DECODER",
+      "reason_code": "incomplete-documentation-example",
+      "reason": "The decoder example is illustrative pseudocode and is not yet a standalone compilable doctest.",
+      "tracking": "M1-012"
+    },
+    {
+      "id": "documentation:crates/m68000/src/isa.rs - isa::IsaEntry",
+      "reason_code": "incomplete-documentation-example",
+      "reason": "The ISA entry example omits the surrounding memory and instruction fixture required to compile.",
+      "tracking": "M1-012"
+    },
+    {
+      "id": "documentation:crates/m68000/src/lib.rs",
+      "reason_code": "incomplete-documentation-example",
+      "reason": "The crate overview intentionally shows only part of a MemoryAccess implementation.",
+      "tracking": "M1-012"
+    },
+    {
+      "id": "harness:rumiga-core:test:boot_test:boot_kickstart_13_graphics_library_initializes_display_planes",
+      "reason_code": "known-cia-timer-initialization-blocker",
+      "reason": "The private-ROM Kickstart 1.3 graphics-library assertion is blocked by the documented CIA timer initialization defect.",
+      "tracking": "M6-003"
+    }
+  ]
+}

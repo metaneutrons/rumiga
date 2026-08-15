@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 mod ci;
+mod compatibility;
 mod supply_chain;
 
 const BUILD_DIRECTORY: &str = "m0-008-firmware-build";
@@ -185,10 +186,15 @@ fn main() -> Result<()> {
             ci::run(&arguments)
         }
         Some("firmware-evidence") if arguments.next().is_none() => build_firmware_evidence(),
+        Some("compatibility-evidence") if arguments.next().is_none() => {
+            compatibility::build_evidence()
+        }
         Some("supply-chain-evidence") if arguments.next().is_none() => {
             supply_chain::build_evidence()
         }
-        _ => bail!("usage: cargo xtask <ci|firmware-evidence|supply-chain-evidence> [options]"),
+        _ => bail!(
+            "usage: cargo xtask <ci|compatibility-evidence|firmware-evidence|supply-chain-evidence> [options]"
+        ),
     }
 }
 
@@ -859,7 +865,7 @@ fn artifact_evidence(path: &Path, role: &str) -> Result<ArtifactEvidence> {
     })
 }
 
-fn write_manifest_and_checksums(root: &Path, evidence: &EvidenceManifest) -> Result<()> {
+fn write_manifest_and_checksums<T: Serialize>(root: &Path, evidence: &T) -> Result<()> {
     let manifest_path = root.join("manifest.json");
     let mut manifest = serde_json::to_vec_pretty(evidence)?;
     manifest.push(b'\n');

@@ -223,6 +223,9 @@
       "command": "scripts/check-api-dto-parity.py --evidence-output target/evidence/rest-web-control-roundtrip/rumiga.json --notes-output target/evidence/rest-web-control-roundtrip/notes.md",
       "required_assets": [],
       "status_when_missing": "skipped-missing-assets",
+      "public_ci": {
+        "runner": "api-dto-parity"
+      },
       "notes": [
         "DTO and endpoint parity is automated; interactive UI parity still needs browser-level acceptance coverage."
       ]
