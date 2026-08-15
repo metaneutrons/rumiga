@@ -151,6 +151,9 @@ without unpublished sibling repositories or machine-specific paths.
   ESP32-P4 firmware evidence (completed by M0-008).
 - Add dependency license, advisory, source, and duplicate-version policy
   (completed by M0-009).
+- Provide one repository-owned command for the complete local quality baseline
+  and use the same named gate implementations in hosted CI (completed by
+  M0-010).
 - Eliminate hard-coded developer filesystem roots from the REST file service
   (completed by M0-006).
 - Publish machine-readable test and evidence summaries as CI artifacts.
