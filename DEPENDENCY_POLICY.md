@@ -11,6 +11,7 @@ establishes the canonical compatibility matrix in `toolchain/manifest.toml`.
 | Rust workspace | Root and member `Cargo.toml` files | `/Cargo.lock` | Cargo with `--locked` |
 | Web application | `web/package.json` | `web/package-lock.json` | `npm ci` |
 | Host/embedded toolchains | `rust-toolchain.toml`, `firmware/rust-toolchain.toml`, `.node-version`, `.cargo/config.toml` | `toolchain/manifest.toml` | Exact channels, versions, and immutable Git commits |
+| GitHub Actions | `.github/workflows/*.yml` | Immutable action commit SHAs in each workflow | Reviewed release annotations plus monthly Dependabot updates |
 
 The root `Cargo.lock` is committed because Rumiga ships applications and
 firmware, not only reusable libraries. Member-local Cargo lockfiles are ignored
@@ -25,6 +26,8 @@ manager and are never edited manually.
 - Manifest and lockfile changes belong in the same commit.
 - Registry dependencies must include checksums in the lockfile.
 - Git dependencies, when unavoidable, must use an immutable full commit SHA.
+- GitHub Actions must use an immutable full commit SHA with the reviewed release
+  recorded in an adjacent comment.
 - Path dependencies may only resolve inside this repository.
 - Wildcard versions and unpublished machine-local sources are prohibited.
 - npm dependency lifecycle scripts are denied unless their source and purpose
@@ -49,7 +52,7 @@ cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace
 
 cd web
-npm ci
+npm ci --ignore-scripts --no-audit --no-fund
 npm audit --audit-level=high
 npm run lint
 npm run build
@@ -57,7 +60,7 @@ npm run build
 
 ## Update Cadence
 
-- Dependabot opens grouped Rust and npm minor/patch updates monthly.
+- Dependabot opens grouped Rust, npm, and GitHub Actions updates monthly.
 - Major updates remain isolated so compatibility and migration impact are
   visible in review.
 - Critical or high-severity advisories are triaged within one business day.

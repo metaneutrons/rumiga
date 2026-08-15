@@ -144,8 +144,9 @@ without unpublished sibling repositories or machine-specific paths.
   (completed by M0-005).
 - Cross-build and link the minimal ESP32-P4 firmware locally on the pinned IDF
   6.0.0 stack (local portion of M0-008 completed).
-- Add CI jobs for macOS/Linux Rust, web lint/build, `no_std` compile, and
-  ESP32-P4 firmware compile.
+- Add CI jobs for macOS/Linux Rust and web lint/build (completed by M0-007).
+- Add CI jobs for the RISC-V `no_std` core and ESP32-P4 firmware compile
+  (remaining M0-008 scope).
 - Add dependency license, advisory, and duplicate-version policy.
 - Eliminate hard-coded developer filesystem roots from the REST file service
   (completed by M0-006).

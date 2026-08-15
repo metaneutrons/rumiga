@@ -35,3 +35,21 @@ updates:
         update-types:
           - minor
           - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+      time: "05:45"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 5
+    rebase-strategy: auto
+    commit-message:
+      prefix: "chore(ci-deps)"
+    groups:
+      actions-routine:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch

@@ -10,7 +10,7 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-15 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M0-006: sandboxed desktop REST media storage |
+| Latest completed task | M0-007: pinned Linux/macOS host CI matrix |
 | Development host | macOS, Apple Silicon |
 | Product target | Seeed reTerminal D1001, ESP32-P4 |
 | Product maturity | Desktop compatibility prototype |
@@ -59,6 +59,9 @@ No feature is called done merely because it compiled or booted once.
 - Root Cargo and web npm lockfiles are tracked. CI, Git hooks, and evidence
   commands reject stale Rust resolution; CI verifies npm with `npm ci` and a
   high-severity advisory gate.
+- The host CI contract uses pinned Ubuntu x86_64 and macOS arm64 runners,
+  immutable action revisions, minimal token permissions, complete Rust/web
+  gates, per-job summaries, and one fail-closed aggregate result.
 - ESP platform and firmware manifests are regular unpublished workspace
   packages and pass locked host checks under the same strict lint policy.
 - The locked ESP-IDF 6.0.0 and esp-rs matrix produces a statically linked
@@ -95,6 +98,13 @@ No feature is called done merely because it compiled or booted once.
   source-tag validation, and artifact publication are incomplete. The host graph, application
   dependency resolution, package topology, toolchains, ESP-IDF commit, ESP Rust
   crates, and BSP revision are repository-owned or immutably pinned.
+- The M0-007 workflow definition is locally syntax- and host-validated. A
+  GitHub-hosted Linux/macOS result for this exact revision cannot exist until
+  the commit is pushed; hosted evidence must cite that run separately.
+- The remote `main` branch has no branch-protection rule at the status date.
+  After the first hosted run, repository administration must require
+  `CI / Required Quality Gate`; that remote policy is not claimed by this
+  repository commit.
 
 ## Current Capability Matrix
 
@@ -136,9 +146,11 @@ The following commands were run during this audit:
 | `npm run build` | Pass | Next.js 16.3.1 production build is green |
 | `(cd web && npm ci --ignore-scripts)` | Pass | npm manifest and tracked lockfile agree |
 | `(cd web && npm audit --audit-level=high)` | Pass | No known npm vulnerabilities reported |
+| `actionlint .github/workflows/ci.yml` | Pass | Workflow syntax, matrix expressions, and action inputs are structurally valid |
+| Clean Ubuntu 24.04 arm64 Git-archive validation | Pass | Private-asset-free web build, Rust format, Clippy, 462 tests, and Rustdoc pass with explicit SLIRP/GLib prerequisites |
 
-The CI workflow validates both lockfiles and host-builds all workspace packages,
-but does not yet lint/build the web app or compile the ESP32-P4 target. A green
+The CI workflow validates both lockfiles and runs the complete host Rust/web
+matrix. It does not yet compile the `no_std` core or ESP32-P4 target. A green
 badge must therefore not be used as evidence of an embedded-ready product until
 milestone M0 closes.
 
@@ -234,7 +246,7 @@ Detailed gates are in `ROADMAP.md`; task IDs are in `IMPLEMENTATION_PLAN.md`.
 | Milestone | Status | Promotion evidence |
 | --- | --- | --- |
 | BASE: Desktop evidence foundation | Verified | Six current host scenarios and versioned evidence tooling |
-| M0: Hermetic engineering baseline | Active | Host graph, lockfiles, package topology, toolchains, and local IDF 6 target compile pass; CI artifacts and remaining gates remain |
+| M0: Hermetic engineering baseline | Active | Host graph, lockfiles, package topology, toolchains, host CI definition, and local IDF 6 target compile pass; target CI artifacts and remaining gates remain |
 | M1: Portable deterministic core | Planned | `no_std` RISC-V compile and deterministic replay parity |
 | M2: D1001 board bring-up | Planned | Flashable firmware, serial manifest, memory/display smoke |
 | M3: Bounded media and memory | Planned | 2 GiB HDF boots through bounded sector cache |

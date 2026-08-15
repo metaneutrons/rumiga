@@ -65,9 +65,10 @@ scripts/                    capture, parity, and report tools
 
 ### Requirements
 
-- Rust 1.85.0 for the audited host baseline.
+- Rust 1.97.1 for the pinned host toolchain; 1.85.0 remains the declared MSRV.
 - Git.
-- Node.js/npm only when changing or validating `web/`.
+- Node.js 24.19.0 and npm 11.17.0 for clean workspace builds; the desktop
+  binary embeds the generated web application.
 - User-provided Kickstart and disk images for boot evidence.
 
 The default Cargo graph is self-contained. Its CPU differential test uses the
@@ -78,6 +79,7 @@ sibling repository is required for that gate.
 
 ```sh
 git config core.hooksPath .githooks
+(cd web && npm ci --ignore-scripts --no-audit --no-fund && npm run build)
 cargo build --locked --workspace
 cargo test --locked --workspace
 cargo run --locked -p rumiga-desktop -- --help
@@ -142,12 +144,12 @@ scripts/check-api-dto-parity.py
 
 ### Web UI
 
-The web app is a real control surface for the desktop server; it is not required
-to build the Rust emulator.
+The web app is the control surface embedded into the desktop server. Generate
+`web/out` before a clean desktop or workspace build.
 
 ```sh
 cd web
-npm ci
+npm ci --ignore-scripts --no-audit --no-fund
 npm run lint
 npm run build
 npm run dev
@@ -156,6 +158,19 @@ npm run dev
 Both application lockfiles are tracked. CI rejects stale Rust or npm locks;
 routine updates follow the [dependency policy](DEPENDENCY_POLICY.md). Exact host
 and embedded build inputs are documented in the [toolchain baseline](TOOLCHAIN.md).
+
+### Continuous Integration
+
+Pull requests and pushes to `main` run the complete host command set on pinned
+`ubuntu-24.04` x86_64 and `macos-15` arm64 runners. Both legs enforce Rust
+formatting, Clippy, all workspace tests, warning-free documentation, web lint,
+and the production web build. Lockfile and advisory jobs feed one stable
+`CI / Required Quality Gate` result and publish GitHub job summaries.
+
+Actions are pinned to immutable revisions, credentials are not persisted, and
+the workflow token is read-only except for the RustSec check. See the
+[continuous integration contract](CI.md) for branch protection, reproduction,
+and evidence rules.
 
 ### D1001 / ESP32-P4
 
@@ -207,9 +222,11 @@ Current baseline on 2026-08-15:
 | npm audit | Pass; no known vulnerabilities reported |
 | ESP platform/firmware host checks | Pass; topology, pins, and strict lints |
 | ESP32-P4 firmware cross-build | Pass locally for locked IDF 6.0.0; CI artifact pending |
+| Linux/macOS host CI definition | Complete; first hosted run for this revision requires push |
 
 Do not interpret the CI badge as D1001 readiness. The current workflow does not
-cross-build firmware, compile RISC-V `no_std`, or build the web app.
+cross-build firmware or compile the RISC-V `no_std` core. Those are M0-008
+gates; host Rust and web validation are covered by the matrix.
 
 ## Documentation
 
@@ -223,6 +240,8 @@ cross-build firmware, compile RISC-V `no_std`, or build the web app.
 - [Audit](AUDIT.md): prioritized findings and remediation mapping.
 - [Dependency Policy](DEPENDENCY_POLICY.md): lockfiles, update cadence, review,
   and rollback rules.
+- [Continuous Integration](CI.md): required jobs, permissions, summaries, and
+  branch-protection contract.
 - [Vellum Reuse Authorization](docs/provenance/VELLUM_REUSE.md): owner
   authorization, exclusions, and source-transfer tracking.
 

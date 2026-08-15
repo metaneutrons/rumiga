@@ -66,7 +66,7 @@ milestone.
 | M0-004 | DONE | Integrate `rumiga-platform-esp` and `firmware` as unpublished workspace packages with centralized metadata, dependencies, and lints | Both manifests pass locked host checks; the full workspace remains green |
 | M0-005 | DONE | Pin Rust, Node, ESP-IDF, ESP Rust crates, Seeed BSP SHA, and required tools | Machine-readable toolchain files, immutable source revisions, locked ESP crates, and cross-file Rust tests |
 | M0-006 | DONE | Replace hard-coded REST storage path with configured root and canonical path policy | Unit tests cover traversal, symlink escape, bounded atomic uploads, deletion, REST media insertion, CLI limits, and stable HTTP errors |
-| M0-007 | NEXT | Add host CI matrix for Linux/macOS, Rust fmt/Clippy/test/doc, and web lint/build | Required checks run on pull requests and publish summaries |
+| M0-007 | DONE | Add host CI matrix for Linux/macOS, Rust fmt/Clippy/test/doc, and web lint/build | Pinned pull-request matrix, fail-closed aggregate check, job summaries, actionlint validation, and local host gates |
 | M0-008 | ACTIVE | Add RISC-V `no_std` compile job and ESP32-P4 firmware compile job | Local locked IDF 6 firmware ELF passes; CI artifacts must add core target check and firmware ELF/map |
 | M0-009 | PLANNED | Add advisory, license, source, and dependency-policy checks | No unreviewed critical/high advisory or incompatible license |
 | M0-010 | PLANNED | Add `xtask` or equivalent single entry point for local/CI quality gates | One documented command runs the same gates as CI |
@@ -143,6 +143,27 @@ M0-006 evidence (2026-08-15):
 - `cargo clippy --locked -p rumiga-desktop --all-targets -- -D warnings`
 - `cargo test --locked --workspace` (462 discovered tests)
 
+M0-007 evidence (2026-08-15):
+
+- `.github/workflows/ci.yml` targets explicit `ubuntu-24.04` x86_64 and
+  `macos-15` arm64 runners with `fail-fast: false`
+- immutable action revisions, non-persistent checkout credentials, read-only
+  default token permissions, exact Rust/Node/npm verification, and monthly
+  GitHub Actions updates
+- both host legs require Rust format, Clippy, tests, warning-free docs, npm
+  clean install without lifecycle scripts, ESLint, Next.js production build,
+  and a clean tracked worktree
+- clean Ubuntu validation identified and closed the native `libslirp`
+  prerequisite; both matrix legs provision their explicit system dependency
+- lockfile, host matrix, and RustSec results feed an unconditional
+  `Required Quality Gate`; every job publishes a Markdown summary
+- `actionlint .github/workflows/ci.yml`
+- full locked macOS host command set and npm advisory gate pass locally
+- a private-asset-free Git archive passes web install/lint/build and the full
+  locked Rust command set in a clean Ubuntu 24.04 arm64 container
+- first GitHub-hosted result for this revision must be recorded after push; it
+  is not represented as local evidence
+
 M0-008 local evidence (2026-08-15):
 
 - `env -u IDF_PATH CARGO_BUILD_RUSTC_WRAPPER= cargo build --locked --release
@@ -162,7 +183,7 @@ M0-008 local evidence (2026-08-15):
 5. `chore(toolchain): pin host and ESP build inputs`
 6. `fix(toolchain): adopt validated ESP-IDF 6 baseline`
 7. `fix(api): sandbox desktop media storage root`
-8. `ci: add host web and riscv build matrix`
+8. `ci: add pinned host quality matrix`
 9. `ci: publish quality and evidence summaries`
 
 ### M0 promotion command set

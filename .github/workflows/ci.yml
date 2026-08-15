@@ -1,72 +1,262 @@
 name: CI
+
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 env:
+  CARGO_INCREMENTAL: "0"
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: "-D warnings"
+  NEXT_TELEMETRY_DISABLED: "1"
+  RUST_BACKTRACE: "1"
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   lockfiles:
     name: Lockfile Integrity
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@1.97.1
-      - uses: actions/setup-node@v6
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Rust toolchain
+        run: >-
+          rustup toolchain install 1.97.1 --profile minimal
+          --component clippy,rustfmt --no-self-update
+
+      - name: Install pinned Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
           cache: npm
           cache-dependency-path: web/package-lock.json
+
+      - name: Install pinned npm
+        run: |
+          npm_version="$(node -p "require('./web/package.json').packageManager.split('@').at(-1)")"
+          npm install --global --ignore-scripts --no-audit --no-fund "npm@${npm_version}"
+          test "$(npm --version)" = "${npm_version}"
+
       - name: Verify Cargo lockfile
         run: cargo metadata --locked --no-deps --format-version 1 > /dev/null
+
       - name: Verify npm lockfile
         working-directory: web
-        run: npm ci --ignore-scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
       - name: Verify npm advisories
         working-directory: web
         run: npm audit --audit-level=high
+
       - name: Verify lockfiles are unchanged
         run: git diff --exit-code -- Cargo.lock web/package-lock.json
 
-  fmt:
-    name: Format
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@1.97.1
-        with:
-          components: rustfmt
-      - run: cargo fmt --all -- --check
+      - name: Publish lockfile summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          {
+            echo "## Lockfile integrity"
+            echo
+            echo "| Gate | Result |"
+            echo "| --- | --- |"
+            echo "| Cargo locked resolution | ${JOB_STATUS} |"
+            echo "| npm clean install and high advisory threshold | ${JOB_STATUS} |"
+          } >> "${GITHUB_STEP_SUMMARY}"
 
-  clippy:
-    name: Clippy
-    runs-on: ubuntu-latest
+  host:
+    name: Host / ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Linux x86_64
+            os: ubuntu-24.04
+          - label: macOS arm64
+            os: macos-15
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@1.97.1
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+          persist-credentials: false
 
-  test:
-    name: Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@1.97.1
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo test --locked --workspace
+      - name: Install Linux host dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes \
+            libglib2.0-dev \
+            libslirp-dev \
+            pkg-config
+
+      - name: Install macOS host dependencies
+        if: runner.os == 'macOS'
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+        run: brew install libslirp pkg-config
+
+      - name: Install pinned Rust toolchain
+        run: >-
+          rustup toolchain install 1.97.1 --profile minimal
+          --component clippy,rustfmt --no-self-update
+
+      - name: Cache Rust build inputs
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          shared-key: host-${{ matrix.os }}
+
+      - name: Install pinned Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install pinned npm
+        run: |
+          npm_version="$(node -p "require('./web/package.json').packageManager.split('@').at(-1)")"
+          npm install --global --ignore-scripts --no-audit --no-fund "npm@${npm_version}"
+          test "$(npm --version)" = "${npm_version}"
+
+      - name: Verify pinned host tools
+        run: |
+          expected_rust="$(awk -F '"' '/^channel =/ { print $2; exit }' rust-toolchain.toml)"
+          expected_node="$(tr -d '[:space:]' < .node-version)"
+          expected_npm="$(node -p "require('./web/package.json').packageManager.split('@').at(-1)")"
+          test "$(rustc --version | awk '{ print $2 }')" = "${expected_rust}"
+          test "$(node --version)" = "v${expected_node}"
+          test "$(npm --version)" = "${expected_npm}"
+          rustc --version --verbose
+          node --version
+          npm --version
+
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Lint web application
+        working-directory: web
+        run: npm run lint
+
+      - name: Build web application
+        working-directory: web
+        run: npm run build
+
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+
+      - name: Lint Rust workspace
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+
+      - name: Test Rust workspace
+        run: cargo test --locked --workspace
+
+      - name: Build Rust documentation
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --locked --workspace --no-deps
+
+      - name: Verify repository remains clean
+        run: git diff --exit-code
+
+      - name: Publish host summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          MATRIX_LABEL: ${{ matrix.label }}
+          MATRIX_OS: ${{ matrix.os }}
+        run: |
+          {
+            echo "## Host validation: ${MATRIX_LABEL}"
+            echo
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Runner | \`${MATRIX_OS}\` |"
+            echo "| Architecture | \`$(uname -m)\` |"
+            echo "| Rust | \`$(rustc --version 2>/dev/null || echo unavailable)\` |"
+            echo "| Node.js | \`$(node --version 2>/dev/null || echo unavailable)\` |"
+            echo "| npm | \`$(npm --version 2>/dev/null || echo unavailable)\` |"
+            echo "| Result | ${JOB_STATUS} |"
+            echo
+            echo "Rust format, Clippy, tests, documentation, web lint, and web build are required."
+          } >> "${GITHUB_STEP_SUMMARY}"
 
   audit:
-    name: Security Audit
-    runs-on: ubuntu-latest
+    name: Rust Security Audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      checks: write
     steps:
-      - uses: actions/checkout@v6
-      - uses: rustsec/audit-check@v2
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Audit Rust dependencies
+        uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish audit summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          {
+            echo "## Rust dependency audit"
+            echo
+            echo "Result: **${JOB_STATUS}**"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  quality-gate:
+    name: Required Quality Gate
+    if: always()
+    needs: [lockfiles, host, audit]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Publish and enforce aggregate result
+        env:
+          AUDIT_RESULT: ${{ needs.audit.result }}
+          HOST_RESULT: ${{ needs.host.result }}
+          LOCKFILE_RESULT: ${{ needs.lockfiles.result }}
+        run: |
+          aggregate=success
+          if [[ "${LOCKFILE_RESULT}" != success || "${HOST_RESULT}" != success || "${AUDIT_RESULT}" != success ]]; then
+            aggregate=failure
+          fi
+
+          {
+            echo "## Required quality gate"
+            echo
+            echo "| Required job | Result |"
+            echo "| --- | --- |"
+            echo "| Lockfile Integrity | ${LOCKFILE_RESULT} |"
+            echo "| Host matrix (Linux x86_64, macOS arm64) | ${HOST_RESULT} |"
+            echo "| Rust Security Audit | ${AUDIT_RESULT} |"
+            echo "| Aggregate | **${aggregate}** |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          test "${aggregate}" = success

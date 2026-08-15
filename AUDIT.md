@@ -217,6 +217,13 @@ Impact: CI does not test the actual product target.
 
 Remediation: M0-007 through M0-011.
 
+Resolution update (2026-08-15): M0-007 adds pinned Linux x86_64 and macOS
+arm64 host legs covering the complete Rust workspace, warning-free Rustdoc,
+web lint, and the production web build. All required host results feed one
+fail-closed summary check. Firmware target builds, `no_std`, evidence artifacts,
+and release outputs remain open under M0-008 through M0-011, so the product
+target portion of this finding is intentionally not retired.
+
 #### A-013: Compatibility evidence is narrow
 
 Six scenarios pass, seven require additional local assets, and three are
