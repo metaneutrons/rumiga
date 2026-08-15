@@ -117,7 +117,12 @@ jobs:
         if: runner.os == 'macOS'
         env:
           HOMEBREW_NO_AUTO_UPDATE: "1"
-        run: brew install libslirp pkg-config
+        run: |
+          # The hosted image carries this unused tap; remove it before Homebrew's trust check.
+          if brew tap | grep -Fqx "aws/tap"; then
+            brew untap aws/tap
+          fi
+          brew install libslirp pkg-config
 
       - name: Install pinned Rust toolchain
         run: >-
