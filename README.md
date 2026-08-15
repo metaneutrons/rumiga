@@ -250,7 +250,7 @@ Current baseline on 2026-08-15:
 | Bare-metal RISC-V boundaries | Pass locally for `m68000`, `rumiga-api`, and `rumiga-platform`; full core portability remains M1 |
 | ESP32-P4 firmware evidence | Pass locally and on GitHub for locked IDF 6.0.0; checksummed artifact published by run [`31890919057`](https://github.com/metaneutrons/rumiga/actions/runs/31890919057) |
 | Linux/macOS host CI | Pass on GitHub-hosted x86_64 and arm64 runners |
-| Public compatibility evidence | Pass locally; 1 asset-free scenario passes, 12 private-media scenarios are explicitly skipped, and 3 roadmap exclusions are unsupported |
+| Public compatibility evidence | Pass locally and on GitHub; 1 asset-free scenario passes, 12 private-media scenarios are explicitly skipped, and 3 roadmap exclusions are unsupported; artifact published by run [`31910408906`](https://github.com/metaneutrons/rumiga/actions/runs/31910408906) |
 | Unified local quality command | Pass; all six canonical gates complete through `cargo +1.97.1 xtask ci` |
 | Protected branch gate | `Required Quality Gate` from GitHub Actions required on `main` |
 
