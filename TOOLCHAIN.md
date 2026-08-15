@@ -4,9 +4,9 @@
 manifest. The Rust, Cargo, npm, and target configuration files consume its
 values; `firmware/tests/toolchain_manifest.rs` rejects drift between them.
 
-This baseline pins inputs and drives the repository-owned M0-008 evidence build.
-The local and hosted pipelines produce and verify a complete ESP32-P4 build
-bundle. GitHub Actions run
+This baseline pins inputs and drives the repository-owned M0-008 firmware and
+M0-009 supply-chain evidence builds. The local and hosted pipelines produce and
+verify a complete ESP32-P4 build bundle. GitHub Actions run
 [`31890919057`](https://github.com/metaneutrons/rumiga/actions/runs/31890919057)
 closes the M0-008 build-evidence gate; flashing, booting, and D1001 peripherals
 remain M2 HIL claims.
@@ -42,6 +42,8 @@ their own licenses.
 | `embuild` | `0.33.3` | ESP-IDF build integration |
 | `ldproxy` | `0.3.5` | ESP-IDF linker proxy |
 | `espflash` | `4.5.0` | Image and serial tooling |
+| `cargo-audit` | `0.22.2` | RustSec vulnerability and yanked-package evidence |
+| `cargo-deny` | `0.20.2` | License, source, advisory, and dependency-ban policy |
 
 `esp-idf-sys` receives the release tag `v6.0`, while the canonical manifest
 records its expected commit. M0-008 verification rejects any other resolved
@@ -97,6 +99,8 @@ Cargo tools:
 ```sh
 cargo +1.97.1 install --locked --version 0.3.5 ldproxy
 cargo +1.97.1 install --locked --version 4.5.0 espflash
+cargo +1.97.1 install --locked --version 0.22.2 cargo-audit
+cargo +1.97.1 install --locked --version 0.20.2 cargo-deny
 ```
 
 Verify all cross-file pins without downloading ESP-IDF:
@@ -127,6 +131,17 @@ RISC-V ELF and final Rust linker map, enforces the D1001 configuration, and
 creates the merged flash image. Its JSON manifest records source revision,
 tool versions, input and artifact hashes, target metadata, and explicit negative
 claims. Local dirty-worktree evidence is marked as such; CI rejects it.
+
+Generate the M0-009 policy artifact with the exact host Rust, Node, npm, and
+Cargo scanner versions above:
+
+```sh
+cargo +1.97.1 xtask supply-chain-evidence
+(cd target/m0-009-supply-chain-evidence && shasum -a 256 -c SHA256SUMS)
+```
+
+The task rejects tool drift before scanning and records the actual versions in
+its manifest. It also requires a clean worktree when `CI=true`.
 
 ## Update Rule
 

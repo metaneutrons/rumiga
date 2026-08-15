@@ -166,8 +166,16 @@ Pull requests and pushes to `main` run the complete host command set on pinned
 formatting, Clippy, all workspace tests, warning-free documentation, web lint,
 and the production web build. Separate jobs compile the current bare-metal
 RISC-V `no_std` boundary and produce checksummed ESP32-P4 release evidence.
-Lockfile, advisory, host, portable, and firmware jobs feed one stable
+Lockfile, supply-chain, host, portable, and firmware jobs feed one stable
 `Required Quality Gate` result and publish GitHub job summaries.
+
+Generate the reviewable dependency-policy evidence locally with the exact tools
+listed in `toolchain/manifest.toml`:
+
+```sh
+cargo +1.97.1 xtask supply-chain-evidence
+(cd target/m0-009-supply-chain-evidence && shasum -a 256 -c SHA256SUMS)
+```
 
 Actions are pinned to immutable revisions, credentials are not persisted, and
 the workflow token is read-only. See the [continuous integration contract](CI.md)

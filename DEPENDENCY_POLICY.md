@@ -2,7 +2,8 @@
 
 This policy makes dependency resolution reproducible and reviewable for the
 host workspace, web control surface, and embedded build inputs. M0-005
-establishes the canonical compatibility matrix in `toolchain/manifest.toml`.
+establishes the canonical compatibility matrix in `toolchain/manifest.toml`;
+M0-009 makes the policy executable and produces checksummed review evidence.
 
 ## Authoritative Files
 
@@ -12,6 +13,7 @@ establishes the canonical compatibility matrix in `toolchain/manifest.toml`.
 | Web application | `web/package.json` | `web/package-lock.json` | `npm ci` |
 | Host/embedded toolchains | `rust-toolchain.toml`, `firmware/rust-toolchain.toml`, `.node-version`, `.cargo/config.toml` | `toolchain/manifest.toml` | Exact channels, versions, and immutable Git commits |
 | GitHub Actions | `.github/workflows/*.yml` | Immutable action commit SHAs in each workflow | Reviewed release annotations plus monthly Dependabot updates |
+| Supply-chain policy | `supply-chain-policy.toml`, `deny.toml` | Exact reviewed exceptions and the two application lockfiles | `cargo +1.97.1 xtask supply-chain-evidence` |
 
 The root `Cargo.lock` is committed because Rumiga ships applications and
 firmware, not only reusable libraries. Member-local Cargo lockfiles are ignored
@@ -30,8 +32,9 @@ manager and are never edited manually.
   recorded in an adjacent comment.
 - Path dependencies may only resolve inside this repository.
 - Wildcard versions and unpublished machine-local sources are prohibited.
-- npm dependency lifecycle scripts are denied unless their source and purpose
-  are reviewed and the approval is recorded explicitly in `allowScripts`.
+- npm dependency lifecycle scripts are disabled in every install. Every package
+  carrying an install script must appear in `allowScripts` with value `false`;
+  undeclared scripts and any `true` value fail the policy checker.
 - Firmware release/evidence builds must have `IDF_PATH` unset; the pinned
   `ESP_IDF_VERSION=tag:v6.0` must resolve to the commit recorded in
   `toolchain/manifest.toml` and must not be replaced by a local SDK clone.
@@ -50,13 +53,39 @@ cargo metadata --locked --no-deps --format-version 1
 cargo fmt --all --check
 cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace
+cargo +1.97.1 xtask supply-chain-evidence
+(cd target/m0-009-supply-chain-evidence && shasum -a 256 -c SHA256SUMS)
 
 cd web
 npm ci --ignore-scripts --no-audit --no-fund
-npm audit --audit-level=high
 npm run lint
 npm run build
 ```
+
+## Enforced Supply-Chain Gate
+
+The repository-owned evidence task validates the policy before invoking any
+scanner. It rejects unapproved Cargo registries or Git revisions, external path
+dependencies, publishable workspace packages, wildcard versions, lockfile
+checksum drift, and any duplicate-version set not matching its exact reviewed
+baseline. `cargo-deny 0.20.2` evaluates all features for license, source, ban,
+and advisory policy; `cargo-audit 0.22.2` must report zero vulnerabilities and
+zero yanked packages from an advisory database no more than seven days old.
+
+The npm lockfile must use schema 3, match `package.json`, resolve only from the
+approved registry, and carry a syntactically exact SHA-512 SRI value for every
+non-bundled package. Bundled entries must descend from an integrity-protected
+archive. Every license is parsed as SPDX and must satisfy the allowlist or an
+exact package/version/license exception. `npm audit` fails on any high or
+critical advisory.
+
+All workflow YAML is parsed structurally. External Actions must come from the
+closed repository allowlist, use a full 40-character commit, and retain an
+adjacent reviewed release annotation. The resulting
+`rumiga.supply-chain.evidence.v1` manifest records tool versions, source and
+workflow hashes, graph counts, advisory database identity, active exception
+IDs, and scanner results. Full scanner output and `SHA256SUMS` are written to
+`target/m0-009-supply-chain-evidence` and uploaded by CI for 30 days.
 
 ## Update Cadence
 
@@ -91,7 +120,9 @@ deterministic trace or compatibility evidence appropriate to their behavior.
 
 ## Exceptions And Rollback
 
-An exception must name an owner, scope, reason, expiry date, and compensating
-control. It must not silently weaken `--locked` or `npm ci` gates. If an update
-regresses a release gate, revert the complete manifest-and-lockfile change and
-retain the failing evidence for follow-up.
+An exception must name an owner, exact scope, reason, expiry date, and
+compensating control in `supply-chain-policy.toml`. The checker rejects missing,
+duplicate, unused, or expired approvals; the complete policy itself must be
+reviewed at least annually. Exceptions must not silently weaken `--locked` or
+`npm ci` gates. If an update regresses a release gate, revert the complete
+manifest-and-lockfile change and retain the failing evidence for follow-up.
