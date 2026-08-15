@@ -18,7 +18,11 @@ env:
   CARGO_AUDIT_VERSION: "0.22.2"
   CARGO_INCREMENTAL: "0"
   CARGO_TERM_COLOR: always
+  EMBEDDED_RUST_CHANNEL: "nightly-2026-07-27"
+  ESPFLASH_VERSION: "4.5.0"
+  LDPROXY_VERSION: "0.3.5"
   NEXT_TELEMETRY_DISABLED: "1"
+  PORTABLE_RUST_TARGET: "riscv32imafc-unknown-none-elf"
   RUST_BACKTRACE: "1"
 
 defaults:
@@ -234,10 +238,139 @@ jobs:
             echo "Result: **${JOB_STATUS}**"
           } >> "${GITHUB_STEP_SUMMARY}"
 
+  portable:
+    name: Portable Rust / RISC-V no_std
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Rust target
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal --no-self-update
+          rustup target add --toolchain 1.97.1 "${PORTABLE_RUST_TARGET}"
+
+      - name: Cache Rust build inputs
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          shared-key: portable-riscv
+
+      - name: Check current no_std boundaries
+        run: >-
+          cargo +1.97.1 check --locked --target "${PORTABLE_RUST_TARGET}"
+          -p m68000 -p rumiga-api -p rumiga-platform
+
+      - name: Verify repository remains clean
+        run: git diff --exit-code
+
+      - name: Publish portable Rust summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          {
+            echo "## Portable Rust boundary"
+            echo
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Target | \`${PORTABLE_RUST_TARGET}\` |"
+            echo "| Packages | \`m68000\`, \`rumiga-api\`, \`rumiga-platform\` |"
+            echo "| Result | ${JOB_STATUS} |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  firmware:
+    name: Firmware / ESP32-P4 release evidence
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install ESP-IDF prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes \
+            bison \
+            ccache \
+            cmake \
+            dfu-util \
+            flex \
+            gperf \
+            jq \
+            libffi-dev \
+            libssl-dev \
+            libudev-dev \
+            libusb-1.0-0 \
+            ninja-build \
+            pkg-config \
+            python3 \
+            python3-pip \
+            python3-venv \
+            wget
+
+      - name: Install pinned Rust toolchains
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal --no-self-update
+          rustup toolchain install "${EMBEDDED_RUST_CHANNEL}" \
+            --profile minimal --component rust-src --no-self-update
+
+      - name: Cache Rust build inputs
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          cache-targets: false
+          shared-key: firmware-esp32p4
+
+      - name: Install pinned firmware tools
+        run: |
+          cargo +1.97.1 install --locked --version "${LDPROXY_VERSION}" ldproxy
+          cargo +1.97.1 install --locked --version "${ESPFLASH_VERSION}" espflash
+
+      - name: Build and verify firmware evidence
+        run: cargo +1.97.1 xtask firmware-evidence
+
+      - name: Verify artifact checksums
+        working-directory: target/m0-008-firmware-evidence
+        run: sha256sum --check SHA256SUMS
+
+      - name: Verify repository remains clean
+        run: git diff --exit-code
+
+      - name: Upload firmware evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: firmware-esp32p4-${{ github.sha }}
+          path: target/m0-008-firmware-evidence
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 9
+
+      - name: Publish firmware summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          manifest=target/m0-008-firmware-evidence/manifest.json
+          {
+            echo "## ESP32-P4 firmware evidence"
+            echo
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Board | \`$(jq -r '.board // "unavailable"' "${manifest}" 2>/dev/null || echo unavailable)\` |"
+            echo "| Target | \`$(jq -r '.target // "unavailable"' "${manifest}" 2>/dev/null || echo unavailable)\` |"
+            echo "| ESP-IDF | \`$(jq -r '.esp_idf.version // "unavailable"' "${manifest}" 2>/dev/null || echo unavailable)\` |"
+            echo "| Artifact | \`firmware-esp32p4-${GITHUB_SHA}\` |"
+            echo "| Result | ${JOB_STATUS} |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
   quality-gate:
     name: Required Quality Gate
     if: always()
-    needs: [lockfiles, host, audit]
+    needs: [lockfiles, host, audit, portable, firmware]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}
@@ -245,11 +378,13 @@ jobs:
       - name: Publish and enforce aggregate result
         env:
           AUDIT_RESULT: ${{ needs.audit.result }}
+          FIRMWARE_RESULT: ${{ needs.firmware.result }}
           HOST_RESULT: ${{ needs.host.result }}
           LOCKFILE_RESULT: ${{ needs.lockfiles.result }}
+          PORTABLE_RESULT: ${{ needs.portable.result }}
         run: |
           aggregate=success
-          if [[ "${LOCKFILE_RESULT}" != success || "${HOST_RESULT}" != success || "${AUDIT_RESULT}" != success ]]; then
+          if [[ "${LOCKFILE_RESULT}" != success || "${HOST_RESULT}" != success || "${AUDIT_RESULT}" != success || "${PORTABLE_RESULT}" != success || "${FIRMWARE_RESULT}" != success ]]; then
             aggregate=failure
           fi
 
@@ -261,6 +396,8 @@ jobs:
             echo "| Lockfile Integrity | ${LOCKFILE_RESULT} |"
             echo "| Host matrix (Linux x86_64, macOS arm64) | ${HOST_RESULT} |"
             echo "| Rust Security Audit | ${AUDIT_RESULT} |"
+            echo "| Portable Rust / RISC-V no_std | ${PORTABLE_RESULT} |"
+            echo "| Firmware / ESP32-P4 release evidence | ${FIRMWARE_RESULT} |"
             echo "| Aggregate | **${aggregate}** |"
           } >> "${GITHUB_STEP_SUMMARY}"
 

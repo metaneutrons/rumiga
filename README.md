@@ -164,7 +164,9 @@ and embedded build inputs are documented in the [toolchain baseline](TOOLCHAIN.m
 Pull requests and pushes to `main` run the complete host command set on pinned
 `ubuntu-24.04` x86_64 and `macos-15` arm64 runners. Both legs enforce Rust
 formatting, Clippy, all workspace tests, warning-free documentation, web lint,
-and the production web build. Lockfile and advisory jobs feed one stable
+and the production web build. Separate jobs compile the current bare-metal
+RISC-V `no_std` boundary and produce checksummed ESP32-P4 release evidence.
+Lockfile, advisory, host, portable, and firmware jobs feed one stable
 `CI / Required Quality Gate` result and publish GitHub job summaries.
 
 Actions are pinned to immutable revisions, credentials are not persisted, and
@@ -183,14 +185,12 @@ It is not an Xtensa target. The ESP platform and firmware are now regular
 workspace packages and pass host-side checks. M0-005 pins their Rust nightly,
 ESP-IDF commit, ESP Rust crates, Seeed BSP revision, linker, and flash tooling.
 The driver modules remain stubs, but the locked ESP-IDF 6.0.0 stack now produces
-an ESP32-P4 firmware ELF locally. M0-008 still has to reproduce and publish that
-artifact in CI; M2 establishes flash, boot, and peripheral evidence. Run from
-the firmware directory:
+a verified ELF, linker map, merged image, size report, resolved configuration,
+and checksum manifest. M0-008 publishes that build evidence in CI; M2 establishes
+flash, boot, and peripheral evidence. Run from the repository root:
 
 ```sh
-env -u IDF_PATH CARGO_BUILD_RUSTC_WRAPPER= \
-  cargo build --locked --release \
-  --target riscv32imafc-esp-espidf
+cargo +1.97.1 xtask firmware-evidence
 ```
 
 ESP-IDF 6.0.0 is the active, cross-built baseline. The separate Vellum project
@@ -212,7 +212,7 @@ Current baseline on 2026-08-15:
 
 | Check | Result |
 | --- | --- |
-| `cargo test --locked --workspace` | Pass; 462 discovered tests |
+| `cargo test --locked --workspace` | Pass; 465 discovered tests |
 | Clippy with `-D warnings` | Pass without warnings |
 | `cargo fmt --all --check` | Pass |
 | Cargo/npm lockfile integrity | Pass |
@@ -220,12 +220,15 @@ Current baseline on 2026-08-15:
 | Web production build | Pass |
 | npm audit | Pass; no known vulnerabilities reported |
 | ESP platform/firmware host checks | Pass; topology, pins, and strict lints |
-| ESP32-P4 firmware cross-build | Pass locally for locked IDF 6.0.0; CI artifact pending |
-| Linux/macOS host CI definition | Complete; first hosted run for this revision requires push |
+| Bare-metal RISC-V boundaries | Pass locally for `m68000`, `rumiga-api`, and `rumiga-platform`; full core portability remains M1 |
+| ESP32-P4 firmware evidence | Pass locally for locked IDF 6.0.0; hosted artifact pending |
+| Linux/macOS host CI | Pass on GitHub-hosted x86_64 and arm64 runners |
+| Protected branch gate | `CI / Required Quality Gate` required on `main` |
 
-Do not interpret the CI badge as D1001 readiness. The current workflow does not
-cross-build firmware or compile the RISC-V `no_std` core. Those are M0-008
-gates; host Rust and web validation are covered by the matrix.
+Do not interpret the CI badge as D1001 runtime readiness. M0-008 proves portable
+package compilation plus firmware compile, link, configuration, and image
+generation. It does not prove that the stub firmware flashes, boots, drives a
+peripheral, or meets performance targets; those are M2 and later gates.
 
 ## Documentation
 

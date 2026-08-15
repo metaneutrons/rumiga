@@ -1,3 +1,6 @@
+[alias]
+xtask = "run --locked --package rumiga-xtask --"
+
 [target.riscv32imafc-esp-espidf]
 linker = "ldproxy"
 runner = "espflash flash --monitor"
