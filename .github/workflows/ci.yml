@@ -161,6 +161,63 @@ jobs:
             echo "Rust format, Clippy, tests, documentation, web lint, and web build are required."
           } >> "${GITHUB_STEP_SUMMARY}"
 
+  compatibility:
+    name: Public Compatibility Evidence
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes \
+            libglib2.0-dev \
+            libslirp-dev \
+            pkg-config
+
+      - name: Install pinned Rust toolchain
+        run: >-
+          rustup toolchain install 1.97.1 --profile minimal --no-self-update
+
+      - name: Cache Rust build inputs
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          shared-key: compatibility-linux
+
+      - name: Run compatibility gate
+        run: cargo +1.97.1 xtask ci --gate compatibility
+
+      - name: Upload public compatibility evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: compatibility-${{ github.sha }}
+          path: target/m0-011-compatibility-evidence
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 9
+
+      - name: Publish compatibility summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          manifest=target/m0-011-compatibility-evidence/manifest.json
+          {
+            echo "## Public compatibility evidence"
+            echo
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Scenario pass / skipped / unsupported | $(jq -r '[.summary.compatibility.pass, .summary.compatibility.skipped, .summary.compatibility.unsupported] | join(" / ")' "${manifest}" 2>/dev/null || echo unavailable) |"
+            echo "| Tests discovered / ignored / runnable | $(jq -r '[.summary.tests.discovered, .summary.tests.ignored, .summary.tests.runnable] | join(" / ")' "${manifest}" 2>/dev/null || echo unavailable) |"
+            echo "| Private media included | $(jq -r '.scope.private_media_included // "unavailable"' "${manifest}" 2>/dev/null || echo unavailable) |"
+            echo "| Artifact | compatibility-${GITHUB_SHA} |"
+            echo "| Result | ${JOB_STATUS} |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
   supply-chain:
     name: Supply Chain Policy
     runs-on: ubuntu-24.04
@@ -353,13 +410,14 @@ jobs:
   quality-gate:
     name: Required Quality Gate
     if: always()
-    needs: [lockfiles, host, supply-chain, portable, firmware]
+    needs: [lockfiles, host, compatibility, supply-chain, portable, firmware]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}
     steps:
       - name: Publish and enforce aggregate result
         env:
+          COMPATIBILITY_RESULT: ${{ needs.compatibility.result }}
           FIRMWARE_RESULT: ${{ needs.firmware.result }}
           HOST_RESULT: ${{ needs.host.result }}
           LOCKFILE_RESULT: ${{ needs.lockfiles.result }}
@@ -367,7 +425,7 @@ jobs:
           SUPPLY_CHAIN_RESULT: ${{ needs.supply-chain.result }}
         run: |
           aggregate=success
-          if [[ "${LOCKFILE_RESULT}" != success || "${HOST_RESULT}" != success || "${SUPPLY_CHAIN_RESULT}" != success || "${PORTABLE_RESULT}" != success || "${FIRMWARE_RESULT}" != success ]]; then
+          if [[ "${LOCKFILE_RESULT}" != success || "${HOST_RESULT}" != success || "${COMPATIBILITY_RESULT}" != success || "${SUPPLY_CHAIN_RESULT}" != success || "${PORTABLE_RESULT}" != success || "${FIRMWARE_RESULT}" != success ]]; then
             aggregate=failure
           fi
 
@@ -378,6 +436,7 @@ jobs:
             echo "| --- | --- |"
             echo "| Lockfile Integrity | ${LOCKFILE_RESULT} |"
             echo "| Host matrix (Linux x86_64, macOS arm64) | ${HOST_RESULT} |"
+            echo "| Public Compatibility Evidence | ${COMPATIBILITY_RESULT} |"
             echo "| Supply Chain Policy | ${SUPPLY_CHAIN_RESULT} |"
             echo "| Portable Rust / RISC-V no_std | ${PORTABLE_RESULT} |"
             echo "| Firmware / ESP32-P4 release evidence | ${FIRMWARE_RESULT} |"
