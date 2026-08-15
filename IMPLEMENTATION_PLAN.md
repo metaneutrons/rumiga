@@ -125,7 +125,8 @@ M0-005 evidence (2026-08-14):
   Seeed hardware-reference SHA independently verified against their Git
   repositories
 - Vellum revision `15bff64d316c3751861d02fcf7ace6b47afab176` records working
-  IDF 6.0.0 D1001 bring-up; its AGPL implementation is reference-only
+  IDF 6.0.0 D1001 bring-up; owner-authored implementation code is authorized
+  for provenance-tracked reuse in Rumiga under `GPL-3.0-only`
 
 M0-008 local evidence (2026-08-15):
 
@@ -200,7 +201,7 @@ visible in CI logs.
 | M2-001 | PLANNED | Record D1001 schematic revision, board revision, BSP SHA, and connector inventory | Reviewed hardware manifest under `docs/hardware` |
 | M2-002 | PLANNED | Create reproducible ESP-IDF/Rust firmware build using `riscv32imafc-esp-espidf` | CI produces ELF, binary, map, size report, and checksums |
 | M2-003 | PLANNED | Define partitions, PSRAM allocator, panic, watchdog, logging, and reset policy | Boot manifest reports all values and reset reason |
-| M2-004 | PLANNED | Create clean-room D1001 board adapters and safety/provenance contract | Rust-first surface, narrowly scoped unsafe code, host mocks, and license audit pass |
+| M2-004 | PLANNED | Port proven Vellum D1001 services into Rust-first adapters and establish the safety/provenance contract | Exact source-transfer records, narrowly scoped unsafe code, host mocks, and third-party license audit pass |
 | M2-005 | PLANNED | Add serial command protocol for capabilities, self-test, metrics, and reset | Versioned protocol test and captured cold-boot log |
 | M2-006 | PLANNED | Bring up RGB565 display test pattern and framebuffer checksum | HIL screenshot/checksum artifact |
 | M2-007 | PLANNED | Bring up GSL3670 touch and calibration capture | HIL touch-point matrix |
@@ -213,7 +214,7 @@ visible in CI logs.
 ### M2 functional commits
 
 1. `build(firmware): add pinned esp32-p4 image pipeline`
-2. `feat(d1001): add clean-room board adapters`
+2. `feat(d1001): port authorized Vellum board services`
 3. `feat(firmware): expose boot manifest and serial self-test`
 4. `feat(d1001): bring up display and touch`
 5. `feat(d1001): bring up audio and sdmmc`

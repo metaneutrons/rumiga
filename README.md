@@ -180,10 +180,12 @@ candidate pending an upstream Rust DSI compatibility fix and fresh HIL; see
 [Toolchain](TOOLCHAIN.md#esp-idf-6).
 
 The implementation remains Rust-first. The official Seeed BSP and Vellum are
-hardware and behavior references; required MIPI-DSI, touch, audio, SD/MMC,
-Wi-Fi, and USB services will be exposed through safe platform contracts with
-only the smallest reviewed ESP-IDF FFI surface. Vellum's AGPL board code is not
-copied into this GPL-only repository.
+hardware and behavior references; Vellum is also an owner-authorized source for
+the board implementation. Required MIPI-DSI, touch, audio, SD/MMC, Wi-Fi, and
+USB services will be exposed through safe platform contracts with only the
+smallest reviewed ESP-IDF FFI surface. Vellum-derived code records exact source
+provenance and is distributed here under `GPL-3.0-only`; third-party inputs keep
+their own license obligations.
 
 ## Quality Baseline
 
@@ -216,6 +218,8 @@ cross-build firmware, compile RISC-V `no_std`, or build the web app.
 - [Audit](AUDIT.md): prioritized findings and remediation mapping.
 - [Dependency Policy](DEPENDENCY_POLICY.md): lockfiles, update cadence, review,
   and rollback rules.
+- [Vellum Reuse Authorization](docs/provenance/VELLUM_REUSE.md): owner
+  authorization, exclusions, and source-transfer tracking.
 
 ## Legal Inputs
 

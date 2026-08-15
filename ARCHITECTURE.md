@@ -321,8 +321,10 @@ an unsafe FFI boundary. The exception is narrowly scoped:
 - the public adapter API is safe Rust with typed handles and errors;
 - callbacks do not outlive their owners and DMA buffers have explicit lifetime;
 - host mocks and D1001 HIL test the safe contract;
-- Seeed and Vellum inputs carry source and license provenance; incompatible
-  reference code is not copied into adapters;
+- Seeed inputs and Vellum-derived adapters carry source and license provenance;
+  each Vellum transfer records its immutable revision and paths under the
+  copyright-holder authorization, while third-party inputs require a compatible
+  license;
 - no unsafe code is permitted in emulator logic.
 
 ## Configuration and API

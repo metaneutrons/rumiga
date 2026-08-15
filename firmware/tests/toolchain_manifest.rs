@@ -53,6 +53,40 @@ fn string_array(value: &toml::Value) -> Vec<&str> {
         .collect()
 }
 
+fn assert_vellum_reuse_policy(root: &Path, manifest: &toml::Value, destination_license: &str) {
+    let section = "d1001_idf6_evidence";
+    for (key, expected) in [
+        ("usage", "authorized-source-reuse"),
+        ("source_license", "AGPL-3.0-or-later"),
+        (
+            "reuse_authorization",
+            "copyright-holder-authorized-for-rumiga-gpl-3.0-only",
+        ),
+        ("third_party_policy", "separate-license-review-required"),
+    ] {
+        assert_eq!(manifest_string(manifest, section, key), expected);
+    }
+    assert_eq!(
+        manifest_string(manifest, section, "destination_license"),
+        destination_license
+    );
+
+    let provenance_policy = manifest_string(manifest, section, "provenance_policy");
+    let provenance = read(&root.join(provenance_policy));
+    for required_record in [
+        manifest_string(manifest, section, "repository"),
+        manifest_string(manifest, section, "revision"),
+        destination_license,
+        "third-party",
+        "Transfer Register",
+    ] {
+        assert!(
+            provenance.contains(required_record),
+            "{provenance_policy} must record {required_record}"
+        );
+    }
+}
+
 #[test]
 fn pins_match_their_consuming_manifests() {
     let root = workspace_root();
@@ -202,18 +236,11 @@ fn source_revisions_and_upgrade_state_are_explicit() {
         manifest_string(&manifest, "esp_idf", "version"),
         manifest_string(&manifest, "seeed_bsp", "esp_idf_version")
     );
-    assert_eq!(
-        manifest_string(&manifest, "d1001_idf6_evidence", "usage"),
-        "reference-only-clean-room"
-    );
-    assert_eq!(
-        cargo["workspace"]["package"]["license"].as_str(),
-        Some("GPL-3.0-only")
-    );
-    assert_eq!(
-        manifest_string(&manifest, "d1001_idf6_evidence", "source_license"),
-        "AGPL-3.0-or-later"
-    );
+    let workspace_license = cargo["workspace"]["package"]["license"]
+        .as_str()
+        .expect("workspace license must be a string");
+    assert_eq!(workspace_license, "GPL-3.0-only");
+    assert_vellum_reuse_policy(&root, &manifest, workspace_license);
     assert_eq!(
         manifest["build"]["idf_path_policy"].as_str(),
         Some("must-be-unset")

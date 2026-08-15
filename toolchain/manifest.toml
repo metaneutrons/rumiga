@@ -46,7 +46,11 @@ idf_commit = "662a3be354759d9487bf4b1a629fadb766cb1800"
 target = "esp32p4"
 scope = ["build", "boot", "display", "touch", "audio", "usb", "wifi"]
 source_license = "AGPL-3.0-or-later"
-usage = "reference-only-clean-room"
+usage = "authorized-source-reuse"
+reuse_authorization = "copyright-holder-authorized-for-rumiga-gpl-3.0-only"
+destination_license = "GPL-3.0-only"
+provenance_policy = "docs/provenance/VELLUM_REUSE.md"
+third_party_policy = "separate-license-review-required"
 
 [seeed_bsp]
 commit = "5074d3b2f45626b261298e305aaf792036febc5a"

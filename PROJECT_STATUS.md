@@ -174,9 +174,11 @@ The official Seeed BSP is cloned locally for analysis at revision
 `5074d3b2f45626b261298e305aaf792036febc5a`. It targets ESP-IDF 5.4.2 and is a
 hardware reference, not part of Rumiga's build. Vellum revision
 `15bff64d316c3751861d02fcf7ace6b47afab176` independently proves ESP-IDF 6.0.0
-bring-up on the D1001. Rumiga now cross-builds on that baseline. Vellum's AGPL
-board code remains reference-only; device services require clean-room Rust or
-compatibly licensed adapters plus Rumiga HIL evidence.
+bring-up on the D1001. Rumiga now cross-builds on that baseline. The copyright
+holder has authorized reuse of their Vellum board code in Rumiga under
+`GPL-3.0-only`; device services may selectively port that proven implementation
+through Rust-first adapters with transfer provenance, third-party license
+review, and Rumiga HIL evidence.
 
 ## Critical Risks
 
@@ -206,8 +208,9 @@ These decisions are binding until replaced by a reviewed architecture decision:
 
 1. The emulator and product logic remain Rust. D1001 services use maintained
    Rust APIs first and may call ESP-IDF through narrow audited FFI boundaries.
-   Seeed and Vellum are hardware/behavior references, not wholesale source
-   dependencies; provenance and license review are release gates.
+   Seeed remains a hardware reference. Vellum is hardware evidence and an
+   owner-authorized implementation source, but reuse stays selective;
+   provenance and third-party license review are release gates.
 2. `rumiga-core` targets `no_std + alloc`. It does not open files, spawn tasks,
    select CPU cores, serve HTTP, or know about D1001 hardware.
 3. The core has one deterministic owner. Desktop and firmware schedule it;

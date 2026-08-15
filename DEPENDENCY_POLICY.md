@@ -34,9 +34,11 @@ manager and are never edited manually.
   `toolchain/manifest.toml` and must not be replaced by a local SDK clone.
 - ESP-IDF 6.0.0 is the active baseline. Patchlevel promotion requires a locked
   Rust cross-build and the D1001 hardware gates in `TOOLCHAIN.md`.
-- Seeed and Vellum sources are reference inputs, not implicit dependencies.
-  Vellum's AGPL implementation may inform tests and behavior but cannot be
-  copied into the GPL-only tree without an explicit licensing decision.
+- Seeed sources remain hardware-reference inputs, not implicit dependencies.
+  Owner-authored Vellum code is authorized for selective reuse in Rumiga under
+  `GPL-3.0-only`; each transfer must follow the
+  [provenance policy](docs/provenance/VELLUM_REUSE.md). Third-party, generated,
+  and binary Vellum inputs require an independent license review.
 
 Standard verification commands:
 

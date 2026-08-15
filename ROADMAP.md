@@ -67,11 +67,13 @@ The initial D1001 backend uses the cross-built ESP-IDF 6.0.0 baseline. Vellum
 proves that SDK on the same board, while the official Seeed BSP remains a pinned
 hardware reference. Rumiga will implement board composition and product logic
 in Rust, use maintained Rust ESP-IDF interfaces where available, and isolate
-only unavoidable C calls behind narrow reviewed adapters. Vellum's AGPL board
-implementation is reference-only and must not cross the GPL-only source
-boundary without explicit relicensing. ESP-IDF 6.0.2 is the tracked patchlevel
-candidate; promotion requires compatible esp-rs DSI bindings and the complete
-D1001 HIL gate.
+only unavoidable C calls behind narrow reviewed adapters. The copyright holder
+has authorized selective reuse of their Vellum implementation in Rumiga under
+`GPL-3.0-only`. Every transfer follows the
+[Vellum provenance policy](docs/provenance/VELLUM_REUSE.md), while third-party
+inputs retain their original license requirements. ESP-IDF 6.0.2 is the tracked
+patchlevel candidate; promotion requires compatible esp-rs DSI bindings and
+the complete D1001 HIL gate.
 
 ## Delivery Tracks
 
@@ -215,7 +217,8 @@ each board service independently before loading the emulator.
 - A clean, documented macOS command builds, flashes, and monitors the firmware.
 - Firmware boots 20 consecutive cold starts without watchdog reset.
 - The board service matrix records pass/fail and measured memory use.
-- A provenance audit proves that no incompatible Vellum source entered Rumiga.
+- A provenance audit maps every Vellum-derived change to immutable source paths
+  and confirms that all third-party inputs have compatible terms.
 - Display test pattern, touch coordinates, audio tone, and SD checksum artifacts
   are captured by HIL.
 - USB keyboard and mouse enumerate through the documented physical connection,

@@ -13,9 +13,12 @@ Those claims require the remaining M0-008 automation and M2 HIL evidence.
 The emulator core, platform contracts, firmware composition, configuration,
 tests, and product behavior remain Rust. The D1001 backend uses maintained Rust
 interfaces first and admits ESP-IDF C only through generated bindings or a
-narrow audited adapter. Vellum's working D1001 port is behavioral and hardware
-evidence, not a code dependency: its AGPL-3.0-or-later board code must not be
-copied into this GPL-3.0-only repository without an explicit compatible license.
+narrow audited adapter. Vellum's working D1001 port is both hardware evidence
+and an authorized implementation source. Code owned by the shared copyright
+holder may be adapted and distributed in Rumiga under `GPL-3.0-only` according
+to the [Vellum reuse policy](docs/provenance/VELLUM_REUSE.md). Every transfer
+records exact provenance; third-party and generated inputs remain subject to
+their own licenses.
 
 ## Pinned Baseline
 
