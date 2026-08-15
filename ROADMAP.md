@@ -147,7 +147,8 @@ without unpublished sibling repositories or machine-specific paths.
 - Add CI jobs for macOS/Linux Rust, web lint/build, `no_std` compile, and
   ESP32-P4 firmware compile.
 - Add dependency license, advisory, and duplicate-version policy.
-- Eliminate hard-coded developer filesystem roots from the REST file service.
+- Eliminate hard-coded developer filesystem roots from the REST file service
+  (completed by M0-006).
 - Publish machine-readable test and evidence summaries as CI artifacts.
 
 ### Exit gate G0

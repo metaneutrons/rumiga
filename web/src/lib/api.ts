@@ -250,7 +250,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, init);
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(body || `HTTP ${res.status}`);
+    let message = body || `HTTP ${res.status}`;
+
+    try {
+      const payload = JSON.parse(body) as Partial<ApiResponse<unknown>>;
+      if (typeof payload.error === 'string' && payload.error.length > 0) {
+        message = payload.error_code
+          ? `${payload.error} (${payload.error_code})`
+          : payload.error;
+      }
+    } catch {
+      // Preserve plain-text responses from proxies and older servers.
+    }
+
+    throw new Error(message);
   }
   return res.json() as Promise<T>;
 }

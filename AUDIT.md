@@ -169,6 +169,14 @@ Impact: behavior is non-portable and cannot be exposed on Wi-Fi safely.
 Remediation: M0-006 for desktop correctness; M8-005 through M8-007 for device
 security.
 
+Resolution update (2026-08-15): M0-006 replaces the developer path with a
+configured, canonical `MediaStore`. Listing, deletion, and REST floppy insertion
+are root-confined; symlink escapes fail closed; uploads stream under a
+configurable size limit and publish atomically without overwrite; filesystem
+capacity and HTTP errors are real rather than synthetic. The listener remains
+localhost-only. Authentication, authorization, CSRF, and Wi-Fi exposure remain
+open under M8-005 through M8-007.
+
 #### A-010: No hardware evidence pipeline exists
 
 The evidence framework is host-oriented. There is no flash automation, serial

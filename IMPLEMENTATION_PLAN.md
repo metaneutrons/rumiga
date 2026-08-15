@@ -65,8 +65,8 @@ milestone.
 | M0-003 | DONE | Track the root `Cargo.lock`, enforce both application lockfiles, and automate the documented update cadence | Repeated locked Rust and npm resolution leaves both lockfiles byte-identical |
 | M0-004 | DONE | Integrate `rumiga-platform-esp` and `firmware` as unpublished workspace packages with centralized metadata, dependencies, and lints | Both manifests pass locked host checks; the full workspace remains green |
 | M0-005 | DONE | Pin Rust, Node, ESP-IDF, ESP Rust crates, Seeed BSP SHA, and required tools | Machine-readable toolchain files, immutable source revisions, locked ESP crates, and cross-file Rust tests |
-| M0-006 | NEXT | Replace hard-coded REST storage path with configured root and canonical path policy | Unit tests for traversal, symlink escape, upload limits, and error responses |
-| M0-007 | PLANNED | Add host CI matrix for Linux/macOS, Rust fmt/Clippy/test/doc, and web lint/build | Required checks run on pull requests and publish summaries |
+| M0-006 | DONE | Replace hard-coded REST storage path with configured root and canonical path policy | Unit tests cover traversal, symlink escape, bounded atomic uploads, deletion, REST media insertion, CLI limits, and stable HTTP errors |
+| M0-007 | NEXT | Add host CI matrix for Linux/macOS, Rust fmt/Clippy/test/doc, and web lint/build | Required checks run on pull requests and publish summaries |
 | M0-008 | ACTIVE | Add RISC-V `no_std` compile job and ESP32-P4 firmware compile job | Local locked IDF 6 firmware ELF passes; CI artifacts must add core target check and firmware ELF/map |
 | M0-009 | PLANNED | Add advisory, license, source, and dependency-policy checks | No unreviewed critical/high advisory or incompatible license |
 | M0-010 | PLANNED | Add `xtask` or equivalent single entry point for local/CI quality gates | One documented command runs the same gates as CI |
@@ -127,6 +127,21 @@ M0-005 evidence (2026-08-14):
 - Vellum revision `15bff64d316c3751861d02fcf7ace6b47afab176` records working
   IDF 6.0.0 D1001 bring-up; owner-authored implementation code is authorized
   for provenance-tracked reuse in Rumiga under `GPL-3.0-only`
+
+M0-006 evidence (2026-08-15):
+
+- `desktop/src/storage.rs` owns canonical root resolution, path confinement,
+  extension policy, deterministic listing, and real filesystem capacity
+- `--storage-root`, `RUMIGA_STORAGE_ROOT`, and `--upload-limit-mib` define the
+  desktop policy without a developer-specific path
+- multipart uploads stream into a bounded temporary file, call `sync_all`, and
+  publish through an atomic no-overwrite hard link
+- REST listing, upload, delete, and floppy insertion return stable versioned
+  errors with meaningful HTTP status codes
+- focused tests cover traversal, symlink escape, upload limit/cleanup,
+  unsupported types, overwrite, deletion, CLI validation, and REST confinement
+- `cargo clippy --locked -p rumiga-desktop --all-targets -- -D warnings`
+- `cargo test --locked --workspace` (462 discovered tests)
 
 M0-008 local evidence (2026-08-15):
 

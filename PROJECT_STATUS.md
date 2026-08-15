@@ -10,7 +10,7 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-15 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M0-005: pinned and validated host/ESP build inputs |
+| Latest completed task | M0-006: sandboxed desktop REST media storage |
 | Development host | macOS, Apple Silicon |
 | Product target | Seeed reTerminal D1001, ESP32-P4 |
 | Product maturity | Desktop compatibility prototype |
@@ -51,7 +51,7 @@ No feature is called done merely because it compiled or booted once.
 ### What is verified
 
 - The Rust workspace builds and `cargo test --locked --workspace` passes on the
-  audited Mac. Cargo discovers 450 Rust unit, integration, and documentation
+  audited Mac. Cargo discovers 462 Rust unit, integration, and documentation
   tests.
 - The host Cargo graph contains no unpublished sibling dependency. A synthetic
   boot trace compares the active 68000 core with the tracked independent
@@ -63,6 +63,9 @@ No feature is called done merely because it compiled or booted once.
   packages and pass locked host checks under the same strict lint policy.
 - The locked ESP-IDF 6.0.0 and esp-rs matrix produces a statically linked
   32-bit RISC-V firmware ELF for ESP32-P4 on the audited Mac.
+- Desktop REST media operations use a configured canonical storage root,
+  bounded streaming uploads, atomic no-overwrite publication, stable errors,
+  and traversal/symlink escape tests.
 - The desktop runner supports A500, A500+, A600, and A1200 profiles and exposes
   68000 through 68040 CPU selections.
 - Native and presentation screenshots, versioned manifests, support bundles,
@@ -108,7 +111,7 @@ No feature is called done merely because it compiled or booted once.
 | Keyboard/mouse/joystick | Partial | Desktop path exists; D1001 touch and USB host paths do not |
 | Native display | Verified on desktop | Edge-wrap regression checks and A1200 captures pass at the audited revision |
 | Host presentation | Verified on desktop | Crop, border, aspect, and vertical presentation policy are captured in manifests |
-| REST API | Partial | Desktop localhost server and shared DTOs exist; authentication, hardened file roots, and device server are missing |
+| REST API | Partial | Desktop localhost server, shared DTOs, and sandboxed media storage exist; authentication, browser workflows, and the device server are missing |
 | Web UI | Partial | Lint/build and static contract parity pass; browser workflow and device evidence are missing |
 | A2065 networking | Partial | Device model and desktop SLIRP link exist; guest packet flow and D1001 Wi-Fi bridge are missing |
 | Platform abstraction | Partial | A small `no_std` trait crate exists; contracts lack backpressure, capabilities, clock, block media, network, lifecycle, and telemetry |
@@ -122,7 +125,7 @@ The following commands were run during this audit:
 | Check | Result | Interpretation |
 | --- | --- | --- |
 | `cargo metadata --locked --no-deps --format-version 1 --quiet` | Pass | Root Cargo manifest and lockfile agree |
-| `cargo test --locked --workspace` | Pass | 452 workspace tests pass locally, including host builds of both ESP packages and two toolchain consistency tests |
+| `cargo test --locked --workspace` | Pass | 462 workspace tests pass locally, including storage confinement, host builds of both ESP packages, and two toolchain consistency tests |
 | `cargo clippy --locked --workspace --all-targets -- -D warnings` | Pass | All workspace targets pass without warnings |
 | `cargo fmt --all --check` | Pass | Formatting is confined to repository-owned workspace sources |
 | `cargo check --locked --manifest-path firmware/Cargo.toml` | Pass | Firmware is a valid host-side workspace build unit; this is not target evidence |
@@ -189,7 +192,7 @@ review, and Rumiga HIL evidence.
 | R-004 | High | No D1001 firmware has booted | Publish the pinned firmware artifact and capture serial boot evidence in M0-008/M2 |
 | R-005 | High | USB-C host wiring and VBUS behavior are not qualified | Verify schematic and actual board before promising direct USB-C peripherals; document required adapter/hub |
 | R-006 | High | Performance on ESP32-P4 is unknown | Add cycle, frame, PSRAM bandwidth, and memory benchmarks before compatibility expansion |
-| R-007 | High | API file handling is hard-coded to a developer path and device security is undefined | Add a configured storage root, canonical path checks, size limits, authentication, and local-safe defaults |
+| R-007 | High | Device API authentication, authorization, CSRF, and provisioning security are undefined | Preserve the completed desktop storage sandbox and close the remote threat model in M8-005 through M8-007 |
 | R-008 | High | Network evidence has no guest packets | Require guest ping, DNS, HTTP checksum, and sustained transfer evidence |
 | R-011 | Medium | Platform traits cannot report backpressure or capability limits | Version richer contracts before D1001 drivers are implemented |
 | R-012 | Medium | Existing docs contain implemented/target-state confusion | Keep claims tied to this status file and evidence levels |

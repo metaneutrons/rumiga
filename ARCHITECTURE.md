@@ -49,6 +49,9 @@ Important current constraints:
 - The core opens CPU trace files and can spawn a blitter thread.
 - The desktop binary owns CLI, REST, static web serving, presentation,
   evidence, media persistence, and loop scheduling in one module.
+- Desktop REST media I/O is isolated in `desktop/src/storage.rs`, confined to a
+  configured canonical root, streamed under a size limit, and published without
+  overwriting existing files.
 - Gayle/ATA owns a complete HDF `Vec<u8>`.
 - The desktop REST listener binds to `127.0.0.1:8080`.
 

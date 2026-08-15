@@ -4,6 +4,7 @@
 //! Rumiga desktop binary — development and debugging target.
 
 mod network;
+mod storage;
 
 use std::fmt::Write as _;
 use std::fs;
@@ -11,7 +12,9 @@ use std::path::{Path, PathBuf};
 use std::process;
 
 use axum::{
-    Router,
+    Json, Router,
+    extract::{DefaultBodyLimit, State},
+    http::StatusCode,
     routing::{delete, get, post},
 };
 use minifb::Key;
@@ -30,6 +33,10 @@ use rumiga_platform::VideoOutput;
 use rumiga_platform_desktop::DesktopVideo;
 use sha2::{Digest, Sha256};
 use std::sync::{Arc, Mutex};
+use storage::{
+    DEFAULT_STORAGE_ROOT, DEFAULT_UPLOAD_LIMIT_BYTES, MAX_UPLOAD_LIMIT_BYTES, MediaStore,
+    StorageError,
+};
 
 #[derive(rust_embed::RustEmbed)]
 #[folder = "../web/out/"]
@@ -40,11 +47,23 @@ enum ApiCommand {
     Reset,
     Pause,
     Resume,
-    InsertFloppy { drive_idx: usize, path: String },
-    EjectFloppy { drive_idx: usize },
-    UpdateAudioSeparation { separation: u8 },
-    UpdateFloppySpeed { percent: u16 },
-    UpdateNetwork { config: rumiga_api::NetworkConfig },
+    InsertFloppy {
+        drive_idx: usize,
+        path: String,
+        data: Vec<u8>,
+    },
+    EjectFloppy {
+        drive_idx: usize,
+    },
+    UpdateAudioSeparation {
+        separation: u8,
+    },
+    UpdateFloppySpeed {
+        percent: u16,
+    },
+    UpdateNetwork {
+        config: rumiga_api::NetworkConfig,
+    },
 }
 
 struct SharedState {
@@ -72,6 +91,33 @@ struct SharedState {
     pub pending_commands: Vec<ApiCommand>,
 }
 
+#[derive(Clone)]
+struct MachineState(Arc<Mutex<SharedState>>);
+
+impl MachineState {
+    fn lock(&self) -> std::sync::LockResult<std::sync::MutexGuard<'_, SharedState>> {
+        self.0.lock()
+    }
+}
+
+#[derive(Clone)]
+struct AppState {
+    machine: MachineState,
+    media_store: MediaStore,
+}
+
+impl axum::extract::FromRef<AppState> for MachineState {
+    fn from_ref(state: &AppState) -> Self {
+        state.machine.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for MediaStore {
+    fn from_ref(state: &AppState) -> Self {
+        state.media_store.clone()
+    }
+}
+
 fn get_mime_type(path: &str) -> &'static str {
     let ext = std::path::Path::new(path)
         .extension()
@@ -97,7 +143,7 @@ fn get_mime_type(path: &str) -> &'static str {
 }
 
 async fn static_handler(
-    axum::extract::State(_state): axum::extract::State<Arc<Mutex<SharedState>>>,
+    State(_state): State<MachineState>,
     req: axum::http::Request<axum::body::Body>,
 ) -> impl axum::response::IntoResponse {
     let path = req.uri().path().trim_start_matches('/');
@@ -135,9 +181,7 @@ async fn static_handler(
     }
 }
 
-async fn get_status(
-    axum::extract::State(state): axum::extract::State<Arc<Mutex<SharedState>>>,
-) -> axum::response::Json<serde_json::Value> {
+async fn get_status(State(state): State<MachineState>) -> axum::response::Json<serde_json::Value> {
     let s = state.lock().unwrap();
     let model_enum = api_model_from_name(&s.model);
     axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::ok(
@@ -150,9 +194,7 @@ async fn get_status(
     )))
 }
 
-async fn get_config(
-    axum::extract::State(state): axum::extract::State<Arc<Mutex<SharedState>>>,
-) -> axum::response::Json<serde_json::Value> {
+async fn get_config(State(state): State<MachineState>) -> axum::response::Json<serde_json::Value> {
     let config = {
         let s = state.lock().unwrap();
         let model_enum = api_model_from_name(&s.model);
@@ -195,7 +237,7 @@ async fn get_config(
 }
 
 async fn get_support_bundle(
-    axum::extract::State(state): axum::extract::State<Arc<Mutex<SharedState>>>,
+    State(state): State<MachineState>,
 ) -> axum::response::Json<serde_json::Value> {
     let bundle = {
         let s = state.lock().unwrap();
@@ -305,7 +347,7 @@ fn support_file_name(path: &str) -> Option<String> {
 }
 
 async fn put_config(
-    axum::extract::State(state): axum::extract::State<Arc<Mutex<SharedState>>>,
+    State(state): State<MachineState>,
     axum::Json(payload): axum::Json<rumiga_api::MachineConfig>,
 ) -> axum::response::Json<serde_json::Value> {
     if !is_supported_floppy_speed_percent(payload.floppy_speed_percent) {
@@ -376,9 +418,7 @@ async fn put_config(
     axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::ok(())))
 }
 
-async fn post_reset(
-    axum::extract::State(state): axum::extract::State<Arc<Mutex<SharedState>>>,
-) -> axum::response::Json<serde_json::Value> {
+async fn post_reset(State(state): State<MachineState>) -> axum::response::Json<serde_json::Value> {
     state
         .lock()
         .unwrap()
@@ -387,9 +427,7 @@ async fn post_reset(
     axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::ok(())))
 }
 
-async fn post_pause(
-    axum::extract::State(state): axum::extract::State<Arc<Mutex<SharedState>>>,
-) -> axum::response::Json<serde_json::Value> {
+async fn post_pause(State(state): State<MachineState>) -> axum::response::Json<serde_json::Value> {
     state
         .lock()
         .unwrap()
@@ -398,9 +436,7 @@ async fn post_pause(
     axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::ok(())))
 }
 
-async fn post_resume(
-    axum::extract::State(state): axum::extract::State<Arc<Mutex<SharedState>>>,
-) -> axum::response::Json<serde_json::Value> {
+async fn post_resume(State(state): State<MachineState>) -> axum::response::Json<serde_json::Value> {
     state
         .lock()
         .unwrap()
@@ -410,30 +446,35 @@ async fn post_resume(
 }
 
 async fn post_floppy_insert(
-    axum::extract::State(state): axum::extract::State<Arc<Mutex<SharedState>>>,
+    State(state): State<AppState>,
     axum::Json(payload): axum::Json<rumiga_api::FloppyInsertRequest>,
-) -> axum::response::Json<serde_json::Value> {
+) -> ApiJsonResponse {
     if payload.drive_idx >= 4 {
-        return axum::response::Json(serde_json::json!(
-            rumiga_api::ApiResponse::<()>::err_with_code(
-                "invalid_drive_index",
-                "Invalid drive index".to_string()
-            )
-        ));
+        return api_error_response(
+            StatusCode::BAD_REQUEST,
+            "invalid_drive_index",
+            "Invalid drive index",
+        );
     }
+    let (path, data) = match state.media_store.read_file(&payload.path, &["adf"]).await {
+        Ok(media) => media,
+        Err(error) => return storage_error_response(&error),
+    };
     state
+        .machine
         .lock()
         .unwrap()
         .pending_commands
         .push(ApiCommand::InsertFloppy {
             drive_idx: payload.drive_idx,
-            path: payload.path,
+            path: path.to_string_lossy().into_owned(),
+            data,
         });
-    axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::ok(())))
+    api_ok_response(())
 }
 
 async fn post_floppy_eject(
-    axum::extract::State(state): axum::extract::State<Arc<Mutex<SharedState>>>,
+    State(state): State<MachineState>,
     axum::Json(payload): axum::Json<rumiga_api::FloppyEjectRequest>,
 ) -> axum::response::Json<serde_json::Value> {
     if payload.drive_idx >= 4 {
@@ -455,7 +496,7 @@ async fn post_floppy_eject(
 }
 
 async fn post_audio_separation(
-    axum::extract::State(state): axum::extract::State<Arc<Mutex<SharedState>>>,
+    State(state): State<MachineState>,
     axum::Json(payload): axum::Json<rumiga_api::AudioSeparationRequest>,
 ) -> axum::response::Json<serde_json::Value> {
     if payload.separation > 100 {
@@ -477,7 +518,7 @@ async fn post_audio_separation(
 }
 
 async fn get_screenshot(
-    axum::extract::State(state): axum::extract::State<Arc<Mutex<SharedState>>>,
+    State(state): State<MachineState>,
     axum::extract::Query(query): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> axum::response::Response<axum::body::Body> {
     let kind = match query.get("kind") {
@@ -598,68 +639,174 @@ fn encode_argb_png(pixels: &[u32], width: u32, height: u32) -> Result<Vec<u8>, S
     Ok(png_bytes)
 }
 
+type ApiJsonResponse = (StatusCode, Json<serde_json::Value>);
+
+fn api_ok_response<T: serde::Serialize>(value: T) -> ApiJsonResponse {
+    (
+        StatusCode::OK,
+        Json(serde_json::json!(rumiga_api::ApiResponse::ok(value))),
+    )
+}
+
+fn api_error_response(
+    status: StatusCode,
+    code: &'static str,
+    message: impl Into<String>,
+) -> ApiJsonResponse {
+    (
+        status,
+        Json(serde_json::json!(
+            rumiga_api::ApiResponse::<()>::err_with_code(code, message.into())
+        )),
+    )
+}
+
+fn storage_error_response(error: &StorageError) -> ApiJsonResponse {
+    eprintln!("Storage API error: {error}");
+    match error {
+        StorageError::InvalidPath => api_error_response(
+            StatusCode::BAD_REQUEST,
+            "invalid_storage_path",
+            "Path must be relative to the configured storage root",
+        ),
+        StorageError::AccessDenied => api_error_response(
+            StatusCode::FORBIDDEN,
+            "storage_access_denied",
+            "Path is outside the configured storage root",
+        ),
+        StorageError::NotFound => api_error_response(
+            StatusCode::NOT_FOUND,
+            "storage_entry_not_found",
+            "Storage entry was not found",
+        ),
+        StorageError::NotDirectory => api_error_response(
+            StatusCode::BAD_REQUEST,
+            "storage_entry_not_directory",
+            "Storage entry is not a directory",
+        ),
+        StorageError::NotFile => api_error_response(
+            StatusCode::BAD_REQUEST,
+            "storage_entry_not_file",
+            "Storage entry is not a regular file",
+        ),
+        StorageError::UnsupportedMediaType => api_error_response(
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "unsupported_media_type",
+            "Supported file types are ROM, ADF, ADZ, and HDF",
+        ),
+        StorageError::AlreadyExists => api_error_response(
+            StatusCode::CONFLICT,
+            "storage_entry_exists",
+            "A storage entry with that name already exists",
+        ),
+        StorageError::UploadTooLarge { limit_bytes } => api_error_response(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "upload_too_large",
+            format!("Upload exceeds the configured {limit_bytes}-byte limit"),
+        ),
+        StorageError::InvalidConfiguration | StorageError::Io(_) => api_error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "storage_io_error",
+            "The storage operation failed",
+        ),
+    }
+}
+
 async fn get_files(
-    req: axum::extract::Query<std::collections::HashMap<String, String>>,
-) -> axum::response::Json<serde_json::Value> {
-    let sub_path = req.get("path").cloned().unwrap_or_default();
-    let decoded = percent_encoding::percent_decode_str(&sub_path)
-        .decode_utf8_lossy()
-        .to_string();
-    let base_dir = std::path::Path::new("/Volumes/Dev/Source/rumiga");
-    let target_dir = if decoded.is_empty() {
-        base_dir.to_path_buf()
-    } else {
-        base_dir.join(decoded.trim_start_matches('/'))
-    };
-
-    if !target_dir.starts_with(base_dir) {
-        return axum::response::Json(serde_json::json!(
-            rumiga_api::ApiResponse::<()>::err_with_code(
-                "access_denied",
-                "Access denied".to_string()
-            )
-        ));
+    State(media_store): State<MediaStore>,
+    axum::extract::Query(req): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> ApiJsonResponse {
+    let virtual_path = req.get("path").map_or("/", String::as_str);
+    match media_store.list(virtual_path) {
+        Ok(listing) => api_ok_response(listing),
+        Err(error) => storage_error_response(&error),
     }
-
-    let mut files = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&target_dir) {
-        for entry in entries.flatten() {
-            if let Ok(meta) = entry.metadata() {
-                files.push(rumiga_api::FileEntry {
-                    name: entry.file_name().to_string_lossy().to_string(),
-                    size: meta.len(),
-                    is_directory: meta.is_dir(),
-                });
-            }
-        }
-    }
-
-    axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::ok(
-        rumiga_api::FileListResponse {
-            path: sub_path,
-            files,
-            total_bytes: 1024 * 1024 * 1024,
-            free_bytes: 512 * 1024 * 1024,
-        }
-    )))
 }
 
 async fn post_upload(
+    State(media_store): State<MediaStore>,
     mut multipart: axum::extract::Multipart,
-) -> axum::response::Json<serde_json::Value> {
-    let base_dir = std::path::Path::new("/Volumes/Dev/Source/rumiga");
-    while let Ok(Some(field)) = multipart.next_field().await {
-        if let Some(filename) = field.file_name() {
-            let safe_name = filename.replace("..", "").replace('/', "");
-            let dest = base_dir.join(safe_name);
-            if let Ok(data) = field.bytes().await {
-                if std::fs::write(&dest, data).is_ok() {
-                    eprintln!("Uploaded file to {}", dest.display());
+) -> ApiJsonResponse {
+    let mut field = match multipart.next_field().await {
+        Ok(Some(field)) => field,
+        Ok(None) => {
+            return api_error_response(
+                StatusCode::BAD_REQUEST,
+                "invalid_upload",
+                "Multipart upload must contain one file field",
+            );
+        }
+        Err(error) => {
+            eprintln!("Invalid multipart upload: {error}");
+            return api_error_response(
+                StatusCode::BAD_REQUEST,
+                "invalid_upload",
+                "Malformed multipart upload",
+            );
+        }
+    };
+    if field.name() != Some("file") {
+        return api_error_response(
+            StatusCode::BAD_REQUEST,
+            "invalid_upload",
+            "Multipart upload field must be named file",
+        );
+    }
+    let Some(file_name) = field.file_name().map(ToOwned::to_owned) else {
+        return api_error_response(
+            StatusCode::BAD_REQUEST,
+            "invalid_upload",
+            "Multipart upload is missing a file name",
+        );
+    };
+    let mut upload = match media_store.begin_upload(&file_name).await {
+        Ok(upload) => upload,
+        Err(error) => return storage_error_response(&error),
+    };
+    loop {
+        match field.chunk().await {
+            Ok(Some(chunk)) => {
+                if let Err(error) = upload.write_chunk(&chunk).await {
+                    return storage_error_response(&error);
                 }
+            }
+            Ok(None) => break,
+            Err(error) => {
+                eprintln!("Multipart upload stream failed: {error}");
+                return api_error_response(
+                    StatusCode::BAD_REQUEST,
+                    "invalid_upload",
+                    "Malformed multipart upload",
+                );
             }
         }
     }
-    axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::ok(())))
+    match multipart.next_field().await {
+        Ok(None) => {}
+        Ok(Some(_)) => {
+            return api_error_response(
+                StatusCode::BAD_REQUEST,
+                "invalid_upload",
+                "Only one file may be uploaded per request",
+            );
+        }
+        Err(error) => {
+            eprintln!("Invalid multipart upload trailer: {error}");
+            return api_error_response(
+                StatusCode::BAD_REQUEST,
+                "invalid_upload",
+                "Malformed multipart upload",
+            );
+        }
+    }
+
+    match upload.commit().await {
+        Ok(bytes) => {
+            eprintln!("Uploaded {bytes} bytes to {file_name}");
+            api_ok_response(())
+        }
+        Err(error) => storage_error_response(&error),
+    }
 }
 
 async fn post_format(
@@ -683,15 +830,13 @@ async fn post_format(
 }
 
 async fn delete_file_handler(
+    State(media_store): State<MediaStore>,
     axum::extract::Path(name): axum::extract::Path<String>,
-) -> axum::response::Json<serde_json::Value> {
-    let base_dir = std::path::Path::new("/Volumes/Dev/Source/rumiga");
-    let safe_name = name.replace("..", "").replace('/', "");
-    let target = base_dir.join(safe_name);
-    if target.starts_with(base_dir) && target.is_file() {
-        let _ = std::fs::remove_file(target);
+) -> ApiJsonResponse {
+    match media_store.delete_file(&name) {
+        Ok(()) => api_ok_response(()),
+        Err(error) => storage_error_response(&error),
     }
-    axum::response::Json(serde_json::json!(rumiga_api::ApiResponse::<()>::ok(())))
 }
 
 async fn get_wifi_status() -> axum::response::Json<serde_json::Value> {
@@ -940,6 +1085,8 @@ struct LaunchArgs {
     hdf_path: Option<String>,
     hdf_write_policy: rumiga_api::HdfWritePolicy,
     hdf_snapshot_path: Option<String>,
+    storage_root: Option<PathBuf>,
+    upload_limit_bytes: u64,
     network: rumiga_api::NetworkConfig,
     network_pcap_path: Option<String>,
     cpu: Option<m68k::CpuType>,
@@ -1258,6 +1405,25 @@ fn main() {
         return;
     }
 
+    let storage_root = launch_args
+        .storage_root
+        .clone()
+        .or_else(|| std::env::var_os("RUMIGA_STORAGE_ROOT").map(PathBuf::from))
+        .unwrap_or_else(|| PathBuf::from(DEFAULT_STORAGE_ROOT));
+    let media_store = MediaStore::new(&storage_root, launch_args.upload_limit_bytes)
+        .unwrap_or_else(|error| {
+            eprintln!(
+                "Failed to initialize media storage at '{}': {error}",
+                storage_root.display()
+            );
+            process::exit(1);
+        });
+    eprintln!(
+        "Media storage root: {} (upload limit: {} bytes)",
+        media_store.root().display(),
+        media_store.upload_limit_bytes()
+    );
+
     let initial_rect = resolve_viewport_rect(&display_config, None);
     let initial_height = presented_height(initial_rect, display_config.viewport.vertical_stretch);
     let initial_network_status = network_status_from_emulator(&launch_args.network, &emulator);
@@ -1287,7 +1453,10 @@ fn main() {
         pending_commands: Vec::new(),
     }));
 
-    let server_state = Arc::clone(&shared_state);
+    let server_state = AppState {
+        machine: MachineState(Arc::clone(&shared_state)),
+        media_store,
+    };
     std::thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -1324,7 +1493,10 @@ fn main() {
                 )
                 .route(rumiga_api::MACHINE_SCREENSHOT_PATH, get(get_screenshot))
                 .route(rumiga_api::FILES_PATH, get(get_files))
-                .route(rumiga_api::FILES_UPLOAD_PATH, post(post_upload))
+                .route(
+                    rumiga_api::FILES_UPLOAD_PATH,
+                    post(post_upload).layer(DefaultBodyLimit::disable()),
+                )
                 .route(rumiga_api::FILES_FORMAT_PATH, post(post_format))
                 .route(rumiga_api::FILES_DELETE_PATH, delete(delete_file_handler))
                 .route(rumiga_api::WIFI_STATUS_PATH, get(get_wifi_status))
@@ -1389,15 +1561,15 @@ fn main() {
                     let mut s = shared_state.lock().unwrap();
                     s.running = true;
                 }
-                ApiCommand::InsertFloppy { drive_idx, path } => {
+                ApiCommand::InsertFloppy {
+                    drive_idx,
+                    path,
+                    data,
+                } => {
                     eprintln!("API: Inserting floppy {path} into DF{drive_idx}");
-                    if let Ok(adf_data) = std::fs::read(&path) {
-                        emulator.insert_floppy(drive_idx, adf_data);
-                        shared_state.lock().unwrap().floppy[drive_idx] = Some(path.clone());
-                        floppy_paths[drive_idx] = Some(path);
-                    } else {
-                        eprintln!("API Error: Failed to read ADF path: {path}");
-                    }
+                    emulator.insert_floppy(drive_idx, data);
+                    shared_state.lock().unwrap().floppy[drive_idx] = Some(path.clone());
+                    floppy_paths[drive_idx] = Some(path);
                 }
                 ApiCommand::EjectFloppy { drive_idx } => {
                     eprintln!("API: Ejecting floppy from DF{drive_idx}");
@@ -1712,6 +1884,8 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
     let mut hdf_path = None;
     let mut hdf_write_policy = rumiga_api::HdfWritePolicy::default();
     let mut hdf_snapshot_path = None;
+    let mut storage_root = None;
+    let mut upload_limit_bytes = DEFAULT_UPLOAD_LIMIT_BYTES;
     let mut network = rumiga_api::NetworkConfig::default();
     let mut network_pcap_path = None;
     let mut cpu = None;
@@ -1804,6 +1978,34 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
                     return Err("--hdf-snapshot requires a value".to_owned());
                 };
                 hdf_snapshot_path = Some(value.clone());
+                index += 2;
+            }
+            "--storage-root" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--storage-root requires a value".to_owned());
+                };
+                if value.is_empty() {
+                    return Err("--storage-root must not be empty".to_owned());
+                }
+                storage_root = Some(PathBuf::from(value));
+                index += 2;
+            }
+            "--upload-limit-mib" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--upload-limit-mib requires a value".to_owned());
+                };
+                let limit_mib = value
+                    .parse::<u64>()
+                    .map_err(|_| format!("Unsupported upload limit '{value}'"))?;
+                upload_limit_bytes = limit_mib
+                    .checked_mul(1024 * 1024)
+                    .filter(|bytes| *bytes > 0 && *bytes <= MAX_UPLOAD_LIMIT_BYTES)
+                    .ok_or_else(|| {
+                        format!(
+                            "upload-limit-mib must be between 1 and {}",
+                            MAX_UPLOAD_LIMIT_BYTES / (1024 * 1024)
+                        )
+                    })?;
                 index += 2;
             }
             "--network" => {
@@ -2096,6 +2298,8 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
         hdf_path,
         hdf_write_policy,
         hdf_snapshot_path,
+        storage_root,
+        upload_limit_bytes,
         network,
         network_pcap_path,
         cpu,
@@ -2330,6 +2534,10 @@ Options:
       --hdf-writeback     Persist dirty HDF sectors back to the source file on exit
       --hdf-snapshot <file.hdf>
                           Write the current in-memory HDF buffer to a separate file
+      --storage-root <dir>
+                          REST media root [env: RUMIGA_STORAGE_ROOT; default: ./rumiga-media]
+      --upload-limit-mib <MiB>
+                          Maximum streamed REST upload [default: 2048; max: 8192]
       --network <backend> Amiga network backend: disabled, slirp [default: disabled]
       --network-slirp     Enable A2065-compatible Ethernet via SLIRP/NAT
       --network-mac <mac> MAC for the emulated A2065 card
@@ -3805,6 +4013,17 @@ mod tests {
         std::env::temp_dir().join(format!("rumiga-{label}-{}.hdf", std::process::id()))
     }
 
+    fn unique_temp_directory(label: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "rumiga-{label}-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let _ = fs::remove_dir_all(&path);
+        fs::create_dir_all(&path).expect("temporary test directory should be created");
+        path
+    }
+
     fn default_test_args() -> LaunchArgs {
         LaunchArgs {
             model: None,
@@ -3818,6 +4037,8 @@ mod tests {
             hdf_path: None,
             hdf_write_policy: rumiga_api::HdfWritePolicy::ReadOnly,
             hdf_snapshot_path: None,
+            storage_root: None,
+            upload_limit_bytes: DEFAULT_UPLOAD_LIMIT_BYTES,
             network: rumiga_api::NetworkConfig::default(),
             network_pcap_path: None,
             cpu: None,
@@ -3948,6 +4169,97 @@ mod tests {
         );
         assert_eq!(response.0["success"], false);
         assert_eq!(response.0["error_code"], "unsupported_on_desktop");
+    }
+
+    #[test]
+    fn storage_errors_map_to_stable_http_responses() {
+        for (error, expected_status, expected_code) in [
+            (
+                StorageError::InvalidPath,
+                StatusCode::BAD_REQUEST,
+                "invalid_storage_path",
+            ),
+            (
+                StorageError::AccessDenied,
+                StatusCode::FORBIDDEN,
+                "storage_access_denied",
+            ),
+            (
+                StorageError::NotFound,
+                StatusCode::NOT_FOUND,
+                "storage_entry_not_found",
+            ),
+            (
+                StorageError::UnsupportedMediaType,
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                "unsupported_media_type",
+            ),
+            (
+                StorageError::AlreadyExists,
+                StatusCode::CONFLICT,
+                "storage_entry_exists",
+            ),
+            (
+                StorageError::UploadTooLarge { limit_bytes: 7 },
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "upload_too_large",
+            ),
+        ] {
+            let (status, Json(body)) = storage_error_response(&error);
+            assert_eq!(status, expected_status);
+            assert_eq!(body["schema"], rumiga_api::API_RESPONSE_SCHEMA_ID);
+            assert_eq!(body["success"], false);
+            assert_eq!(body["error_code"], expected_code);
+        }
+    }
+
+    #[tokio::test]
+    async fn rest_floppy_insert_is_confined_to_storage_root() {
+        let root = unique_temp_directory("rest-storage");
+        let disk = root.join("Workbench.adf");
+        fs::write(&disk, [0_u8; 16]).unwrap();
+        let state = AppState {
+            machine: MachineState(Arc::new(Mutex::new(default_shared_state()))),
+            media_store: MediaStore::new(&root, 1024).unwrap(),
+        };
+
+        let (status, Json(body)) = post_floppy_insert(
+            State(state.clone()),
+            Json(rumiga_api::FloppyInsertRequest {
+                drive_idx: 0,
+                path: "Workbench.adf".to_owned(),
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["success"], true);
+        {
+            let machine = state.machine.lock().unwrap();
+            match machine.pending_commands.last().unwrap() {
+                ApiCommand::InsertFloppy {
+                    drive_idx,
+                    path,
+                    data,
+                } => {
+                    assert_eq!(*drive_idx, 0);
+                    assert_eq!(Path::new(path), fs::canonicalize(&disk).unwrap());
+                    assert_eq!(data, &[0_u8; 16]);
+                }
+                _ => panic!("expected an insert-floppy command"),
+            }
+        }
+
+        let (status, Json(body)) = post_floppy_insert(
+            State(state),
+            Json(rumiga_api::FloppyInsertRequest {
+                drive_idx: 0,
+                path: "../outside.adf".to_owned(),
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["error_code"], "invalid_storage_path");
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -4216,6 +4528,38 @@ mod tests {
                 ..default_test_args()
             })
         );
+    }
+
+    #[test]
+    fn parse_args_accepts_storage_policy() {
+        let args = vec![
+            "--storage-root".to_owned(),
+            "media".to_owned(),
+            "--upload-limit-mib".to_owned(),
+            "512".to_owned(),
+            "kick.rom".to_owned(),
+        ];
+
+        assert_eq!(
+            parse_args(&args),
+            Ok(LaunchArgs {
+                storage_root: Some(PathBuf::from("media")),
+                upload_limit_bytes: 512 * 1024 * 1024,
+                ..default_test_args()
+            })
+        );
+    }
+
+    #[test]
+    fn parse_args_rejects_invalid_upload_limits() {
+        for value in ["0", "8193", "invalid"] {
+            let args = vec![
+                "--upload-limit-mib".to_owned(),
+                value.to_owned(),
+                "kick.rom".to_owned(),
+            ];
+            assert!(parse_args(&args).is_err(), "limit {value} must be rejected");
+        }
     }
 
     #[test]

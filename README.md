@@ -89,14 +89,19 @@ Run a stock A1200 host session:
 cargo run --locked --release -p rumiga-desktop --bin rumiga-desktop -- \
   --model a1200 \
   --cpu 68020 \
+  --storage-root /path/to/rumiga-media \
   --hdf /path/to/workbench.hdf \
   /path/to/kickstart.rom
 ```
 
 The desktop server listens on <http://127.0.0.1:8080> while the emulator runs.
-It serves the embedded web UI and REST endpoints. File-management endpoints are
-still development-only and currently contain a machine-specific storage root;
-do not expose this server beyond localhost.
+It serves the embedded web UI and REST endpoints. File listing, upload, delete,
+and REST floppy insertion are confined to the canonical `--storage-root` path.
+`RUMIGA_STORAGE_ROOT` is the fallback and `./rumiga-media` is the local-safe
+default. Uploads are streamed to an atomic temporary file, reject overwrite and
+unsupported extensions, and default to a 2048 MiB limit configurable with
+`--upload-limit-mib`. The desktop server still has no authentication, so it
+remains localhost-only.
 
 ### Headless Evidence
 
@@ -193,7 +198,7 @@ Current baseline on 2026-08-15:
 
 | Check | Result |
 | --- | --- |
-| `cargo test --locked --workspace` | Pass; 452 discovered tests |
+| `cargo test --locked --workspace` | Pass; 462 discovered tests |
 | Clippy with `-D warnings` | Pass without warnings |
 | `cargo fmt --all --check` | Pass |
 | Cargo/npm lockfile integrity | Pass |

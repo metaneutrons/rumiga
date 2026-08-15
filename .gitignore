@@ -34,7 +34,12 @@
 # Disk images (user-provided, not committed)
 *.adf
 *.ADF
+*.adz
+*.ADZ
 *.hda
 *.HDA
 *.hdf
 *.HDF
+
+# Default desktop REST media root
+/rumiga-media/
