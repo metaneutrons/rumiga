@@ -221,7 +221,7 @@ Current baseline on 2026-08-15:
 | npm audit | Pass; no known vulnerabilities reported |
 | ESP platform/firmware host checks | Pass; topology, pins, and strict lints |
 | Bare-metal RISC-V boundaries | Pass locally for `m68000`, `rumiga-api`, and `rumiga-platform`; full core portability remains M1 |
-| ESP32-P4 firmware evidence | Pass locally for locked IDF 6.0.0; hosted artifact pending |
+| ESP32-P4 firmware evidence | Pass locally and on GitHub for locked IDF 6.0.0; checksummed artifact published by run [`31890919057`](https://github.com/metaneutrons/rumiga/actions/runs/31890919057) |
 | Linux/macOS host CI | Pass on GitHub-hosted x86_64 and arm64 runners |
 | Protected branch gate | `CI / Required Quality Gate` required on `main` |
 

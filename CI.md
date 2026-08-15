@@ -102,6 +102,15 @@ aggregate summary is the human-readable promotion record for the run. A local
 commit cannot claim a GitHub-hosted result; hosted evidence must cite the run
 URL and immutable commit after the commit reaches GitHub.
 
+The first M0-008 hosted baseline is GitHub Actions run
+[`31890919057`](https://github.com/metaneutrons/rumiga/actions/runs/31890919057)
+for head commit `3cd47ddb3bb02eb9eecde59a651dcebe0badcf99`. Its pull-request
+merge revision `fb273fca2fa8c52cb42c8e2738d11418a288ddbc` produced artifact
+`firmware-esp32p4-fb273fca2fa8c52cb42c8e2738d11418a288ddbc` (artifact ID
+`9248602076`, archive SHA-256
+`a49535d56c0be4740ce6711a99e28829608044e99ada9be66e7b5cf593c5cc7e`).
+All nine payload checksums were independently revalidated after download.
+
 CI intentionally uses only synthetic and repository-owned fixtures. It does not
 access private Kickstart, Workbench, ADF, HDF, packet capture, or D1001 assets.
 Firmware evidence proves compile, link, layout, and image generation only. Its
