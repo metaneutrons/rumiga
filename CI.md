@@ -1,9 +1,10 @@
 # Rumiga Continuous Integration Contract
 
 This document defines the required host, supply-chain, and target-build checks
-implemented by M0-007 through M0-009. The workflow source is
-`.github/workflows/ci.yml`; tool versions remain canonical in
-`toolchain/manifest.toml` and its consuming files.
+implemented by M0-007 through M0-010. Gate behavior is owned by
+`xtask/src/ci.rs`, orchestration is defined in `.github/workflows/ci.yml`, and
+tool versions remain canonical in `toolchain/manifest.toml` and its consuming
+files.
 
 ## Trigger And Concurrency Policy
 
@@ -36,33 +37,52 @@ of every matrix-generated name keeps branch protection stable while the matrix
 evolves; the aggregate fails when any required job fails, is cancelled, or is
 skipped.
 
+## Canonical Gate Orchestrator
+
+The complete local entry point is:
+
+```sh
+cargo +1.97.1 xtask ci
+```
+
+It runs `lockfiles`, `host`, `supply-chain`, `portable`, and `firmware` in that
+order. GitHub jobs preserve matrix parallelism by calling the same
+implementation with `--gate <name>`. The repository test suite structurally
+parses the workflow and rejects missing, extra, relocated, or version-drifted
+gate invocations as well as aggregate dependency drift.
+
+Every gate validates the relevant pinned tools. A gate snapshots tracked Git
+status plus staged and unstaged diff hashes before execution and rejects any
+mutation afterward. Local work may start dirty as long as the gate leaves it
+byte-for-byte unchanged; `CI=true` requires a clean tracked checkout before a
+gate starts. Evidence gates also verify that `SHA256SUMS` covers exactly the
+regular files in each artifact directory using safe basenames and matching
+SHA-256 values.
+
+`cargo +1.97.1 xtask ci --list` displays the stable names. Repeated `--gate`
+options select a diagnostic subset while retaining canonical order. A subset is
+not a promotion result; only the command without `--gate` is the complete local
+baseline, and only the hosted matrix proves both supported host platforms.
+
 ## Host Matrix Contract
 
 Both host legs use Rust `1.97.1`, Node.js `24.19.0`, and npm `11.17.0`. The
 workflow validates the installed versions against repository-owned files before
 building. Ubuntu installs `libglib2.0-dev`, `libslirp-dev`, and `pkg-config`;
 macOS installs the equivalent Homebrew `libslirp` and `pkg-config` formulae.
-Each leg then executes:
+Each leg executes the canonical host gate:
 
 ```sh
-(
-  cd web
-  npm ci --ignore-scripts --no-audit --no-fund
-  npm run lint
-  npm run build
-)
-
-cargo fmt --all -- --check
-cargo clippy --locked --workspace --all-targets -- -D warnings
-cargo test --locked --workspace
-RUSTDOCFLAGS="-D warnings" cargo doc --locked --workspace --no-deps
+cargo +1.97.1 xtask ci --gate host
 ```
 
-The final cleanliness check rejects changes to tracked files produced by these
-commands. GitHub's Rust and npm caches may improve runtime but are never build
-inputs: every install and Cargo command remains lockfile-enforced. The web build
-runs before Rust compilation because `rumiga-desktop` embeds the generated
-`web/out` directory in its binary.
+The gate expands to the locked npm install, web lint and production build,
+Rust format, locked workspace Clippy and tests, and warning-free Rustdoc. The
+web build runs before Rust compilation because `rumiga-desktop` embeds the
+generated `web/out` directory in its binary.
+
+GitHub's Rust and npm caches may improve runtime but are never build inputs:
+every install and Cargo command remains lockfile-enforced.
 
 ## Supply-Chain Contract
 
@@ -70,9 +90,7 @@ The supply-chain job installs exact Node.js, npm, `cargo-audit`, and
 `cargo-deny` versions, then runs:
 
 ```sh
-cargo +1.97.1 xtask supply-chain-evidence
-(cd target/m0-009-supply-chain-evidence && sha256sum --check SHA256SUMS)
-git diff --exit-code
+cargo +1.97.1 xtask ci --gate supply-chain
 ```
 
 The repository task first validates `supply-chain-policy.toml`, `deny.toml`,
@@ -81,26 +99,27 @@ zero Rust vulnerabilities or yanked packages, a RustSec database at most seven
 days old, and zero high or critical npm advisories. License and informational
 exceptions are exact-scope, owner-assigned, justified, compensated, expiring,
 and fail when unused. CI uploads `supply-chain-<commit>` for 30 days; its
-manifest and every raw scanner report are covered by `SHA256SUMS`.
+manifest and every raw scanner report are covered by `SHA256SUMS`; the gate
+validates the complete manifest before returning success.
 
 ## Target Build Contract
 
-The portable gate compiles only the packages that are genuinely `no_std` today:
+The portable job runs:
 
 ```sh
-cargo +1.97.1 check --locked \
-  --target riscv32imafc-unknown-none-elf \
-  -p m68000 -p rumiga-api -p rumiga-platform
+cargo +1.97.1 xtask ci --gate portable
 ```
 
-It deliberately does not claim that `rumiga-core` or `m68k` is `no_std`; that
-conversion and its deterministic replay gate are M1.
+The target and package set come from `toolchain/manifest.toml`. They currently
+resolve to `riscv32imafc-unknown-none-elf` and `m68000`, `rumiga-api`, and
+`rumiga-platform`. The gate deliberately does not claim that `rumiga-core` or
+`m68k` is `no_std`; that conversion and its deterministic replay gate are M1.
 
 The firmware gate installs the exact nightly, `ldproxy`, and `espflash` pins,
 then runs:
 
 ```sh
-cargo +1.97.1 xtask firmware-evidence
+cargo +1.97.1 xtask ci --gate firmware
 ```
 
 The repository-owned task builds a clean release target directory, verifies the
@@ -110,7 +129,8 @@ unpadded merged image, and emits `rumiga.firmware.build.v1` evidence under
 `target/m0-008-firmware-evidence`. `SHA256SUMS` covers the ELF, final linker map,
 merged image, bootloader, partition table, resolved `sdkconfig`, flash arguments,
 size report, and JSON manifest. CI validates those hashes before uploading
-`firmware-esp32p4-<commit>` for 30 days.
+`firmware-esp32p4-<commit>` for 30 days. The gate verifies every generated hash
+before upload.
 
 The physical board has 32 MB flash and 32 MB PSRAM. M0-008 intentionally keeps
 the 16 MB flash geometry used by the pinned Seeed BSP and the hardware-proven
@@ -155,19 +175,15 @@ The following remain separate milestones:
 
 ## Local Validation
 
-Before changing CI, run the host commands above and validate workflow syntax:
+Install every tool pinned by `toolchain/manifest.toml`, ensure `.node-version`
+is first on `PATH`, install the declared portable Rust target, and run:
 
 ```sh
-actionlint .github/workflows/ci.yml
-cargo +1.97.1 xtask supply-chain-evidence
-(cd target/m0-009-supply-chain-evidence && shasum -a 256 -c SHA256SUMS)
-cargo +1.97.1 check --locked --target riscv32imafc-unknown-none-elf \
-  -p m68000 -p rumiga-api -p rumiga-platform
-cargo +1.97.1 xtask firmware-evidence
-(cd target/m0-008-firmware-evidence && shasum -a 256 -c SHA256SUMS)
-git diff --check
+cargo +1.97.1 xtask ci
 ```
 
-`actionlint` is a maintainer tool for workflow development; it is not yet a
-repository-pinned release input. M0-010 will provide one repository-owned entry
-point for local and CI quality gates.
+The command does not install, upgrade, or switch machine-global tools. Missing
+or mismatched versions fail before the relevant build with the expected pin.
+When changing workflow syntax, maintainers additionally run
+`actionlint .github/workflows/ci.yml`; `actionlint` is not yet a
+repository-pinned release input.
