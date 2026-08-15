@@ -10,7 +10,7 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-15 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M0-010: unified local and hosted quality gates |
+| Latest completed task | M0-011: public compatibility evidence |
 | Development host | macOS, Apple Silicon |
 | Product target | Seeed reTerminal D1001, ESP32-P4 |
 | Product maturity | Desktop compatibility prototype |
@@ -75,7 +75,13 @@ No feature is called done merely because it compiled or booted once.
 - The public compatibility gate emits a private-media-free, checksummed
   `rumiga.public-evidence.bundle.v1` baseline: 1 asset-free REST/web scenario
   passes, 12 media scenarios are explicitly skipped, and 3 roadmap exclusions
-  are unsupported. Hosted artifact promotion remains pending.
+  are unsupported. Its Cargo-backed inventory records 482 tests: 478 runnable
+  and 4 reviewed ignored.
+- GitHub Actions run
+  [`31910408906`](https://github.com/metaneutrons/rumiga/actions/runs/31910408906)
+  publishes compatibility artifact `9253512112`; its six-file archive,
+  checksums, clean revision, scenario/test totals, privacy flags, and absence of
+  private filesystem paths pass independent download verification.
 - GitHub Actions run
   [`31899884533`](https://github.com/metaneutrons/rumiga/actions/runs/31899884533)
   passes every M0-010 gate on Linux x86_64 and macOS arm64 and publishes both
@@ -272,7 +278,7 @@ Detailed gates are in `ROADMAP.md`; task IDs are in `IMPLEMENTATION_PLAN.md`.
 | Milestone | Status | Promotion evidence |
 | --- | --- | --- |
 | BASE: Desktop evidence foundation | Verified | Six current host scenarios and versioned evidence tooling |
-| M0: Hermetic engineering baseline | Active | Host, target, and policy gates are protected; M0-011 hosted artifact proof and M0-012 governance templates remain |
+| M0: Hermetic engineering baseline | Active | Host, target, policy, and public compatibility gates are protected; only M0-012 governance templates remain |
 | M1: Portable deterministic core | Planned | `no_std` RISC-V compile and deterministic replay parity |
 | M2: D1001 board bring-up | Planned | Flashable firmware, serial manifest, memory/display smoke |
 | M3: Bounded media and memory | Planned | 2 GiB HDF boots through bounded sector cache |

@@ -204,6 +204,17 @@ and firmware artifact `9250846613` (archive SHA-256
 All 7 and 9 payload hashes and both clean-revision claims were independently
 revalidated after download.
 
+The first M0-011 hosted baseline is GitHub Actions run
+[`31910408906`](https://github.com/metaneutrons/rumiga/actions/runs/31910408906)
+for branch head `aff4a6e680ab71aeff94f7416823008319156582`. Pull-request merge
+revision `c61242bd545fc4fd6bedc28f217bcd2695955529` produced artifact
+`compatibility-c61242bd545fc4fd6bedc28f217bcd2695955529` (artifact ID
+`9253512112`, archive SHA-256
+`ee634d0f429c673e465776cb70de002adaf3867a539623374e57e3332444d00a`).
+Independent download verification confirmed exact archive coverage, all five
+payload checksums, the clean revision, scenario/test totals, reviewed ignores,
+privacy flags, and no private filesystem paths.
+
 CI intentionally uses only synthetic and repository-owned fixtures. It does not
 access private Kickstart, Workbench, ADF, HDF, packet capture, or D1001 assets.
 Firmware evidence proves compile, link, layout, and image generation only. Its

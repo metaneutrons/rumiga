@@ -157,7 +157,7 @@ without unpublished sibling repositories or machine-specific paths.
 - Eliminate hard-coded developer filesystem roots from the REST file service
   (completed by M0-006).
 - Publish machine-readable test and evidence summaries as CI artifacts
-  (implemented by M0-011; hosted promotion evidence pending).
+  (completed by M0-011 with an independently verified hosted artifact).
 
 ### Exit gate G0
 

@@ -70,7 +70,7 @@ milestone.
 | M0-008 | DONE | Add current RISC-V `no_std` boundary and ESP32-P4 firmware evidence jobs | Local and hosted portable checks pass; hosted CI publishes and independently validates the full checksummed evidence bundle |
 | M0-009 | DONE | Add advisory, license, source, and dependency-policy checks | Hosted policy evidence has no unreviewed vulnerability, yanked package, incompatible license, or source drift |
 | M0-010 | DONE | Add `xtask` or equivalent single entry point for local/CI quality gates | One documented command runs the same gates as CI |
-| M0-011 | IN PROGRESS | Export current compatibility report and test counts as CI artifacts without private media | Local gate passes; hosted artifact and independent checksum verification pending |
+| M0-011 | DONE | Export current compatibility report and test counts as CI artifacts without private media | Hosted private-media-free artifact classifies all scenarios, inventories all tests, and passes independent checksum/privacy verification |
 | M0-012 | PLANNED | Add contribution, review, release-note, and architecture-decision templates | A sample change is traceable from task to tests and evidence |
 
 M0-002 evidence (2026-08-14):
@@ -247,20 +247,31 @@ M0-010 evidence (2026-08-15):
   all 7 and 9 payload hashes and both clean-revision claims pass independent
   download verification
 
-M0-011 local evidence (2026-08-15):
+M0-011 evidence (2026-08-15):
 
 - `cargo +1.97.1 xtask ci --gate compatibility` emits and verifies
   `rumiga.public-evidence.bundle.v1` without reading `target/evidence`
+- the complete local `cargo +1.97.1 xtask ci` baseline passes all six canonical
+  gates; the compatibility gate also passes from a clean checkout without a
+  generated `web/out` directory
 - all 16 catalog scenarios are classified: 1 asset-free REST/web contract
   passes, 12 private-media scenarios have explicit skipped reason codes, and 3
   roadmap exclusions are unsupported
 - Cargo-built harness and rustdoc discovery reports 482 tests: 478 runnable
   and 4 ignored with exact entries, reasons, and tracking IDs in
   `evidence/ignored-tests.json`
-- all six payload files are regular UTF-8 files; `SHA256SUMS` has exact
-  directory coverage and the builder rejects leaked home/workspace paths
-- hosted run, artifact ID/archive hash, clean revision, and independent payload
-  checksum verification remain required before task promotion
+- GitHub Actions run
+  [`31910408906`](https://github.com/metaneutrons/rumiga/actions/runs/31910408906)
+  publishes the first hosted baseline for branch head
+  `aff4a6e680ab71aeff94f7416823008319156582`; pull-request merge revision
+  `c61242bd545fc4fd6bedc28f217bcd2695955529` produced artifact
+  `compatibility-c61242bd545fc4fd6bedc28f217bcd2695955529` (artifact ID
+  `9253512112`, archive SHA-256
+  `ee634d0f429c673e465776cb70de002adaf3867a539623374e57e3332444d00a`)
+- independent download verification confirms the exact six-file archive, all
+  five payload checksums, the clean source revision, the 16-scenario and
+  482-test totals, reviewed ignores, privacy flags, and absence of private
+  filesystem paths
 
 ### M0 functional commits
 
@@ -283,7 +294,8 @@ M0-011 local evidence (2026-08-15):
 17. `feat(evidence): build public compatibility reports`
 18. `ci(evidence): publish compatibility baseline`
 19. `docs(evidence): document public CI baseline`
-20. `docs(project): close M0-011 with hosted evidence`
+20. `fix(desktop): decouple test assets from web build`
+21. `docs(project): close M0-011 with hosted evidence`
 
 ### M0 promotion command set
 
