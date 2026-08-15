@@ -12,7 +12,10 @@ closes the M0-008 build-evidence gate; flashing, booting, and D1001 peripherals
 remain M2 HIL claims. GitHub Actions run
 [`31894500079`](https://github.com/metaneutrons/rumiga/actions/runs/31894500079)
 closes the M0-009 supply-chain gate with independently verified scanner
-evidence.
+evidence. GitHub Actions run
+[`31899884533`](https://github.com/metaneutrons/rumiga/actions/runs/31899884533)
+closes M0-010 by running the same five repository-owned gate implementations
+used by the single local command.
 
 ## Rust-First Boundary
 

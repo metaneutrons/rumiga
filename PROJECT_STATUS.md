@@ -10,7 +10,7 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-15 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M0-009: hosted supply-chain policy and evidence |
+| Latest completed task | M0-010: unified local and hosted quality gates |
 | Development host | macOS, Apple Silicon |
 | Product target | Seeed reTerminal D1001, ESP32-P4 |
 | Product maturity | Desktop compatibility prototype |
@@ -51,7 +51,7 @@ No feature is called done merely because it compiled or booted once.
 ### What is verified
 
 - The Rust workspace builds and `cargo test --locked --workspace` passes on the
-  audited Mac. Cargo discovers 469 Rust unit, integration, and documentation
+  audited Mac. Cargo discovers 475 Rust unit, integration, and documentation
   tests.
 - The host Cargo graph contains no unpublished sibling dependency. A synthetic
   boot trace compares the active 68000 core with the tracked independent
@@ -68,6 +68,14 @@ No feature is called done merely because it compiled or booted once.
 - The host CI contract uses pinned Ubuntu x86_64 and macOS arm64 runners,
   immutable action revisions, minimal token permissions, complete Rust/web
   gates, per-job summaries, and one fail-closed aggregate result.
+- `cargo +1.97.1 xtask ci` is the single complete local entry point for all five
+  required gate categories. GitHub uses the same implementations in parallel;
+  repository tests reject workflow topology drift, and each gate rejects tool
+  drift, tracked-file mutation, or incomplete evidence checksums.
+- GitHub Actions run
+  [`31899884533`](https://github.com/metaneutrons/rumiga/actions/runs/31899884533)
+  passes every M0-010 gate on Linux x86_64 and macOS arm64 and publishes both
+  independently revalidated evidence bundles.
 - GitHub Actions run `31889431633` passes both host architectures, lockfile
   integrity, and RustSec at `b83dd51`; protected `main` requires the strict
   aggregate check through pull requests.
@@ -142,7 +150,7 @@ The following commands were run during this audit:
 | Check | Result | Interpretation |
 | --- | --- | --- |
 | `cargo metadata --locked --no-deps --format-version 1 --quiet` | Pass | Root Cargo manifest and lockfile agree |
-| `cargo test --locked --workspace` | Pass | 465 tests are discovered locally, including storage confinement, ESP pin consistency, and firmware-evidence tooling |
+| `cargo test --locked --workspace` | Pass | 475 unit, integration, and documentation tests are discovered locally, including quality-orchestrator, storage-confinement, ESP-pin, and evidence tooling |
 | `cargo clippy --locked --workspace --all-targets -- -D warnings` | Pass | All workspace targets pass without warnings |
 | `cargo fmt --all --check` | Pass | Formatting is confined to repository-owned workspace sources |
 | `cargo check --locked --manifest-path firmware/Cargo.toml` | Pass | Firmware is a valid host-side workspace build unit; this is not target evidence |
@@ -156,12 +164,13 @@ The following commands were run during this audit:
 | `(cd web && npm ci --ignore-scripts)` | Pass | npm manifest and tracked lockfile agree |
 | `(cd web && npm audit --audit-level=high)` | Pass | No known npm vulnerabilities reported |
 | `actionlint .github/workflows/ci.yml` | Pass | Workflow syntax, matrix expressions, and action inputs are structurally valid |
-| Clean Ubuntu 24.04 arm64 Git-archive validation | Pass | Private-asset-free web build, Rust format, Clippy, 462 tests, and Rustdoc pass with explicit SLIRP/GLib prerequisites |
+| `cargo +1.97.1 xtask ci` | Pass | One clean local command runs lockfile, host, supply-chain, portable Rust, and firmware gates and verifies exact artifact contents |
+| GitHub Actions run `31899884533` | Pass | The same named gate implementations pass on hosted Linux x86_64 and macOS arm64 and feed the strict aggregate |
 
 The CI workflow validates both lockfiles, the complete host Rust/web matrix, the
-current portable Rust boundary, and ESP32-P4 firmware evidence. Its first hosted
-target pass closes M0-008. A green badge still proves no D1001 runtime behavior;
-flash, boot, and peripherals require HIL.
+current portable Rust boundary, and ESP32-P4 firmware evidence through the same
+repository-owned gates as the local command. A green badge still proves no
+D1001 runtime behavior; flash, boot, and peripherals require HIL.
 
 ## Evidence Baseline
 

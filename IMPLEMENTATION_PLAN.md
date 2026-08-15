@@ -69,8 +69,8 @@ milestone.
 | M0-007 | DONE | Add host CI matrix for Linux/macOS, Rust fmt/Clippy/test/doc, and web lint/build | Hosted x86_64/arm64 matrix and RustSec audit pass; protected `main` requires the fail-closed aggregate |
 | M0-008 | DONE | Add current RISC-V `no_std` boundary and ESP32-P4 firmware evidence jobs | Local and hosted portable checks pass; hosted CI publishes and independently validates the full checksummed evidence bundle |
 | M0-009 | DONE | Add advisory, license, source, and dependency-policy checks | Hosted policy evidence has no unreviewed vulnerability, yanked package, incompatible license, or source drift |
-| M0-010 | NEXT | Add `xtask` or equivalent single entry point for local/CI quality gates | One documented command runs the same gates as CI |
-| M0-011 | PLANNED | Export current compatibility report and test counts as CI artifacts without private media | Artifact contains schema, revision, skipped reasons, and commands |
+| M0-010 | DONE | Add `xtask` or equivalent single entry point for local/CI quality gates | One documented command runs the same gates as CI |
+| M0-011 | NEXT | Export current compatibility report and test counts as CI artifacts without private media | Artifact contains schema, revision, skipped reasons, and commands |
 | M0-012 | PLANNED | Add contribution, review, release-note, and architecture-decision templates | A sample change is traceable from task to tests and evidence |
 
 M0-002 evidence (2026-08-14):
@@ -220,6 +220,33 @@ M0-009 evidence (2026-08-15):
   `2c477e759400e0d12e7139b3613fd7bd10f4f0dd07d20f4016c5edc48387f0c9`;
   all seven payload hashes pass after independent download
 
+M0-010 evidence (2026-08-15):
+
+- `cargo +1.97.1 xtask ci` runs `lockfiles`, `host`, `supply-chain`,
+  `portable`, and `firmware` in canonical order; the clean local run at
+  `e2f7d653df91ce53842d649ec85edc756d4b6f2f` passes all five in 56.440 seconds
+- 13 `rumiga-xtask` tests cover CLI selection, canonical ordering, checksum
+  parsing, workflow topology, and the static supply-chain policy; the complete
+  workspace discovers 475 unit, integration, and documentation tests
+- every gate checks relevant tool pins, preserves staged and unstaged tracked
+  state, and rejects a dirty CI checkout; evidence checksum verification is
+  implemented in portable Rust and requires exact directory coverage
+- each GitHub prerequisite job invokes the same implementation with one
+  `--gate` selector; a structural repository test rejects workflow invocation
+  or aggregate-dependency drift
+- GitHub Actions run
+  [`31899884533`](https://github.com/metaneutrons/rumiga/actions/runs/31899884533)
+  passes lockfile, Linux x86_64, macOS arm64, supply-chain, portable Rust,
+  firmware, and `Required Quality Gate` jobs for branch head
+  `e2f7d653df91ce53842d649ec85edc756d4b6f2f`
+- pull-request merge revision `20c280bddd2a28597534efb1bac053f6c5ea859b`
+  produced supply-chain artifact `9250843826` with archive SHA-256
+  `9bdc8283b6fbf8faaf1d766df658e4df927c07d1411b02da4cf0786595cb9440`
+  and firmware artifact `9250846613` with archive SHA-256
+  `71b4fc0c6f05109b441dbd91eb8c5d3bee86c69e9c67da58a0037783ed7eea91`;
+  all 7 and 9 payload hashes and both clean-revision claims pass independent
+  download verification
+
 ### M0 functional commits
 
 1. `docs(project): establish embedded-first roadmap and status`
@@ -235,25 +262,19 @@ M0-009 evidence (2026-08-15):
 11. `feat(supply-chain): enforce reviewed dependency policy`
 12. `ci(security): publish supply-chain evidence`
 13. `docs(project): close M0-009 with hosted evidence`
+14. `feat(quality): unify local and CI gates`
+15. `docs(quality): document unified validation entry point`
+16. `docs(project): close M0-010 with hosted evidence`
 
 ### M0 promotion command set
 
 ```sh
-cargo fmt --all --check
-cargo clippy --locked --workspace --all-targets -- -D warnings
-cargo test --locked --workspace
-cargo doc --locked --workspace --no-deps
-(cd web && npm ci && npm run lint && npm run build)
-cargo +1.97.1 check --locked --target riscv32imafc-unknown-none-elf \
-  -p m68000 -p rumiga-api -p rumiga-platform
-cargo +1.97.1 xtask firmware-evidence
-(cd target/m0-008-firmware-evidence && shasum -a 256 -c SHA256SUMS)
-cargo +1.97.1 xtask supply-chain-evidence
-(cd target/m0-009-supply-chain-evidence && shasum -a 256 -c SHA256SUMS)
+cargo +1.97.1 xtask ci
 ```
 
-Commands may move behind `cargo xtask ci`, but the individual operations remain
-visible in CI logs.
+The individual operations remain visible under named gates. `--gate <name>` is
+available for diagnosis and CI parallelism, but a subset is not a complete
+local promotion result.
 
 ## M1 Backlog: Portable Deterministic Core
 

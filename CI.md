@@ -163,6 +163,19 @@ revision `055b0ae3ed36a44c44aa7314ac928545dc7262ae` produced artifact
 All seven payload checksums and the clean-revision claim were independently
 revalidated after download.
 
+The first M0-010 hosted baseline is GitHub Actions run
+[`31899884533`](https://github.com/metaneutrons/rumiga/actions/runs/31899884533)
+for branch head `e2f7d653df91ce53842d649ec85edc756d4b6f2f`. Every prerequisite
+invokes its repository-owned `xtask ci --gate` implementation and passes on the
+hosted Linux x86_64/macOS arm64 matrix. Pull-request merge revision
+`20c280bddd2a28597534efb1bac053f6c5ea859b` produced supply-chain artifact
+`9250843826` (archive SHA-256
+`9bdc8283b6fbf8faaf1d766df658e4df927c07d1411b02da4cf0786595cb9440`)
+and firmware artifact `9250846613` (archive SHA-256
+`71b4fc0c6f05109b441dbd91eb8c5d3bee86c69e9c67da58a0037783ed7eea91`).
+All 7 and 9 payload hashes and both clean-revision claims were independently
+revalidated after download.
+
 CI intentionally uses only synthetic and repository-owned fixtures. It does not
 access private Kickstart, Workbench, ADF, HDF, packet capture, or D1001 assets.
 Firmware evidence proves compile, link, layout, and image generation only. Its
