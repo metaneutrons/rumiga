@@ -53,8 +53,8 @@ No feature is called done merely because it compiled or booted once.
 ### What is verified
 
 - The Rust workspace builds and `cargo test --locked --workspace` passes on the
-  audited Mac. The Cargo-backed inventory discovers 492 Rust unit, integration,
-  and documentation tests: 488 runnable and 4 reviewed ignored.
+  audited Mac. The Cargo-backed inventory discovers 493 Rust unit, integration,
+  and documentation tests: 489 runnable and 4 reviewed ignored.
 - The host Cargo graph contains no unpublished sibling dependency. A synthetic
   boot trace compares the active 68000 core with the tracked independent
   `m68000` implementation and frozen architectural checkpoints.

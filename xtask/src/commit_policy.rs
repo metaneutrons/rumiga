@@ -398,7 +398,52 @@ fn short_object_id(value: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::{CliAction, parse_arguments, parse_range, valid_scope, validate_message};
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::process::{Command, Stdio};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use super::{
+        CliAction, parse_arguments, parse_range, valid_scope, validate_message,
+        validate_repository_range,
+    };
+
+    static NEXT_REPOSITORY_ID: AtomicU64 = AtomicU64::new(0);
+
+    struct TestRepository {
+        path: PathBuf,
+    }
+
+    impl TestRepository {
+        fn new() -> Self {
+            let id = NEXT_REPOSITORY_ID.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir()
+                .join(format!("rumiga-commit-policy-{}-{id}", std::process::id()));
+            fs::create_dir(&path).expect("test repository directory must be created");
+            run_git(&path, &["init", "--quiet"]);
+            Self { path }
+        }
+
+        fn empty_tree(&self) -> String {
+            run_git(&self.path, &["mktree"])
+        }
+
+        fn commit(&self, tree: &str, parents: &[&str], message: &str) -> String {
+            let mut command = git_command(&self.path);
+            command.args(["commit-tree", tree]);
+            for parent in parents {
+                command.args(["-p", parent]);
+            }
+            command.args(["-m", message]);
+            run_git_command(&mut command)
+        }
+    }
+
+    impl Drop for TestRepository {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
 
     fn strings(values: &[&str]) -> Vec<String> {
         values.iter().map(ToString::to_string).collect()
@@ -473,5 +518,61 @@ mod tests {
         assert!(parse_range("main..HEAD").is_err());
         assert!(parse_arguments(&strings(&["--message-file"])).is_err());
         assert!(parse_arguments(&strings(&["--message-file", "message", "extra"])).is_err());
+    }
+
+    #[test]
+    fn repository_range_rejects_invalid_messages_and_merge_commits() {
+        let repository = TestRepository::new();
+        let tree = repository.empty_tree();
+        let base = repository.commit(&tree, &[], "chore: establish test history");
+        let valid = repository.commit(&tree, &[&base], "feat(core): add deterministic state");
+        validate_repository_range(&repository.path, Some(&base), &valid)
+            .expect("valid linear range must pass");
+
+        let invalid = repository.commit(&tree, &[&valid], "WIP");
+        let error = validate_repository_range(&repository.path, Some(&base), &invalid)
+            .expect_err("invalid raw commit message must fail");
+        assert!(error.to_string().contains("autosquash and WIP"));
+
+        let side = repository.commit(&tree, &[&base], "test(core): add side fixture");
+        let merge = repository.commit(
+            &tree,
+            &[&valid, &side],
+            "chore(history): combine test branches",
+        );
+        let error = validate_repository_range(&repository.path, Some(&base), &merge)
+            .expect_err("merge commit must fail");
+        assert!(error.to_string().contains("merge commits are not allowed"));
+    }
+
+    fn git_command(path: &Path) -> Command {
+        let mut command = Command::new("git");
+        command
+            .current_dir(path)
+            .env("GIT_AUTHOR_NAME", "Rumiga Test")
+            .env("GIT_AUTHOR_EMAIL", "test@rumiga.invalid")
+            .env("GIT_COMMITTER_NAME", "Rumiga Test")
+            .env("GIT_COMMITTER_EMAIL", "test@rumiga.invalid")
+            .stdin(Stdio::null());
+        command
+    }
+
+    fn run_git(path: &Path, arguments: &[&str]) -> String {
+        let mut command = git_command(path);
+        command.args(arguments);
+        run_git_command(&mut command)
+    }
+
+    fn run_git_command(command: &mut Command) -> String {
+        let output = command.output().expect("git command must start");
+        assert!(
+            output.status.success(),
+            "git command failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout)
+            .expect("git output must be UTF-8")
+            .trim()
+            .to_owned()
     }
 }

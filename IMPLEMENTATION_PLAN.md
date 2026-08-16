@@ -311,7 +311,7 @@ M0-013 implementation evidence (2026-08-16):
 - CI checks complete history with immutable event object IDs, validates every
   commit after the merge base, validates the pull-request title for squash
   safety, and validates the resulting `main` push range again
-- `cargo +1.97.1 test --locked -p rumiga-xtask` passes all 30 tests;
+- `cargo +1.97.1 test --locked -p rumiga-xtask` passes all 31 tests;
   `cargo +1.97.1 clippy --locked -p rumiga-xtask --all-targets -- -D warnings`
   and `cargo +1.97.1 xtask ci --gate commits` pass locally
 - the workflow structure test requires all eight canonical gate invocations and
@@ -348,7 +348,8 @@ M0-013 implementation evidence (2026-08-16):
 25. `docs(project): close M0-012 with hosted evidence`
 26. `feat(quality): enforce conventional commit policy`
 27. `docs(governance): document conventional commit policy`
-28. `docs(project): close M0-013 with hosted evidence`
+28. `test(quality): cover commit range enforcement`
+29. `docs(project): close M0-013 with hosted evidence`
 
 ### M0 promotion command set
 
