@@ -1,0 +1,76 @@
+{
+  "schema": "rumiga.change-record.v1",
+  "task_id": "M1-004",
+  "title": "Inject the diagnostic trace sink and remove core file creation",
+  "status": "implemented",
+  "summary": "Define a platform trace-sink contract, move host file creation and buffering for CPU tracing from rumiga-core into the desktop adapter, keep record formatting and bounds in the core, and make tracing available in both runtime profiles without changing the recorded bytes.",
+  "scope": [
+    "Platform diagnostic transport contract",
+    "Core trace ownership and public tracing API",
+    "Desktop file trace transport",
+    "Explicit trace flush semantics",
+    "Profile-neutral trace regression evidence"
+  ],
+  "risk": {
+    "level": "medium",
+    "failure_mode": "A changed record layout or a lost buffered write would silently invalidate existing CPU trace comparisons and capture-manifest trace counts.",
+    "rollback": "Revert the M1-004 platform, core, and desktop commits together to restore the file-owning core; no persisted data format or on-disk state depends on the new contract."
+  },
+  "compatibility": {
+    "status": "affected",
+    "detail": "The core's public tracing API changes. enable_cpu_trace, the trace_writer and trace_limit fields, and the public trace_count field are replaced by set_trace_sink, flush_trace, clear_trace_sink, and a trace_count accessor. Desktop CLI behavior, trace file bytes, and the capture manifest trace_count value are unchanged."
+  },
+  "security": {
+    "status": "none",
+    "detail": "No network transport, credential, authorization, persistence, unsafe-code, or FFI behavior changes. Host path handling moves from the core to the desktop adapter without widening the set of reachable paths."
+  },
+  "tests": [
+    {
+      "id": "core-trace-records-std",
+      "command": "cargo +1.97.1 test --locked -p rumiga-core --test trace_test",
+      "proves": "The desktop-selected core profile reproduces golden trace records captured from the previous file-writing implementation and honors the trace limit without creating a file."
+    },
+    {
+      "id": "core-trace-records-no-std",
+      "command": "cargo +1.97.1 test --locked -p rumiga-core --no-default-features --features no_std --test trace_test",
+      "proves": "The allocator-backed profile produces the same records, so tracing is portable rather than host-only."
+    },
+    {
+      "id": "desktop-file-trace-transport",
+      "command": "cargo +1.97.1 test --locked -p rumiga-platform-desktop",
+      "proves": "The desktop adapter owns file creation, truncation, the newline terminator, and host error reporting."
+    },
+    {
+      "id": "core-declared-msrv",
+      "command": "cargo +1.85.0 check --locked -p rumiga-core --no-default-features --features no_std",
+      "proves": "The stock core graph still compiles with the declared Rust MSRV after the new dependency edge and contract."
+    },
+    {
+      "id": "full-local-promotion",
+      "command": "cargo +1.97.1 xtask ci",
+      "proves": "Commit policy, lockfiles, governance, host checks, compatibility, supply chain, the portable RISC-V profile, and the ESP32-P4 firmware build all pass for the change."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "local-trace-sink-byte-compatibility",
+      "kind": "command",
+      "location": "2026-08-17 local execution: the trace suite passes under both core runtime profiles with identical golden records, the desktop file transport suite passes, and the declared Rust 1.85 MSRV check passes.",
+      "proves": "Byte compatibility and the removal of core file creation are locally valid before pull-request promotion."
+    }
+  ],
+  "documentation": [
+    "ARCHITECTURE.md",
+    "IMPLEMENTATION_PLAN.md",
+    "PROJECT_STATUS.md",
+    "README.md",
+    "crates/rumiga-core/src/lib.rs",
+    "crates/rumiga-platform/src/lib.rs",
+    "docs/adr/0006-injected-trace-sink.md",
+    "docs/adr/README.md"
+  ],
+  "release_note": "docs/release-notes/unreleased/M1-004.md",
+  "architecture_decisions": [
+    "docs/adr/0006-injected-trace-sink.md"
+  ]
+}

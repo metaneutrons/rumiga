@@ -24,7 +24,8 @@ M0-013 is a completed post-G0 governance hardening increment. Its local,
 pull-request, and final `main` promotion paths are verified. M1-002 is also
 complete with local, pull-request, and final `main` target-build evidence.
 M1-003 is complete with local, pull-request, and final `main` portability
-evidence. M1-004 is the next implementation task.
+evidence. M1-004 is implemented locally and awaits hosted promotion evidence.
+M1-005 is the next implementation task.
 
 Critical path:
 
@@ -389,7 +390,7 @@ local promotion result.
 | M1-001 | DONE | Add `std`/`no_std` feature model to `rumiga-core` | Local and hosted Linux/macOS gates compile, lint, and test both valid profiles and reject invalid selections |
 | M1-002 | DONE | Make `m68k` compile under `no_std + alloc`; isolate FPU constants/features | Local and hosted 68000/68EC020 stock-core release profiles compile on the RISC-V target; final `main` evidence is independently verified |
 | M1-003 | DONE | Enforce `core`/`alloc` primitives in the canonical core | Both explicit profiles reject `std` replacements with portable equivalents; the stock core remains a bare-metal RISC-V release build |
-| M1-004 | PLANNED | Introduce injected trace/log sink and remove core file creation | Host trace output remains byte-compatible in integration tests |
+| M1-004 | DONE | Introduce injected trace/log sink and remove core file creation | Golden records captured from the file-writing implementation are reproduced byte for byte by an in-memory sink under both runtime profiles |
 | M1-005 | PLANNED | Remove core thread spawning and affinity; restore deterministic single-owner blitter | Frame/state digests match before/after on host fixtures |
 | M1-006 | PLANNED | Introduce emulated clock, host yield, and monotonic scheduling contracts | PAL/NTSC timing tests do not read host wall clock |
 | M1-007 | PLANNED | Version platform capabilities and typed error model | Unsupported and backpressure states are explicit and tested |
@@ -502,6 +503,31 @@ M1-003 verified evidence (2026-08-16):
   `2c5b42f7ad9384f7ca81d4fdbff633005fd122f000de6349ec7cc46bea05e68e`; all
   internal payload checksums, the clean-source claim, and the M1-003
   traceability record were independently verified
+
+M1-004 implementation evidence (2026-08-17):
+
+- `rumiga-platform` defines the `TraceSink` contract; `rumiga-core` re-exports
+  it, holds an optional boxed sink, and no longer creates files or accepts host
+  paths for CPU tracing
+- the core keeps record formatting, the trace limit, and the recorded count and
+  passes `core::fmt::Arguments` to the sink, so the record layout exists in one
+  place and no intermediate `String` is allocated
+- `enable_cpu_trace`, `trace_writer`, `trace_limit`, and the public
+  `trace_count` field are replaced by `set_trace_sink`, `flush_trace`,
+  `clear_trace_sink`, and a `trace_count` accessor; trace state is private
+- tracing is no longer feature-gated and runs in both runtime profiles
+- `rumiga-platform-desktop` owns `FileTraceSink`, which creates the file,
+  buffers writes, and appends `\n`; the desktop flushes explicitly when the
+  interactive loop ends and after a capture run
+- `cargo +1.97.1 test --locked -p rumiga-core --test trace_test` and the same
+  suite with `--no-default-features --features no_std` both reproduce golden
+  records captured from the previous file-writing implementation, so byte
+  compatibility holds without the core creating a file
+- `cargo +1.97.1 test --locked -p rumiga-platform-desktop` proves real file
+  creation, truncation, the newline terminator, and host error reporting
+- `cargo +1.85.0 check --locked -p rumiga-core --no-default-features --features
+  no_std` passes, so the declared MSRV still covers the new contract
+- hosted pull-request and final `main` evidence is pending promotion
 
 ### M1 functional commits
 

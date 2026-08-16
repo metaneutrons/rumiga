@@ -8,11 +8,11 @@ ordered work; this file records what is actually proven now.
 
 | Field | Value |
 | --- | --- |
-| Status date | 2026-08-16 |
+| Status date | 2026-08-17 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M1-003: verified canonical core primitive boundary |
-| Current implementation | M1-004: inject trace/log services and remove core file creation |
-| Next task | M1-005: restore deterministic single-owner blitter execution |
+| Latest completed task | M1-004: injected trace sink with core file creation removed |
+| Current implementation | M1-005: restore deterministic single-owner blitter execution |
+| Next task | M1-006: emulated clock, host yield, and monotonic scheduling contracts |
 | Development host | macOS, Apple Silicon |
 | Product target | Seeed reTerminal D1001, ESP32-P4 |
 | Product maturity | Desktop compatibility prototype |
@@ -171,9 +171,10 @@ No feature is called done merely because it compiled or booted once.
   it does not prove D1001 allocator integration, target execution, or
   performance. Those remain gated by later M1 instrumentation and M2 HIL work.
 - M1-003 is verified by clean pull-request and final `main` promotion evidence.
-  Host files, `std::thread`, `JoinHandle`, and `core_affinity` still exist in
-  the default core profile; M1-004 and M1-005 must replace them with injected
-  services and deterministic single-owner execution.
+- M1-004 removed core-owned trace files, so CPU tracing now runs through an
+  injected sink in both runtime profiles. `std::thread`, `JoinHandle`, and
+  `core_affinity` still exist in the default core profile; M1-005 must replace
+  them with deterministic single-owner execution.
 - `rumiga-platform-esp` and `firmware` are host-checkable workspace members, but
   every ESP platform module and the firmware entry point remain stubs. Their
   toolchain and SDK inputs now cross-build, but there is no flash, boot,
@@ -301,7 +302,7 @@ until an explicit HIL test qualifies the larger geometry.
 | ID | Severity | Risk | Required response |
 | --- | --- | --- | --- |
 | R-001 | Critical | Whole HDF images are resident in RAM | Introduce a bounded sector `BlockDevice` contract before A1200 device integration |
-| R-003 | Critical | The default core still owns host threads and files even though the stock `no_std` graph now reaches the canonical RISC-V target | Inject trace services and restore deterministic single-owner blitter execution in M1-004 and M1-005 |
+| R-003 | Critical | The default core still owns host threads and CPU affinity even though tracing no longer creates files and the stock `no_std` graph reaches the canonical RISC-V target | Restore deterministic single-owner blitter execution in M1-005 |
 | R-004 | High | No D1001 firmware has booted | The pinned M0-008 build artifact is published; capture serial boot evidence in M2 |
 | R-005 | High | USB-C host wiring and VBUS behavior are not qualified | Verify schematic and actual board before promising direct USB-C peripherals; document required adapter/hub |
 | R-006 | High | Performance on ESP32-P4 is unknown | Add cycle, frame, PSRAM bandwidth, and memory benchmarks before compatibility expansion |
@@ -348,7 +349,7 @@ Detailed gates are in `ROADMAP.md`; task IDs are in `IMPLEMENTATION_PLAN.md`.
 | --- | --- | --- |
 | BASE: Desktop evidence foundation | Verified | Six current host scenarios and versioned evidence tooling |
 | M0: Hermetic engineering baseline | Verified | All thirteen M0 tasks pass local, pull-request, and final `main` promotion evidence |
-| M1: Portable deterministic core | Active | M1-001 through M1-003 are verified; G1 remains open |
+| M1: Portable deterministic core | Active | M1-001 through M1-004 are verified; G1 remains open |
 | M2: D1001 board bring-up | Planned | Flashable firmware, serial manifest, memory/display smoke |
 | M3: Bounded media and memory | Planned | 2 GiB HDF boots through bounded sector cache |
 | M4: D1001 display pipeline | Planned | Correct 50/60 Hz presentation and device framebuffer captures |
