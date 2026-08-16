@@ -307,6 +307,28 @@ strict aggregate succeeds. Pull-request merge revision
 Independent download verification confirmed all three payload checksums, the
 clean revision, and the complete two-task traceability set.
 
+The M0-013 Conventional Commit promotion starts with a complete local
+eight-gate pass in 91.516 seconds. Pull-request run
+[`31952285487`](https://github.com/metaneutrons/rumiga/actions/runs/31952285487)
+validated three branch commits plus the PR title in commit-policy job
+`95177500999`; strict aggregate job `95178194590` passed. PR merge revision
+`cb87993e1b5671b4bd33753a54eb80504bd6310a` produced governance artifact
+`9264985708` with archive SHA-256
+`beafa7e754e75df43be4a5ea9f5f0a852195a54c999798a1a265a7471c88085e`.
+Independent download verification passed all three payload checksums and the
+clean-source claim.
+
+Final `main` push run
+[`31952671051`](https://github.com/metaneutrons/rumiga/actions/runs/31952671051)
+validated all three promoted commits in
+`89be3955ecf77841f659d95354e7186af27d5847..f2505b34676929b0a2bc99ee3b4203db7a9ed80b`
+through commit-policy job `95178459474`; aggregate job `95179110310` passed.
+Governance artifact `9265088957` has archive SHA-256
+`a88ff2e04d9e623094baf83e351a5a134ddda82a856bdcde14a0eed2f038b81d`.
+Its source is clean revision `f2505b34676929b0a2bc99ee3b4203db7a9ed80b`,
+its report result is `pass`, and every payload checksum was independently
+revalidated after download.
+
 CI intentionally uses only synthetic and repository-owned fixtures. It does not
 access private Kickstart, Workbench, ADF, HDF, packet capture, or D1001 assets.
 Firmware evidence proves compile, link, layout, and image generation only. Its

@@ -2,7 +2,7 @@
   "schema": "rumiga.change-record.v1",
   "task_id": "M0-013",
   "title": "Enforce repository-owned Conventional Commits",
-  "status": "implemented",
+  "status": "verified",
   "summary": "Replace the local-only commit regex with one Rust policy enforced by the commit hook, pull-request and main history ranges, pull-request titles, and the fail-closed CI aggregate.",
   "scope": [
     "Conventional Commit grammar and diagnostics",
@@ -44,8 +44,8 @@
   "evidence": [
     {
       "id": "hosted-commit-policy",
-      "kind": "command",
-      "location": "Pending hosted pull-request and main M0-013 commit-policy evidence",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions PR run 31952285487: commit-policy job 95177500999 and aggregate 95178194590 passed; governance artifact 9264985708 digest sha256:beafa7e754e75df43be4a5ea9f5f0a852195a54c999798a1a265a7471c88085e. Final main run 31952671051: commit-policy job 95178459474 validated 89be3955ecf77841f659d95354e7186af27d5847..f2505b34676929b0a2bc99ee3b4203db7a9ed80b and aggregate 95179110310 passed; governance artifact 9265088957 digest sha256:a88ff2e04d9e623094baf83e351a5a134ddda82a856bdcde14a0eed2f038b81d",
       "proves": "Pull-request commits and title plus the final main push range pass the required fail-closed aggregate from clean checkouts."
     }
   ],

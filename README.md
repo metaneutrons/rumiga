@@ -270,8 +270,8 @@ Current baseline on 2026-08-16:
 | Linux/macOS host CI | Pass on GitHub-hosted x86_64 and arm64 runners |
 | Public compatibility evidence | Pass locally and on GitHub; 1 asset-free scenario passes, 12 private-media scenarios are explicitly skipped, and 3 roadmap exclusions are unsupported; artifact published by run [`31910408906`](https://github.com/metaneutrons/rumiga/actions/runs/31910408906) |
 | Engineering governance evidence | Pass locally and on GitHub; 13 contracts and the M0-012 task/test/evidence traceability record validate; artifact published by run [`31933087138`](https://github.com/metaneutrons/rumiga/actions/runs/31933087138) |
-| Conventional Commit policy | Implemented locally; one Rust parser validates the hook, branch range, PR title, and required CI job; hosted promotion pending |
-| Unified local quality command | Previous seven-gate baseline passed; the new eight-gate M0-013 baseline awaits complete local and hosted promotion |
+| Conventional Commit policy | Pass locally and in hosted PR/main CI; one Rust parser validates hooks, raw ranges, PR titles, and merge-free history; runs [`31952285487`](https://github.com/metaneutrons/rumiga/actions/runs/31952285487) and [`31952671051`](https://github.com/metaneutrons/rumiga/actions/runs/31952671051) |
+| Unified local quality command | Pass; all eight gates complete locally in 91.516 seconds and feed the hosted fail-closed aggregate |
 | Protected branch gate | `Required Quality Gate` from GitHub Actions required on `main` |
 
 Do not interpret the CI badge as D1001 runtime readiness. M0-008 proves portable

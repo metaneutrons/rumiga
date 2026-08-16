@@ -20,9 +20,9 @@ an immutable artifact produced by that revision.
 The next engineering milestone is **M1: Portable Deterministic Core**. M0 now
 provides the reproducible host, target-build, policy, evidence, and governance
 baseline required to separate core-portability defects from local setup drift.
-M0-013 is a post-G0 governance hardening increment: implementation is complete
-locally, hosted promotion is pending, and M1-002 remains the next emulator-core
-task.
+M0-013 is a completed post-G0 governance hardening increment. Its local,
+pull-request, and final `main` promotion paths are verified, and M1-002 remains
+the next emulator-core task.
 
 Critical path:
 
@@ -75,7 +75,7 @@ milestone.
 | M0-010 | DONE | Add `xtask` or equivalent single entry point for local/CI quality gates | One documented command runs the same gates as CI |
 | M0-011 | DONE | Export current compatibility report and test counts as CI artifacts without private media | Hosted private-media-free artifact classifies all scenarios, inventories all tests, and passes independent checksum/privacy verification |
 | M0-012 | DONE | Add contribution, review, release-note, and architecture-decision templates | Hosted checksummed artifact validates the M0-012 task/test/evidence traceability example from a clean PR checkout |
-| M0-013 | ACTIVE | Enforce one Rust-owned Conventional Commit policy in local hooks, pull requests, and `main` pushes | Focused tests and the local gate pass; hosted PR/title/range and final `main` aggregate evidence is pending |
+| M0-013 | DONE | Enforce one Rust-owned Conventional Commit policy in local hooks, pull requests, and `main` pushes | Local eight-gate baseline, hosted PR commits/title, final `main` range, both strict aggregates, and checksummed governance evidence pass |
 
 M0-002 evidence (2026-08-14):
 
@@ -302,7 +302,7 @@ M0-012 evidence (2026-08-16):
 
 M0-013 implementation evidence (2026-08-16):
 
-- commit `0ed5f53` replaces the local shell regex with a bounded Rust parser
+- commit `30fd64b` replaces the local shell regex with a bounded Rust parser
   shared by `.githooks/commit-msg` and the canonical `commits` gate
 - the parser accepts the documented types, optional lowercase scopes, `!`,
   breaking-change footers, revert messages, and existing Dependabot prefixes;
@@ -316,8 +316,27 @@ M0-013 implementation evidence (2026-08-16):
   and `cargo +1.97.1 xtask ci --gate commits` pass locally
 - the workflow structure test requires all eight canonical gate invocations and
   the `commits` dependency in `Required Quality Gate`
-- hosted pull-request and final `main` evidence is pending; local hook success
-  alone is not promotion evidence
+- the complete local eight-gate baseline passes in 91.516 seconds, including
+  the pinned ESP32-P4 release build
+- pull-request run
+  [`31952285487`](https://github.com/metaneutrons/rumiga/actions/runs/31952285487)
+  validates three commits and the PR title at branch head
+  `58bf7b5c8b85633251f8817054af614f8c831994`; commit-policy job
+  `95177500999` and aggregate job `95178194590` pass
+- PR merge revision `cb87993e1b5671b4bd33753a54eb80504bd6310a`
+  produced governance artifact `9264985708` with archive SHA-256
+  `beafa7e754e75df43be4a5ea9f5f0a852195a54c999798a1a265a7471c88085e`;
+  all three payload checksums and the clean-source claim pass independent
+  download verification
+- final `main` run
+  [`31952671051`](https://github.com/metaneutrons/rumiga/actions/runs/31952671051)
+  validates all three promoted commits in
+  `89be3955ecf77841f659d95354e7186af27d5847..f2505b34676929b0a2bc99ee3b4203db7a9ed80b`;
+  commit-policy job `95178459474` and aggregate job `95179110310` pass
+- main governance artifact `9265088957` has archive SHA-256
+  `a88ff2e04d9e623094baf83e351a5a134ddda82a856bdcde14a0eed2f038b81d`;
+  its clean `f2505b3` source, report result, and all three payload checksums pass
+  independent download verification
 
 ### M0 functional commits
 

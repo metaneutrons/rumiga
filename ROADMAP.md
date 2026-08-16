@@ -163,7 +163,8 @@ without unpublished sibling repositories or machine-specific paths.
   (completed by M0-012 with an independently verified hosted artifact).
 - Enforce one repository-owned Conventional Commit policy across local hooks,
   pull-request commit ranges and titles, final `main` pushes, and the required
-  aggregate (implemented by M0-013; hosted promotion pending).
+  aggregate (completed by M0-013 with independently verified PR and `main`
+  evidence).
 
 ### Exit gate G0
 
