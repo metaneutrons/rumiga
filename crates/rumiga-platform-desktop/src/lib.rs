@@ -1,15 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2025 Fabian Schmieder
 
-//! Desktop platform backend using minifb for video and basic keyboard input.
+//! Desktop platform backend using minifb for video and basic keyboard input,
+//! plus the host file transport for core diagnostic records.
 //!
 //! This backend is used for development and debugging on macOS/Linux/Windows.
 
 use std::cell::RefCell;
+use std::fmt;
+use std::fs::File;
+use std::io::{BufWriter, Write};
+use std::path::Path;
 use std::rc::Rc;
 
 use minifb::{Key, Scale, Window, WindowOptions};
-use rumiga_platform::{InputSource, InputState, KeyEvent, VideoOutput};
+use rumiga_platform::{InputSource, InputState, KeyEvent, TraceSink, VideoOutput};
 
 /// Convert an RGB565 pixel to u32 ARGB (`0xFF_RR_GG_BB`).
 #[must_use]
@@ -141,5 +146,37 @@ impl InputSource for DesktopInput {
             }
         }
         state
+    }
+}
+
+/// Buffered file transport for core diagnostic records.
+///
+/// This adapter owns host file creation and buffering; the core only formats
+/// records. Each record is terminated with `\n`.
+pub struct FileTraceSink {
+    writer: BufWriter<File>,
+}
+
+impl FileTraceSink {
+    /// Create a trace sink writing to `path`, truncating any existing file.
+    ///
+    /// # Errors
+    ///
+    /// Returns any file creation error from the host filesystem.
+    pub fn create(path: impl AsRef<Path>) -> std::io::Result<Self> {
+        Ok(Self {
+            writer: BufWriter::new(File::create(path)?),
+        })
+    }
+}
+
+impl TraceSink for FileTraceSink {
+    fn write_record(&mut self, record: fmt::Arguments<'_>) {
+        // Diagnostics must not abort emulation, so transport errors are dropped.
+        let _ = writeln!(self.writer, "{record}");
+    }
+
+    fn flush(&mut self) {
+        let _ = self.writer.flush();
     }
 }

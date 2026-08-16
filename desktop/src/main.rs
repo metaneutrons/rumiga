@@ -30,7 +30,7 @@ use rumiga_core::floppy::{
 use rumiga_core::memory::MemoryConfig;
 use rumiga_core::playfield::{DISPLAY_HEIGHT, DISPLAY_LEFT_HPOS, DISPLAY_WIDTH, PlayfieldState};
 use rumiga_platform::VideoOutput;
-use rumiga_platform_desktop::DesktopVideo;
+use rumiga_platform_desktop::{DesktopVideo, FileTraceSink};
 use sha2::{Digest, Sha256};
 use std::sync::{Arc, Mutex};
 use storage::{
@@ -1322,9 +1322,12 @@ fn main() {
         process::exit(1);
     }
     if let Some(ref trace_path) = launch_args.trace_cpu {
-        if let Err(e) = emulator.enable_cpu_trace(trace_path, launch_args.trace_limit) {
-            eprintln!("Failed to enable CPU tracing to '{trace_path}': {e}");
-            process::exit(1);
+        match FileTraceSink::create(trace_path) {
+            Ok(sink) => emulator.set_trace_sink(Box::new(sink), launch_args.trace_limit),
+            Err(e) => {
+                eprintln!("Failed to enable CPU tracing to '{trace_path}': {e}");
+                process::exit(1);
+            }
         }
     }
     emulator.set_floppy_speed_percent(launch_args.floppy_speed_percent);
@@ -1718,6 +1721,9 @@ fn main() {
             std::thread::sleep(std::time::Duration::from_millis(16));
         }
     }
+
+    // Durability of the trace file is explicit, not a side effect of drop order.
+    emulator.flush_trace();
 
     if let Err(e) = write_hdf_snapshot_if_requested(&emulator, &launch_args) {
         eprintln!("{e}");
@@ -2575,6 +2581,8 @@ fn capture_evidence(
         emulator.run_frame();
         network_backend.pump(emulator)?;
     }
+    // Durability of the trace file is explicit, not a side effect of drop order.
+    emulator.flush_trace();
 
     let hdf_snapshot = write_hdf_snapshot_if_requested(emulator, context.args)?;
     let frame = prepare_capture_frame_for_kind(
@@ -2760,7 +2768,7 @@ fn write_capture_manifest(path: &Path, context: &CaptureManifestContext<'_>) -> 
         json_string(&format!("0x{:08X}", context.emulator.cpu.pc)),
         json_string(&format!("0x{:04X}", context.emulator.cpu.get_sr())),
         context.emulator.cpu.is_stopped(),
-        context.emulator.trace_count
+        context.emulator.trace_count()
     );
     push_viewport_json(&mut json, context);
     push_presentation_json(&mut json, context);
