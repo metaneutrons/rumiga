@@ -20,8 +20,9 @@ use super::{
 const FIRMWARE_EVIDENCE_DIRECTORY: &str = "target/m0-008-firmware-evidence";
 const SUPPLY_CHAIN_EVIDENCE_DIRECTORY: &str = "target/m0-009-supply-chain-evidence";
 
-const ALL_GATES: [Gate; 6] = [
+const ALL_GATES: [Gate; 7] = [
     Gate::Lockfiles,
+    Gate::Governance,
     Gate::Host,
     Gate::Compatibility,
     Gate::SupplyChain,
@@ -32,6 +33,7 @@ const ALL_GATES: [Gate; 6] = [
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum Gate {
     Lockfiles,
+    Governance,
     Host,
     Compatibility,
     SupplyChain,
@@ -43,6 +45,7 @@ impl Gate {
     const fn name(self) -> &'static str {
         match self {
             Self::Lockfiles => "lockfiles",
+            Self::Governance => "governance",
             Self::Host => "host",
             Self::Compatibility => "compatibility",
             Self::SupplyChain => "supply-chain",
@@ -54,6 +57,7 @@ impl Gate {
     const fn job(self) -> &'static str {
         match self {
             Self::Lockfiles => "lockfiles",
+            Self::Governance => "governance",
             Self::Host => "host",
             Self::Compatibility => "compatibility",
             Self::SupplyChain => "supply-chain",
@@ -65,6 +69,7 @@ impl Gate {
     const fn title(self) -> &'static str {
         match self {
             Self::Lockfiles => "Lockfile integrity",
+            Self::Governance => "Engineering governance evidence",
             Self::Host => "Host validation",
             Self::Compatibility => "Public compatibility evidence",
             Self::SupplyChain => "Supply-chain policy",
@@ -234,6 +239,7 @@ fn run_guarded_gate(root: &Path, manifest: &ToolchainManifest, gate: Gate) -> Re
 
     let result = match gate {
         Gate::Lockfiles => run_lockfile_gate(root, manifest),
+        Gate::Governance => run_governance_gate(root, manifest),
         Gate::Host => run_host_gate(root, manifest),
         Gate::Compatibility => run_compatibility_gate(root, manifest),
         Gate::SupplyChain => run_supply_chain_gate(root, manifest),
@@ -413,6 +419,12 @@ fn run_host_gate(root: &Path, manifest: &ToolchainManifest) -> Result<()> {
     );
     docs.env("RUSTDOCFLAGS", "-D warnings");
     run_checked(&mut docs, "warning-free Rust documentation")
+}
+
+fn run_governance_gate(root: &Path, manifest: &ToolchainManifest) -> Result<()> {
+    verify_host_tools(root, manifest, false)?;
+    super::governance::build_evidence()?;
+    verify_checksum_manifest(&root.join(super::governance::EVIDENCE_DIRECTORY))
 }
 
 fn run_supply_chain_gate(root: &Path, manifest: &ToolchainManifest) -> Result<()> {
@@ -714,6 +726,7 @@ mod tests {
             names,
             [
                 "lockfiles",
+                "governance",
                 "host",
                 "compatibility",
                 "supply-chain",
