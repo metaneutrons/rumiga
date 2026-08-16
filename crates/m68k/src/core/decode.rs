@@ -1284,13 +1284,14 @@ fn dispatch_group_9<B: AddressBus>(cpu: &mut CpuCore, bus: &mut B, opcode: u16) 
 
                 // If the store faults (misaligned word/long), the instruction should not update
                 // flags; pre-check alignment to avoid mutating flags before the fault.
-                if cpu.cpu_type == CpuType::M68000
-                    && size != Size::Byte
-                    && let EaResult::Memory(addr) = dst_ea
-                    && (addr & 1) != 0
-                {
-                    cpu.trigger_address_error(bus, addr, true, false);
-                    return 50;
+                if cpu.cpu_type == CpuType::M68000 && size != Size::Byte {
+                    match dst_ea {
+                        EaResult::Memory(addr) if (addr & 1) != 0 => {
+                            cpu.trigger_address_error(bus, addr, true, false);
+                            return 50;
+                        }
+                        _ => {}
+                    }
                 }
 
                 let result = cpu.exec_subx(size, src, dst);
@@ -1490,13 +1491,14 @@ fn dispatch_group_d<B: AddressBus>(cpu: &mut CpuCore, bus: &mut B, opcode: u16) 
 
                 // If the store faults (misaligned word/long), the instruction should not update
                 // flags; pre-check alignment to avoid mutating flags before the fault.
-                if cpu.cpu_type == CpuType::M68000
-                    && size != Size::Byte
-                    && let EaResult::Memory(addr) = dst_ea
-                    && (addr & 1) != 0
-                {
-                    cpu.trigger_address_error(bus, addr, true, false);
-                    return 50;
+                if cpu.cpu_type == CpuType::M68000 && size != Size::Byte {
+                    match dst_ea {
+                        EaResult::Memory(addr) if (addr & 1) != 0 => {
+                            cpu.trigger_address_error(bus, addr, true, false);
+                            return 50;
+                        }
+                        _ => {}
+                    }
                 }
 
                 let result = cpu.exec_addx(size, src, dst);
