@@ -338,7 +338,7 @@ local promotion result.
 
 | Task | Status | Deliverable | Acceptance evidence |
 | --- | --- | --- | --- |
-| M1-001 | IMPLEMENTED | Add `std`/`no_std` feature model to `rumiga-core` | Both feature sets compile, lint, and test locally; invalid selections fail closed; hosted Linux/macOS evidence is pending |
+| M1-001 | DONE | Add `std`/`no_std` feature model to `rumiga-core` | Local and hosted Linux/macOS gates compile, lint, and test both valid profiles and reject invalid selections |
 | M1-002 | NEXT | Make `m68k` compile under `no_std + alloc`; isolate FPU constants/features | 68000 and 68EC020 release profiles compile on RISC-V target |
 | M1-003 | PLANNED | Replace `std` collections/cells with `core`/`alloc` where required | No `std::` use in canonical core build |
 | M1-004 | PLANNED | Introduce injected trace/log sink and remove core file creation | Host trace output remains byte-compatible in integration tests |
@@ -351,7 +351,7 @@ local promotion result.
 | M1-011 | PLANNED | Measure 32-bit assumptions, alignment, endianness, and `usize` conversions | Miri/sanitizer/property fixtures cover critical boundaries |
 | M1-012 | PLANNED | Publish portability contract in architecture docs | Core dependency graph contains only approved `no_std` crates |
 
-M1-001 implementation evidence (2026-08-16):
+M1-001 evidence (2026-08-16):
 
 - commit `4349c73` defines mutually exclusive `std` and `no_std` profiles;
   `std` remains the documented default
@@ -362,6 +362,17 @@ M1-001 implementation evidence (2026-08-16):
 - local `cargo +1.97.1 xtask ci --gate host` passes the explicit `std` check,
   `no_std` Clippy and test suites, both expected-failure checks, the default
   workspace, Rustdoc, and the web build
+- the complete local seven-gate promotion baseline passes in 82.621 seconds
+- GitHub Actions run
+  [`31934749529`](https://github.com/metaneutrons/rumiga/actions/runs/31934749529)
+  passes every prerequisite and the strict aggregate for branch head
+  `f538f0ba811691703dd88b1c75d7cceaa5dc8676`; Linux host job `95134810493`
+  and macOS host job `95134810516` independently pass the feature matrix
+- governance artifact `9260313104`, built from pull-request merge revision
+  `aab85a06bd8c893397b5e9ac719c77863628c5a1`, has archive digest
+  `e59760be76a9b1be3599fed1dc8300c08c64ed667c13506d224a122e7042c7b6`;
+  all three payload checksums, clean revision, two ADRs, two release notes, two
+  change records, and six test references were independently verified
 - this is a source-profile result, not RISC-V target evidence: `m68k` remains
   `std` until M1-002
 
@@ -370,12 +381,13 @@ M1-001 implementation evidence (2026-08-16):
 1. `refactor(core): define std and no-std runtime profiles`
 2. `ci(core): enforce the runtime feature matrix`
 3. `docs(core): document the runtime profile contract`
-4. `refactor(cpu): make stock m68k profiles no-std`
-5. `refactor(core): inject trace and host services`
-6. `refactor(blitter): restore deterministic single-owner execution`
-7. `feat(platform): add capabilities errors and bounded queues`
-8. `test(core): add deterministic replay and state digests`
-9. `ci(core): enforce riscv no-std portability`
+4. `docs(project): close M1-001 with hosted evidence`
+5. `refactor(cpu): make stock m68k profiles no-std`
+6. `refactor(core): inject trace and host services`
+7. `refactor(blitter): restore deterministic single-owner execution`
+8. `feat(platform): add capabilities errors and bounded queues`
+9. `test(core): add deterministic replay and state digests`
+10. `ci(core): enforce riscv no-std portability`
 
 ## M2 Backlog: D1001 Board Bring-Up
 

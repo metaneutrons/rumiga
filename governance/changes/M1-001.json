@@ -2,7 +2,7 @@
   "schema": "rumiga.change-record.v1",
   "task_id": "M1-001",
   "title": "Define explicit core runtime profiles",
-  "status": "implemented",
+  "status": "verified",
   "summary": "Add mutually exclusive std and no_std runtime profiles to rumiga-core and enforce their valid and invalid configurations in the canonical host gate.",
   "scope": [
     "rumiga-core Cargo feature contract",
@@ -44,8 +44,8 @@
   "evidence": [
     {
       "id": "hosted-core-feature-matrix",
-      "kind": "command",
-      "location": "Pending hosted Linux x86_64 and macOS arm64 M1-001 host-gate evidence",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions run 31934749529 for branch head f538f0ba811691703dd88b1c75d7cceaa5dc8676; Linux job 95134810493 and macOS job 95134810516 passed; artifact 9260313104 governance-aab85a06bd8c893397b5e9ac719c77863628c5a1 digest sha256:e59760be76a9b1be3599fed1dc8300c08c64ed667c13506d224a122e7042c7b6",
       "proves": "The core feature contract composes with the complete host baseline on both supported development platforms."
     }
   ],

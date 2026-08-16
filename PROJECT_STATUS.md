@@ -10,8 +10,8 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-16 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M0-012: engineering governance and traceability |
-| Current implementation | M1-001 core runtime feature model; hosted promotion pending |
+| Latest completed task | M1-001: explicit core runtime feature model |
+| Next task | M1-002: make stock `m68k` profiles `no_std + alloc` |
 | Development host | macOS, Apple Silicon |
 | Product target | Seeed reTerminal D1001, ESP32-P4 |
 | Product maturity | Desktop compatibility prototype |
@@ -120,17 +120,17 @@ No feature is called done merely because it compiled or booted once.
   Workbench 3.1.4 ADF, A1200 HDF, A2065/SLIRP link setup, and REST/web contract
   parity.
 - The web application passes ESLint and a production Next.js build.
-
-### What is implemented pending hosted verification
-
 - `rumiga-core` has explicit, mutually exclusive `std` and `no_std` runtime
   profiles. `std` remains the default and preserves desktop tracing and the
   background blitter worker.
 - The allocator-backed `no_std` source profile excludes core-owned files,
-  threads, and CPU-affinity calls. It passes Clippy plus the complete core unit,
-  integration, and golden-vector test suite locally.
-- The canonical host gate validates both profiles and rejects neither/both
-  selections. Hosted Linux x86_64 and macOS arm64 evidence is pending.
+  threads, and CPU-affinity calls. GitHub Actions run
+  [`31934749529`](https://github.com/metaneutrons/rumiga/actions/runs/31934749529)
+  passes the complete dual-profile gate on Linux x86_64 and macOS arm64 plus
+  the strict aggregate.
+- Governance artifact `9260313104` records the clean pull-request merge
+  revision and M1-001 traceability. Its archive digest and all three payload
+  checksums were independently verified.
 
 ### What is not yet true
 
@@ -172,7 +172,7 @@ No feature is called done merely because it compiled or booted once.
 | REST API | Partial | Desktop localhost server, shared DTOs, and sandboxed media storage exist; authentication, browser workflows, and the device server are missing |
 | Web UI | Partial | Lint/build and static contract parity pass; browser workflow and device evidence are missing |
 | A2065 networking | Partial | Device model and desktop SLIRP link exist; guest packet flow and D1001 Wi-Fi bridge are missing |
-| Core portability | Implemented source boundary | Explicit `std` and allocator-backed `no_std` profiles pass locally; `m68k` still blocks bare-metal RISC-V and hosted M1-001 evidence is pending |
+| Core portability | Verified source boundary | Explicit `std` and allocator-backed `no_std` profiles pass locally and on both hosted operating systems; `m68k` still blocks bare-metal RISC-V |
 | Platform abstraction | Partial | A small `no_std` trait crate exists; contracts lack backpressure, capabilities, clock, block media, network, lifecycle, and telemetry |
 | D1001 firmware | Partial | Locked IDF 6.0.0 build produces a validated, checksummed release bundle; firmware services are stubs and no hardware evidence exists |
 | Release operations | Planned | No device image, signed release, OTA rollback, HIL, SBOM, or soak evidence |
@@ -189,6 +189,7 @@ The following commands were run during this audit:
 | `cargo check --locked -p rumiga-core --no-default-features --features std` | Pass | The desktop runtime profile is independently selectable |
 | `cargo test --locked -p rumiga-core --no-default-features --features no_std` | Pass | The core source profile passes 145 unit tests plus all applicable integration and golden-vector suites without its `std` feature |
 | Invalid core feature selections | Pass | Neither and both runtime profiles fail with one stable compile-time diagnostic |
+| GitHub Actions run `31934749529` | Pass | Linux x86_64, macOS arm64, every supporting gate, and the strict aggregate validate M1-001 from a clean pull-request merge revision |
 | `cargo fmt --all --check` | Pass | Formatting is confined to repository-owned workspace sources |
 | `cargo check --locked --manifest-path firmware/Cargo.toml` | Pass | Firmware is a valid host-side workspace build unit; this is not target evidence |
 | `cargo check --locked --manifest-path crates/rumiga-platform-esp/Cargo.toml` | Pass | ESP adapter is a valid host-side workspace build unit; drivers remain stubs |
@@ -306,7 +307,7 @@ Detailed gates are in `ROADMAP.md`; task IDs are in `IMPLEMENTATION_PLAN.md`.
 | --- | --- | --- |
 | BASE: Desktop evidence foundation | Verified | Six current host scenarios and versioned evidence tooling |
 | M0: Hermetic engineering baseline | Verified | All twelve tasks pass local and hosted gates; the governance artifact closes G0 with independently verified traceability |
-| M1: Portable deterministic core | Active | M1-001 is implemented locally with dual-profile gates; hosted promotion is pending and M1-002 is next |
+| M1: Portable deterministic core | Active | M1-001 is verified on Linux and macOS; M1-002 CPU portability is next and G1 remains open |
 | M2: D1001 board bring-up | Planned | Flashable firmware, serial manifest, memory/display smoke |
 | M3: Bounded media and memory | Planned | 2 GiB HDF boots through bounded sector cache |
 | M4: D1001 display pipeline | Planned | Correct 50/60 Hz presentation and device framebuffer captures |
