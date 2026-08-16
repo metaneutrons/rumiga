@@ -158,6 +158,9 @@ without unpublished sibling repositories or machine-specific paths.
   (completed by M0-006).
 - Publish machine-readable test and evidence summaries as CI artifacts
   (completed by M0-011 with an independently verified hosted artifact).
+- Version contribution, review, release-note, ADR, and task-to-evidence
+  contracts with a repository-owned validator and hosted evidence artifact
+  (implemented by M0-012; hosted promotion evidence pending).
 
 ### Exit gate G0
 
@@ -166,6 +169,8 @@ without unpublished sibling repositories or machine-specific paths.
   immutable, checksummed dependency.
 - Web install and build use the tracked lockfile.
 - Firmware and ESP platform crates at least compile their minimal target.
+- Contribution, review, release-note, ADR, and change-record contracts validate
+  from a clean checkout and a sample task links tests and evidence.
 - CI fails when any required matrix leg is absent or skipped unexpectedly.
 
 ## M1: Portable Deterministic Core
