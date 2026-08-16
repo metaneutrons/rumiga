@@ -45,8 +45,14 @@ the emulator core.
 Important current constraints:
 
 - `rumiga-platform` is `no_std + alloc`.
-- `rumiga-core` and `m68k` are currently `std` crates.
-- The core opens CPU trace files and can spawn a blitter thread.
+- `rumiga-core` now has mutually exclusive `std` and `no_std` profiles; `std`
+  remains the desktop default and the `no_std + alloc` source profile is
+  host-compiled, linted, and tested.
+- `m68k` remains a `std` crate, so the complete core dependency graph does not
+  yet compile for bare-metal RISC-V. That boundary is M1-002.
+- Under `std`, the core still opens CPU trace files and can spawn a blitter
+  thread. The `no_std` profile excludes tracing and executes blits
+  synchronously until M1-004 and M1-005 replace both host-owned services.
 - The desktop binary owns CLI, REST, static web serving, presentation,
   evidence, media persistence, and loop scheduling in one module.
 - Desktop REST media I/O is isolated in `desktop/src/storage.rs`, confined to a
@@ -360,10 +366,17 @@ Reference emulators are behavior oracles, not linked runtime dependencies:
 
 ## Architecture Fitness Tests
 
-The architecture is enforced by automated checks:
+Current automated checks enforce:
 
-- `rumiga-core --no-default-features` compiles for
-  `riscv32imafc-unknown-none-elf`.
+- exactly one `rumiga-core` runtime feature is required; explicit `std` and
+  `no_std` host profiles compile while neither/both selections fail closed.
+- the complete `rumiga-core` test suite and Clippy pass under `no_std`; the
+  default workspace suite proves unchanged `std` behavior.
+
+The remaining milestone fitness gates are:
+
+- after M1-002, `rumiga-core` plus `m68k` must compile for
+  `riscv32imafc-unknown-none-elf` before target portability is claimed.
 - forbidden-import checks reject `std`, filesystem, thread, socket, and platform
   dependencies in canonical core modules.
 - dependency graph checks reject unpublished paths outside the repository.

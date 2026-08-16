@@ -11,6 +11,7 @@ ordered work; this file records what is actually proven now.
 | Status date | 2026-08-16 |
 | Audited baseline revision | Repository revision containing this document |
 | Latest completed task | M0-012: engineering governance and traceability |
+| Current implementation | M1-001 core runtime feature model; hosted promotion pending |
 | Development host | macOS, Apple Silicon |
 | Product target | Seeed reTerminal D1001, ESP32-P4 |
 | Product maturity | Desktop compatibility prototype |
@@ -120,10 +121,25 @@ No feature is called done merely because it compiled or booted once.
   parity.
 - The web application passes ESLint and a production Next.js build.
 
+### What is implemented pending hosted verification
+
+- `rumiga-core` has explicit, mutually exclusive `std` and `no_std` runtime
+  profiles. `std` remains the default and preserves desktop tracing and the
+  background blitter worker.
+- The allocator-backed `no_std` source profile excludes core-owned files,
+  threads, and CPU-affinity calls. It passes Clippy plus the complete core unit,
+  integration, and golden-vector test suite locally.
+- The canonical host gate validates both profiles and rejects neither/both
+  selections. Hosted Linux x86_64 and macOS arm64 evidence is pending.
+
 ### What is not yet true
 
-- `rumiga-core` is not currently `no_std`; it directly uses host files,
-  `std::thread`, `JoinHandle`, and `core_affinity`.
+- The complete `rumiga-core` dependency graph is not bare-metal `no_std` yet:
+  `m68k` still requires `std`. M1-002 must convert it before the core enters the
+  RISC-V portable gate.
+- Host files, `std::thread`, `JoinHandle`, and `core_affinity` still exist in
+  the default core profile. M1-004 and M1-005 must replace them with injected
+  services and deterministic single-owner execution.
 - `rumiga-platform-esp` and `firmware` are host-checkable workspace members, but
   every ESP platform module and the firmware entry point remain stubs. Their
   toolchain and SDK inputs now cross-build, but there is no flash, boot,
@@ -156,6 +172,7 @@ No feature is called done merely because it compiled or booted once.
 | REST API | Partial | Desktop localhost server, shared DTOs, and sandboxed media storage exist; authentication, browser workflows, and the device server are missing |
 | Web UI | Partial | Lint/build and static contract parity pass; browser workflow and device evidence are missing |
 | A2065 networking | Partial | Device model and desktop SLIRP link exist; guest packet flow and D1001 Wi-Fi bridge are missing |
+| Core portability | Implemented source boundary | Explicit `std` and allocator-backed `no_std` profiles pass locally; `m68k` still blocks bare-metal RISC-V and hosted M1-001 evidence is pending |
 | Platform abstraction | Partial | A small `no_std` trait crate exists; contracts lack backpressure, capabilities, clock, block media, network, lifecycle, and telemetry |
 | D1001 firmware | Partial | Locked IDF 6.0.0 build produces a validated, checksummed release bundle; firmware services are stubs and no hardware evidence exists |
 | Release operations | Planned | No device image, signed release, OTA rollback, HIL, SBOM, or soak evidence |
@@ -169,6 +186,9 @@ The following commands were run during this audit:
 | `cargo metadata --locked --no-deps --format-version 1 --quiet` | Pass | Root Cargo manifest and lockfile agree |
 | `cargo test --locked --workspace` | Pass | 475 unit, integration, and documentation tests are discovered locally, including quality-orchestrator, storage-confinement, ESP-pin, and evidence tooling |
 | `cargo clippy --locked --workspace --all-targets -- -D warnings` | Pass | All workspace targets pass without warnings |
+| `cargo check --locked -p rumiga-core --no-default-features --features std` | Pass | The desktop runtime profile is independently selectable |
+| `cargo test --locked -p rumiga-core --no-default-features --features no_std` | Pass | The core source profile passes 145 unit tests plus all applicable integration and golden-vector suites without its `std` feature |
+| Invalid core feature selections | Pass | Neither and both runtime profiles fail with one stable compile-time diagnostic |
 | `cargo fmt --all --check` | Pass | Formatting is confined to repository-owned workspace sources |
 | `cargo check --locked --manifest-path firmware/Cargo.toml` | Pass | Firmware is a valid host-side workspace build unit; this is not target evidence |
 | `cargo check --locked --manifest-path crates/rumiga-platform-esp/Cargo.toml` | Pass | ESP adapter is a valid host-side workspace build unit; drivers remain stubs |
@@ -239,7 +259,7 @@ until an explicit HIL test qualifies the larger geometry.
 | ID | Severity | Risk | Required response |
 | --- | --- | --- | --- |
 | R-001 | Critical | Whole HDF images are resident in RAM | Introduce a bounded sector `BlockDevice` contract before A1200 device integration |
-| R-003 | Critical | Core owns host threads and files | Move host services behind adapters and make the deterministic core `no_std + alloc` in M1 |
+| R-003 | Critical | The default core still owns host threads and files; the new `no_std` source path is not yet the canonical target graph | Convert `m68k`, inject trace services, and restore deterministic single-owner blitter execution in M1-002 through M1-005 |
 | R-004 | High | No D1001 firmware has booted | The pinned M0-008 build artifact is published; capture serial boot evidence in M2 |
 | R-005 | High | USB-C host wiring and VBUS behavior are not qualified | Verify schematic and actual board before promising direct USB-C peripherals; document required adapter/hub |
 | R-006 | High | Performance on ESP32-P4 is unknown | Add cycle, frame, PSRAM bandwidth, and memory benchmarks before compatibility expansion |
@@ -286,7 +306,7 @@ Detailed gates are in `ROADMAP.md`; task IDs are in `IMPLEMENTATION_PLAN.md`.
 | --- | --- | --- |
 | BASE: Desktop evidence foundation | Verified | Six current host scenarios and versioned evidence tooling |
 | M0: Hermetic engineering baseline | Verified | All twelve tasks pass local and hosted gates; the governance artifact closes G0 with independently verified traceability |
-| M1: Portable deterministic core | Active | M1-001 is next: introduce the deliberate `std`/`no_std` core feature model |
+| M1: Portable deterministic core | Active | M1-001 is implemented locally with dual-profile gates; hosted promotion is pending and M1-002 is next |
 | M2: D1001 board bring-up | Planned | Flashable firmware, serial manifest, memory/display smoke |
 | M3: Bounded media and memory | Planned | 2 GiB HDF boots through bounded sector cache |
 | M4: D1001 display pipeline | Planned | Correct 50/60 Hz presentation and device framebuffer captures |

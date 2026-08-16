@@ -29,3 +29,4 @@ Numbering is contiguous; `0000-template.md` is reserved and is not a decision.
 | ADR | Status | Task | Decision |
 | --- | --- | --- | --- |
 | [ADR-0001](0001-governance-traceability.md) | Accepted | M0-012 | Version governance contracts and machine-readable change records |
+| [ADR-0002](0002-core-runtime-feature-model.md) | Accepted | M1-001 | Define explicit, mutually exclusive `std` and `no_std` core runtime profiles |

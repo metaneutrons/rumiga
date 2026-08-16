@@ -26,8 +26,8 @@ versions recorded in `toolchain/manifest.toml`.
 | --- | --- |
 | `Lockfile Integrity` | Verify locked Cargo metadata, install npm dependencies from the lockfile without lifecycle scripts, and reject lockfile mutation |
 | `Engineering Governance Evidence` | Validate contribution, review, issue, PR, ADR, release-note, and change-record contracts; upload checksummed task-to-evidence traceability |
-| `Host / Linux x86_64` | Run the complete Rust and web host command set on `ubuntu-24.04` |
-| `Host / macOS arm64` | Run the complete Rust and web host command set on `macos-15` |
+| `Host / Linux x86_64` | Run the complete Rust, core feature-matrix, and web host command set on `ubuntu-24.04` |
+| `Host / macOS arm64` | Run the complete Rust, core feature-matrix, and web host command set on `macos-15` |
 | `Public Compatibility Evidence` | Classify every scenario, verify the asset-free REST/web contract, inventory Cargo tests and reviewed ignores, and upload a private-media-free checksummed bundle |
 | `Supply Chain Policy` | Enforce Cargo/npm source, checksum, license, duplicate, advisory, lifecycle-script, and immutable-Action policy; upload checksummed scanner evidence |
 | `Portable Rust / RISC-V no_std` | Compile the current `no_std` package boundary for bare-metal 32-bit RISC-V |
@@ -109,9 +109,12 @@ cargo +1.97.1 xtask ci --gate host
 ```
 
 The gate expands to the locked npm install, web lint and production build,
-Rust format, locked workspace Clippy and tests, and warning-free Rustdoc. The
-web build runs before Rust compilation because `rumiga-desktop` embeds the
-generated `web/out` directory in its binary.
+Rust format, the `rumiga-core` runtime matrix, locked workspace Clippy and
+tests, and warning-free Rustdoc. The runtime matrix explicitly compiles `std`,
+lints and tests `no_std`, and verifies that selecting neither or both profiles
+fails with the required diagnostic. The default workspace commands continue to
+exercise `std`. The web build runs before Rust compilation because
+`rumiga-desktop` embeds the generated `web/out` directory in its binary.
 
 GitHub's Rust and npm caches may improve runtime but are never build inputs:
 every install and Cargo command remains lockfile-enforced.
@@ -171,8 +174,10 @@ cargo +1.97.1 xtask ci --gate portable
 
 The target and package set come from `toolchain/manifest.toml`. They currently
 resolve to `riscv32imafc-unknown-none-elf` and `m68000`, `rumiga-api`, and
-`rumiga-platform`. The gate deliberately does not claim that `rumiga-core` or
-`m68k` is `no_std`; that conversion and its deterministic replay gate are M1.
+`rumiga-platform`. M1-001 proves the `rumiga-core` source profile under
+`no_std + alloc` on the host, but the portable gate deliberately does not yet
+include `rumiga-core`: its `m68k` dependency remains `std` until M1-002. A host
+feature check is not bare-metal RISC-V evidence.
 
 The firmware gate installs the exact nightly, `ldproxy`, and `espflash` pins,
 then runs:

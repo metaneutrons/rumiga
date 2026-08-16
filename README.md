@@ -29,6 +29,7 @@ CD32 are outside the first release scope.
 ## Current Highlights
 
 - M68000-family interpreter with 68000 through 68040 selectable host profiles.
+- Explicit `rumiga-core` `std` and allocator-backed `no_std` source profiles.
 - A500, A500+, A600, and A1200 machine profiles.
 - Progressive OCS/ECS/AGA chipset implementation.
 - Paula audio, CIA timers/I/O, MFM floppy, ADF writes, and 100-800% floppy speed.
@@ -49,7 +50,7 @@ additional legal/local media and 3 are explicitly out of scope.
 crates/
   m68k/                     active M68000-family CPU core
   m68000/                   legacy/reference no_std CPU crate
-  rumiga-core/              Amiga machine core; not no_std yet
+  rumiga-core/              Amiga machine core; std default plus no_std source profile
   rumiga-platform/          no_std platform contracts
   rumiga-platform-desktop/  desktop platform adapter
   rumiga-platform-esp/      workspace-integrated D1001 adapter scaffolding
@@ -74,6 +75,21 @@ scripts/                    capture, parity, and report tools
 The default Cargo graph is self-contained. Its CPU differential test uses the
 tracked `m68000` workspace crate and a synthetic ROM, so no private Kickstart or
 sibling repository is required for that gate.
+
+### Core Runtime Profiles
+
+Desktop builds use the default `std` profile. The core source can also be
+compiled and tested with its explicit allocator-backed profile:
+
+```sh
+cargo check --locked -p rumiga-core --no-default-features --features std
+cargo test --locked -p rumiga-core --no-default-features --features no_std
+```
+
+Exactly one runtime feature is required. `std` preserves file-backed CPU traces
+and the current background blitter worker; `no_std` removes those host services
+and executes the immediate blitter synchronously. This is not yet a bare-metal
+RISC-V claim because the `m68k` dependency remains `std` until M1-002.
 
 ### Desktop
 
@@ -189,12 +205,13 @@ constitutes the complete local baseline.
 
 Pull requests and pushes to `main` invoke those same gate implementations in
 parallel on pinned `ubuntu-24.04` x86_64 and `macos-15` arm64 runners. Both host
-legs enforce Rust formatting, Clippy, all workspace tests, warning-free
-documentation, web lint, and the production web build. Separate jobs compile
-the current bare-metal RISC-V `no_std` boundary and produce checksummed
-ESP32-P4 release evidence. Lockfile, supply-chain, host, portable, and firmware
-jobs feed one stable `Required Quality Gate` result and publish GitHub job
-summaries and evidence artifacts.
+legs enforce the `rumiga-core` runtime feature matrix, Rust formatting, Clippy,
+all workspace tests, warning-free documentation, web lint, and the production
+web build. Separate jobs compile the current bare-metal RISC-V `no_std`
+boundary and produce checksummed ESP32-P4 release evidence. Lockfile,
+supply-chain, host, portable, and firmware jobs feed one stable
+`Required Quality Gate` result and publish GitHub job summaries and evidence
+artifacts.
 
 Actions are pinned to immutable revisions, credentials are not persisted, and
 the workflow token is read-only. See the [continuous integration contract](CI.md)

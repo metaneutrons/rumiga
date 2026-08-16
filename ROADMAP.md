@@ -193,6 +193,16 @@ produces the same deterministic state transitions as the host build.
 - Add deterministic input replay, state digest, and frame/audio digest fixtures.
 - Compile-check the core for `riscv32imafc-unknown-none-elf`.
 
+### Current Progress
+
+- M1-001 implements the explicit runtime contract: `std` is the desktop
+  default, while `no_std + alloc` excludes core-owned tracing, threads, and
+  affinity and passes the complete applicable core test suite on the host.
+- The host gate enforces valid and invalid feature selections on macOS and
+  Linux. Hosted promotion is pending.
+- M1-002 is next. Until `m68k` is converted and the portable gate includes the
+  core, M1-001 is not bare-metal RISC-V evidence and G1 remains open.
+
 ### Exit gate G1
 
 - Core and CPU crates compile without `std` for 32-bit RISC-V.
