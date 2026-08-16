@@ -1,7 +1,8 @@
 # Rumiga Continuous Integration Contract
 
-This document defines the required host, supply-chain, and target-build checks
-implemented by M0-007 through M0-011. Gate behavior is owned by
+This document defines the required host, governance, compatibility,
+supply-chain, and target-build checks implemented by M0-007 through M0-012.
+Gate behavior is owned by
 `xtask/src/ci.rs`, orchestration is defined in `.github/workflows/ci.yml`, and
 tool versions remain canonical in `toolchain/manifest.toml` and its consuming
 files.
@@ -24,6 +25,7 @@ versions recorded in `toolchain/manifest.toml`.
 | Job | Required behavior |
 | --- | --- |
 | `Lockfile Integrity` | Verify locked Cargo metadata, install npm dependencies from the lockfile without lifecycle scripts, and reject lockfile mutation |
+| `Engineering Governance Evidence` | Validate contribution, review, issue, PR, ADR, release-note, and change-record contracts; upload checksummed task-to-evidence traceability |
 | `Host / Linux x86_64` | Run the complete Rust and web host command set on `ubuntu-24.04` |
 | `Host / macOS arm64` | Run the complete Rust and web host command set on `macos-15` |
 | `Public Compatibility Evidence` | Classify every scenario, verify the asset-free REST/web contract, inventory Cargo tests and reviewed ignores, and upload a private-media-free checksummed bundle |
@@ -46,11 +48,12 @@ The complete local entry point is:
 cargo +1.97.1 xtask ci
 ```
 
-It runs `lockfiles`, `host`, `compatibility`, `supply-chain`, `portable`, and
-`firmware` in that order. GitHub jobs preserve matrix parallelism by calling the same
-implementation with `--gate <name>`. The repository test suite structurally
-parses the workflow and rejects missing, extra, relocated, or version-drifted
-gate invocations as well as aggregate dependency drift.
+It runs `lockfiles`, `governance`, `host`, `compatibility`, `supply-chain`,
+`portable`, and `firmware` in that order. GitHub jobs preserve matrix
+parallelism by calling the same implementation with `--gate <name>`. The
+repository test suite structurally parses the workflow and rejects missing,
+extra, relocated, or version-drifted gate invocations as well as aggregate
+dependency drift.
 
 Every gate validates the relevant pinned tools. A gate snapshots tracked Git
 status plus staged and unstaged diff hashes before execution and rejects any
@@ -64,6 +67,34 @@ SHA-256 values.
 options select a diagnostic subset while retaining canonical order. A subset is
 not a promotion result; only the command without `--gate` is the complete local
 baseline, and only the hosted matrix proves both supported host platforms.
+
+## Engineering Governance Contract
+
+The governance job runs:
+
+```sh
+cargo +1.97.1 xtask ci --gate governance
+```
+
+The Rust validator requires the repository-owned contribution and review
+policies, GitHub PR/issue templates, CODEOWNERS, ADR lifecycle and template,
+release-note lifecycle and template, JSON change-record schema, and every
+task-named record. It rejects missing or duplicate headings, unsafe or symlinked
+paths, unknown JSON fields, invalid status/risk/impact values, stale task links,
+missing documents, release notes or ADRs owned by another task, duplicate test
+or evidence IDs, and pending evidence on a verified record.
+
+The resulting `target/m0-012-governance-evidence` directory contains
+`governance.json`, normalized `traceability.json`, `manifest.json`, and exact
+`SHA256SUMS`. Its manifest records the source revision and dirty state, hashes
+every contract input, and explicitly excludes human-review, branch-protection,
+and release-versioning claims. Output scanning rejects home/workspace paths;
+CI uploads `governance-<commit>` for 30 days only after exact checksum coverage
+passes.
+
+The gate proves that the versioned workflow and links are internally
+consistent. It does not claim that a human approved a change, that GitHub
+branch settings match policy, or that host evidence proves D1001 behavior.
 
 ## Host Matrix Contract
 

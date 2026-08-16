@@ -235,11 +235,11 @@ their own license obligations.
 
 ## Quality Baseline
 
-Current baseline on 2026-08-15:
+Current baseline on 2026-08-16:
 
 | Check | Result |
 | --- | --- |
-| Cargo test inventory | Pass; 482 discovered, 4 reviewed ignored, and 478 runnable unit, integration, and documentation tests |
+| Cargo test inventory | Pass; 487 discovered, 4 reviewed ignored, and 483 runnable unit, integration, and documentation tests |
 | Clippy with `-D warnings` | Pass without warnings |
 | `cargo fmt --all --check` | Pass |
 | Cargo/npm lockfile integrity | Pass |
@@ -251,7 +251,8 @@ Current baseline on 2026-08-15:
 | ESP32-P4 firmware evidence | Pass locally and on GitHub for locked IDF 6.0.0; checksummed artifact published by run [`31890919057`](https://github.com/metaneutrons/rumiga/actions/runs/31890919057) |
 | Linux/macOS host CI | Pass on GitHub-hosted x86_64 and arm64 runners |
 | Public compatibility evidence | Pass locally and on GitHub; 1 asset-free scenario passes, 12 private-media scenarios are explicitly skipped, and 3 roadmap exclusions are unsupported; artifact published by run [`31910408906`](https://github.com/metaneutrons/rumiga/actions/runs/31910408906) |
-| Unified local quality command | Pass; all six canonical gates complete through `cargo +1.97.1 xtask ci` |
+| Engineering governance evidence | Pass locally; 13 contracts and the M0-012 task/test/evidence traceability record validate; hosted promotion pending |
+| Unified local quality command | Pass; all seven canonical gates complete through `cargo +1.97.1 xtask ci` |
 | Protected branch gate | `Required Quality Gate` from GitHub Actions required on `main` |
 
 Do not interpret the CI badge as D1001 runtime readiness. M0-008 proves portable
@@ -273,6 +274,14 @@ peripheral, or meets performance targets; those are M2 and later gates.
   and rollback rules.
 - [Continuous Integration](CI.md): required jobs, permissions, summaries, and
   branch-protection contract.
+- [Contributing](CONTRIBUTING.md): task, test, evidence, ADR, release-note, and
+  pull-request workflow.
+- [Reviewing](REVIEWING.md): correctness, embedded, security, and evidence
+  review contract.
+- [Architecture Decisions](docs/adr/README.md): numbered decision lifecycle and
+  accepted history.
+- [Governance Records](governance/README.md): machine-readable task
+  traceability contract.
 - [Vellum Reuse Authorization](docs/provenance/VELLUM_REUSE.md): owner
   authorization, exclusions, and source-transfer tracking.
 
@@ -284,9 +293,9 @@ safe metadata, and reproduction commands without redistributing those inputs.
 
 ## Contributing
 
-Keep commits functional and reviewable. Activate the repository hooks, map work
-to an implementation task ID, add tests/evidence appropriate to the behavior,
-and update `PROJECT_STATUS.md` when a verified claim changes.
+Follow [CONTRIBUTING.md](CONTRIBUTING.md) and [REVIEWING.md](REVIEWING.md).
+Material work maps a stable task to tests, evidence, documentation, release
+notes, and architecture decisions through a versioned change record.
 
 The default branch currently forbids unsafe Rust. The future ESP-IDF FFI adapter
 will be the only reviewed exception; emulator logic remains safe Rust.

@@ -71,7 +71,7 @@ milestone.
 | M0-009 | DONE | Add advisory, license, source, and dependency-policy checks | Hosted policy evidence has no unreviewed vulnerability, yanked package, incompatible license, or source drift |
 | M0-010 | DONE | Add `xtask` or equivalent single entry point for local/CI quality gates | One documented command runs the same gates as CI |
 | M0-011 | DONE | Export current compatibility report and test counts as CI artifacts without private media | Hosted private-media-free artifact classifies all scenarios, inventories all tests, and passes independent checksum/privacy verification |
-| M0-012 | PLANNED | Add contribution, review, release-note, and architecture-decision templates | A sample change is traceable from task to tests and evidence |
+| M0-012 | IN PROGRESS | Add contribution, review, release-note, and architecture-decision templates | Local governance gate and M0-012 traceability example pass; hosted artifact promotion pending |
 
 M0-002 evidence (2026-08-14):
 
@@ -273,6 +273,20 @@ M0-011 evidence (2026-08-15):
   482-test totals, reviewed ignores, privacy flags, and absence of private
   filesystem paths
 
+M0-012 local evidence (2026-08-16):
+
+- `cargo +1.97.1 xtask ci --gate governance` validates 13 versioned contracts,
+  one accepted ADR, one unreleased note, and one machine-readable change record
+- `governance/changes/M0-012.json` links the stable task to three test commands,
+  the checksummed CI artifact, eight documentation sources, its release note,
+  risk/rollback, and ADR-0001
+- five focused tests reject malformed task IDs, unsafe paths, duplicate/missing
+  Markdown contracts, private filesystem markers, and repository contract drift
+- `target/m0-012-governance-evidence` contains four regular UTF-8 files with
+  exact checksum coverage and no private paths; hosted run, artifact ID/archive
+  hash, clean revision, and independent download verification remain required
+  before task and M0 promotion
+
 ### M0 functional commits
 
 1. `docs(project): establish embedded-first roadmap and status`
@@ -296,6 +310,10 @@ M0-011 evidence (2026-08-15):
 19. `docs(evidence): document public CI baseline`
 20. `fix(desktop): decouple test assets from web build`
 21. `docs(project): close M0-011 with hosted evidence`
+22. `feat(governance): version engineering change contracts`
+23. `ci(governance): publish traceability evidence`
+24. `docs(governance): document engineering workflow`
+25. `docs(project): close M0-012 with hosted evidence`
 
 ### M0 promotion command set
 
