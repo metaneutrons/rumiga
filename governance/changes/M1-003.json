@@ -2,7 +2,7 @@
   "schema": "rumiga.change-record.v1",
   "task_id": "M1-003",
   "title": "Enforce canonical core primitive boundary",
-  "status": "implemented",
+  "status": "verified",
   "summary": "Require portable core and allocation primitives throughout rumiga-core, make the MAC-address error contract available without std, validate the rule under both explicit runtime profiles, and enforce the declared Rust MSRV for the stock no_std core graph.",
   "scope": [
     "rumiga-core primitive import policy",
@@ -57,6 +57,18 @@
       "kind": "command",
       "location": "2026-08-16 local execution: explicit std Clippy, no_std Clippy, 146 core unit tests plus applicable integration suites, the optimized stock-core bare-metal RISC-V release check, and the declared Rust 1.85 MSRV check passed.",
       "proves": "The implemented primitive boundary is locally valid before pull-request promotion."
+    },
+    {
+      "id": "hosted-pr-core-primitive-boundary",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions pull-request run 31961164165, artifact 9267277447 governance-c4063f31a171a867de5698788eaa2134e52e9e3e, archive sha256:94de57f43b28bdb031ba2851a69bb8e1701073301f0d888ea4585f37f44fe272.",
+      "proves": "All required quality jobs pass for the clean pull-request merge revision; the governance payload checksums and M1-003 traceability record were independently verified."
+    },
+    {
+      "id": "hosted-main-core-primitive-boundary",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions final main run 31961501684, artifact 9267358611 governance-917d316902cba5aa77e7d50589eb6f52e70529c3, archive sha256:2c5b42f7ad9384f7ca81d4fdbff633005fd122f000de6349ec7cc46bea05e68e.",
+      "proves": "All required quality jobs pass for clean main revision 917d316902cba5aa77e7d50589eb6f52e70529c3; the governance payload checksums and M1-003 traceability record were independently verified."
     }
   ],
   "documentation": [

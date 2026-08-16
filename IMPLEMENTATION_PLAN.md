@@ -23,7 +23,8 @@ baseline required to separate core-portability defects from local setup drift.
 M0-013 is a completed post-G0 governance hardening increment. Its local,
 pull-request, and final `main` promotion paths are verified. M1-002 is also
 complete with local, pull-request, and final `main` target-build evidence.
-M1-003 is the next implementation task.
+M1-003 is complete with local, pull-request, and final `main` portability
+evidence. M1-004 is the next implementation task.
 
 Critical path:
 
@@ -387,7 +388,7 @@ local promotion result.
 | --- | --- | --- | --- |
 | M1-001 | DONE | Add `std`/`no_std` feature model to `rumiga-core` | Local and hosted Linux/macOS gates compile, lint, and test both valid profiles and reject invalid selections |
 | M1-002 | DONE | Make `m68k` compile under `no_std + alloc`; isolate FPU constants/features | Local and hosted 68000/68EC020 stock-core release profiles compile on the RISC-V target; final `main` evidence is independently verified |
-| M1-003 | IMPLEMENTED | Enforce `core`/`alloc` primitives in the canonical core | Both explicit profiles reject `std` replacements with portable equivalents; the stock core remains a bare-metal RISC-V release build |
+| M1-003 | DONE | Enforce `core`/`alloc` primitives in the canonical core | Both explicit profiles reject `std` replacements with portable equivalents; the stock core remains a bare-metal RISC-V release build |
 | M1-004 | PLANNED | Introduce injected trace/log sink and remove core file creation | Host trace output remains byte-compatible in integration tests |
 | M1-005 | PLANNED | Remove core thread spawning and affinity; restore deterministic single-owner blitter | Frame/state digests match before/after on host fixtures |
 | M1-006 | PLANNED | Introduce emulated clock, host yield, and monotonic scheduling contracts | PAL/NTSC timing tests do not read host wall clock |
@@ -463,7 +464,7 @@ M1-002 implementation evidence (2026-08-16):
   all payload checksums and the M1-002 traceability record were independently
   verified
 
-M1-003 implementation evidence (2026-08-16):
+M1-003 verified evidence (2026-08-16):
 
 - `rumiga-core` denies `clippy::std_instead_of_core` and
   `clippy::std_instead_of_alloc`, so portable primitive replacements are caught
@@ -481,8 +482,26 @@ M1-003 implementation evidence (2026-08-16):
   no_std` passes after replacing five newer `let`-chain expressions in `m68k`
   with equivalent match guards; the host gate now installs and enforces the
   declared MSRV
-- hosted pull-request and final `main` promotion evidence remain required
-  before M1-003 is marked DONE
+- pull-request run
+  [`31961164165`](https://github.com/metaneutrons/rumiga/actions/runs/31961164165)
+  passes all ten jobs for the promoted change; Linux job `95199261022`, macOS
+  job `95199260986`, firmware job `95199260976`, and aggregate job
+  `95199880195` pass
+- pull-request governance artifact `9267277447`, produced from clean merge
+  revision `c4063f31a171a867de5698788eaa2134e52e9e3e`, has archive SHA-256
+  `94de57f43b28bdb031ba2851a69bb8e1701073301f0d888ea4585f37f44fe272`; all
+  internal payload checksums and the M1-003 traceability record were
+  independently verified
+- final `main` run
+  [`31961501684`](https://github.com/metaneutrons/rumiga/actions/runs/31961501684)
+  passes all ten jobs for clean revision
+  `917d316902cba5aa77e7d50589eb6f52e70529c3`; Linux job `95200065207`, macOS
+  job `95200065227`, firmware job `95200065244`, and aggregate job
+  `95200667602` pass
+- final governance artifact `9267358611` has archive SHA-256
+  `2c5b42f7ad9384f7ca81d4fdbff633005fd122f000de6349ec7cc46bea05e68e`; all
+  internal payload checksums, the clean-source claim, and the M1-003
+  traceability record were independently verified
 
 ### M1 functional commits
 

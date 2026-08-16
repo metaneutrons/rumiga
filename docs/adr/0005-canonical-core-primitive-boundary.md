@@ -1,6 +1,6 @@
 # ADR-0005: Canonical Core Primitive Boundary
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-08-16
 - Owners: @metaneutrons
 - Task: M1-003
@@ -60,9 +60,16 @@ profiles and the complete host suite. `cargo +1.97.1 xtask ci --gate portable`
 continues to compile the complete stock core as an optimized bare-metal RISC-V
 release. The same host gate compiles the stock core with Rust 1.85. The
 `MacAddressError` unit test proves that the shared error contract is available
-in the allocator-backed profile. Acceptance requires a clean
-pull-request and final `main` hosted run with independently verified governance
-artifacts.
+in the allocator-backed profile. Clean pull-request run
+[`31961164165`](https://github.com/metaneutrons/rumiga/actions/runs/31961164165)
+produced governance artifact `9267277447` with archive SHA-256
+`94de57f43b28bdb031ba2851a69bb8e1701073301f0d888ea4585f37f44fe272`. Final
+`main` run
+[`31961501684`](https://github.com/metaneutrons/rumiga/actions/runs/31961501684)
+produced governance artifact `9267358611` with archive SHA-256
+`2c5b42f7ad9384f7ca81d4fdbff633005fd122f000de6349ec7cc46bea05e68e`. Both
+artifacts were independently downloaded; their internal checksums, clean-source
+claims, and M1-003 traceability records were verified.
 
 ## Supersession
 
