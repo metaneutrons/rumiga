@@ -141,12 +141,14 @@ cargo +1.97.1 xtask ci --gate host
 ```
 
 The gate expands to the locked npm install, web lint and production build,
-Rust format, the `rumiga-core` runtime matrix, locked workspace Clippy and
-tests, and warning-free Rustdoc. The runtime matrix explicitly compiles `std`,
-lints and tests `no_std`, and verifies that selecting neither or both profiles
-fails with the required diagnostic. The default workspace commands continue to
-exercise `std`. The web build runs before Rust compilation because
-`rumiga-desktop` embeds the generated `web/out` directory in its binary.
+Rust format, the `m68k` and `rumiga-core` runtime matrices, locked workspace
+Clippy and tests, and warning-free Rustdoc. The runtime matrices explicitly
+compile `std`, lint and test `no_std`, and verify that invalid selections fail
+with the required diagnostics. The CPU matrix also rejects FPU under `no_std`
+and tests the stock Line-F fallback. Default workspace commands continue to
+exercise the FPU-enabled desktop graph. The web build runs before Rust
+compilation because `rumiga-desktop` embeds the generated `web/out` directory
+in its binary.
 
 GitHub's Rust and npm caches may improve runtime but are never build inputs:
 every install and Cargo command remains lockfile-enforced.
@@ -204,12 +206,13 @@ The portable job runs:
 cargo +1.97.1 xtask ci --gate portable
 ```
 
-The target and package set come from `toolchain/manifest.toml`. They currently
-resolve to `riscv32imafc-unknown-none-elf` and `m68000`, `rumiga-api`, and
-`rumiga-platform`. M1-001 proves the `rumiga-core` source profile under
-`no_std + alloc` on the host, but the portable gate deliberately does not yet
-include `rumiga-core`: its `m68k` dependency remains `std` until M1-002. A host
-feature check is not bare-metal RISC-V evidence.
+The target and build profiles come from `toolchain/manifest.toml`. They resolve
+to `riscv32imafc-unknown-none-elf`. The `foundation` profile checks `m68000`,
+`rumiga-api`, and `rumiga-platform`; the `stock-amiga-core` profile checks
+`m68k` and `rumiga-core` together in release mode with defaults disabled and
+`no_std` selected. This proves the complete stock CPU/core dependency graph
+against a bare-metal 32-bit RISC-V standard library boundary. It does not prove
+linking with a firmware allocator, execution, performance, or D1001 behavior.
 
 The firmware gate installs the exact nightly, `ldproxy`, and `espflash` pins,
 then runs:

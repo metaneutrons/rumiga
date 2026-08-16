@@ -13,7 +13,10 @@ Strong for both low-level hardware-accurate emulation and high-level emulation (
 - **Complete CPU family support**: M68000, M68010, M68020, M68030, M68040, and variants (EC/LC)
 - **Zero dependencies**: Pure Rust with no external runtime dependencies
 - **Safe Rust**: No unsafe code blocks
-- **FPU emulation**: Full 68881/68882/68040 floating-point unit support
+- **FPU emulation**: Optional 68881/68882/68040 floating-point unit support in
+  the default `std` profile
+- **Portable stock core**: M68000 and 68EC020-class integer paths support
+  allocator-backed `no_std` builds
 - **MMU emulation**: 68030/68040 PMMU with table walks and transparent translation
 - **HLE-ready**: Built-in trap interception for High-Level Emulation
 - **Extensively tested**: Validated against multiple industry-standard test suites
@@ -26,6 +29,18 @@ Add to your `Cargo.toml`:
 [dependencies]
 m68k = "0.1"
 ```
+
+The default profile enables `std` and `fpu`. Bare-metal stock profiles disable
+defaults and select `no_std`; the embedding executable must provide an
+allocator:
+
+```toml
+[dependencies]
+m68k = { version = "0.1", default-features = false, features = ["no_std"] }
+```
+
+Exactly one of `std` or `no_std` is required. `fpu` requires `std`; FPU opcodes
+in the stock profile remain visible through the normal Line-F trap path.
 
 ### Basic Usage
 

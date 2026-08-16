@@ -48,8 +48,10 @@ Important current constraints:
 - `rumiga-core` now has mutually exclusive `std` and `no_std` profiles; `std`
   remains the desktop default and the `no_std + alloc` source profile is
   host-compiled, linted, and tested.
-- `m68k` remains a `std` crate, so the complete core dependency graph does not
-  yet compile for bare-metal RISC-V. That boundary is M1-002.
+- `m68k` has the same explicit runtime boundary. Its integer CPU path and
+  allocator-backed disassembler compile under `no_std`; the optional FPU stays
+  in the default `std` profile. The complete stock core graph compiles as a
+  release build for bare-metal RISC-V.
 - Under `std`, the core still opens CPU trace files and can spawn a blitter
   thread. The `no_std` profile excludes tracing and executes blits
   synchronously until M1-004 and M1-005 replace both host-owned services.
@@ -368,15 +370,15 @@ Reference emulators are behavior oracles, not linked runtime dependencies:
 
 Current automated checks enforce:
 
-- exactly one `rumiga-core` runtime feature is required; explicit `std` and
-  `no_std` host profiles compile while neither/both selections fail closed.
-- the complete `rumiga-core` test suite and Clippy pass under `no_std`; the
-  default workspace suite proves unchanged `std` behavior.
+- exactly one runtime feature is required in `m68k` and `rumiga-core`; explicit
+  `std` and `no_std` host profiles compile while invalid selections fail closed.
+- the CPU and complete core test suites plus Clippy pass under `no_std`; the
+  default workspace suite proves unchanged FPU-enabled desktop behavior.
+- repository-owned portable profiles compile `m68k` and `rumiga-core` in
+  release mode for `riscv32imafc-unknown-none-elf`.
 
 The remaining milestone fitness gates are:
 
-- after M1-002, `rumiga-core` plus `m68k` must compile for
-  `riscv32imafc-unknown-none-elf` before target portability is claimed.
 - forbidden-import checks reject `std`, filesystem, thread, socket, and platform
   dependencies in canonical core modules.
 - dependency graph checks reject unpublished paths outside the repository.

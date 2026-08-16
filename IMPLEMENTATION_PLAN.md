@@ -21,8 +21,9 @@ The next engineering milestone is **M1: Portable Deterministic Core**. M0 now
 provides the reproducible host, target-build, policy, evidence, and governance
 baseline required to separate core-portability defects from local setup drift.
 M0-013 is a completed post-G0 governance hardening increment. Its local,
-pull-request, and final `main` promotion paths are verified, and M1-002 remains
-the next emulator-core task.
+pull-request, and final `main` promotion paths are verified. M1-002 is locally
+implemented and awaiting hosted promotion; M1-003 is the next implementation
+task after that evidence closes.
 
 Critical path:
 
@@ -385,8 +386,8 @@ local promotion result.
 | Task | Status | Deliverable | Acceptance evidence |
 | --- | --- | --- | --- |
 | M1-001 | DONE | Add `std`/`no_std` feature model to `rumiga-core` | Local and hosted Linux/macOS gates compile, lint, and test both valid profiles and reject invalid selections |
-| M1-002 | NEXT | Make `m68k` compile under `no_std + alloc`; isolate FPU constants/features | 68000 and 68EC020 release profiles compile on RISC-V target |
-| M1-003 | PLANNED | Replace `std` collections/cells with `core`/`alloc` where required | No `std::` use in canonical core build |
+| M1-002 | ACTIVE | Make `m68k` compile under `no_std + alloc`; isolate FPU constants/features | 68000 and 68EC020 release profiles compile on RISC-V target; hosted promotion pending |
+| M1-003 | NEXT | Replace `std` collections/cells with `core`/`alloc` where required | No `std::` use in canonical core build |
 | M1-004 | PLANNED | Introduce injected trace/log sink and remove core file creation | Host trace output remains byte-compatible in integration tests |
 | M1-005 | PLANNED | Remove core thread spawning and affinity; restore deterministic single-owner blitter | Frame/state digests match before/after on host fixtures |
 | M1-006 | PLANNED | Introduce emulated clock, host yield, and monotonic scheduling contracts | PAL/NTSC timing tests do not read host wall clock |
@@ -421,6 +422,23 @@ M1-001 evidence (2026-08-16):
   change records, and six test references were independently verified
 - this is a source-profile result, not RISC-V target evidence: `m68k` remains
   `std` until M1-002
+
+M1-002 implementation evidence (2026-08-16):
+
+- `m68k` has mutually exclusive `std` and `no_std` profiles; its default
+  desktop graph retains `fpu`, while `no_std,fpu` fails with one stable
+  diagnostic
+- `cargo +1.97.1 test --locked -p m68k --no-default-features --features no_std`
+  passes eight unit tests, including the FPU-less 68EC020 Line-F regression,
+  plus its doctest
+- `cargo +1.97.1 xtask ci --gate host` passes both CPU/core feature matrices,
+  strict Clippy, the complete default workspace, web production build, and
+  warning-free Rustdoc in 27.390 seconds
+- `cargo +1.97.1 xtask ci --gate portable` compiles the foundation profile and
+  then `m68k` plus `rumiga-core` as optimized `no_std` releases for
+  `riscv32imafc-unknown-none-elf` in 864 milliseconds
+- hosted pull-request, checksummed governance, and final `main` evidence are
+  pending before M1-002 can move to `DONE`
 
 ### M1 functional commits
 

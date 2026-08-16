@@ -29,7 +29,8 @@ CD32 are outside the first release scope.
 ## Current Highlights
 
 - M68000-family interpreter with 68000 through 68040 selectable host profiles.
-- Explicit `rumiga-core` `std` and allocator-backed `no_std` source profiles.
+- Explicit `m68k` and `rumiga-core` `std` and allocator-backed `no_std`
+  profiles, including a bare-metal RISC-V release check for the stock core.
 - A500, A500+, A600, and A1200 machine profiles.
 - Progressive OCS/ECS/AGA chipset implementation.
 - Paula audio, CIA timers/I/O, MFM floppy, ADF writes, and 100-800% floppy speed.
@@ -82,14 +83,18 @@ Desktop builds use the default `std` profile. The core source can also be
 compiled and tested with its explicit allocator-backed profile:
 
 ```sh
+cargo test --locked -p m68k --no-default-features --features no_std
 cargo check --locked -p rumiga-core --no-default-features --features std
 cargo test --locked -p rumiga-core --no-default-features --features no_std
+cargo +1.97.1 xtask ci --gate portable
 ```
 
-Exactly one runtime feature is required. `std` preserves file-backed CPU traces
-and the current background blitter worker; `no_std` removes those host services
-and executes the immediate blitter synchronously. This is not yet a bare-metal
-RISC-V claim because the `m68k` dependency remains `std` until M1-002.
+Exactly one runtime feature is required in both crates. `std` preserves the
+desktop FPU, file-backed CPU traces, and the current background blitter worker;
+`no_std` keeps the stock integer CPU path, removes the host services, and
+executes the immediate blitter synchronously. The portable gate compiles
+`m68k` and the complete `rumiga-core` graph as optimized `no_std` releases for
+`riscv32imafc-unknown-none-elf`; it is compile evidence, not device execution.
 
 ### Desktop
 
