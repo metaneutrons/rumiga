@@ -93,6 +93,13 @@ trace limit, the count reset on attach, detach behavior, and the emulator's
 `crates/rumiga-platform-desktop/tests/file_trace_sink_test.rs` covers real file
 creation, truncation, the `\n` terminator, and host error reporting.
 
+End to end, a three-frame Kickstart 46.143 capture with a 20000-instruction
+trace limit was produced at pre-change revision `1a6da29` and at this change.
+Both trace files have SHA-256
+`222caf36e1f9c12b9a051ae792da8091680ea84435f96075dba40fd8f1015bde`, both
+capture manifests report `trace_count` 20000, and both PNG captures are
+identical, so the CLI, transport, flush point, and manifest are unchanged.
+
 ## Supersession
 
 None. This replaces the host-owned tracing that ADR-0002 and ADR-0005 recorded

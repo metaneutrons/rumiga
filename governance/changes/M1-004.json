@@ -46,6 +46,11 @@
       "proves": "The stock core graph still compiles with the declared Rust MSRV after the new dependency edge and contract."
     },
     {
+      "id": "desktop-trace-differential",
+      "command": "cargo +1.97.1 run --locked --release -p rumiga-desktop -- assets/kick.a1200.46.143.rom --capture <png> --capture-frames 3 --trace-cpu <trace> --trace-limit 20000",
+      "proves": "The desktop trace file produced by the injected sink is byte identical to the file produced by the same command at the pre-change revision."
+    },
+    {
       "id": "full-local-promotion",
       "command": "cargo +1.97.1 xtask ci",
       "proves": "Commit policy, lockfiles, governance, host checks, compatibility, supply chain, the portable RISC-V profile, and the ESP32-P4 firmware build all pass for the change."
@@ -57,6 +62,18 @@
       "kind": "command",
       "location": "2026-08-17 local execution: the trace suite passes under both core runtime profiles with identical golden records, the desktop file transport suite passes, and the declared Rust 1.85 MSRV check passes.",
       "proves": "Byte compatibility and the removal of core file creation are locally valid before pull-request promotion."
+    },
+    {
+      "id": "local-desktop-trace-differential",
+      "kind": "host-scenario",
+      "location": "2026-08-17 local execution: a three-frame Kickstart 46.143 capture with a 20000-instruction trace limit, run at pre-change revision 1a6da29469b31bc2ddb51c705d64feccfa76dac8 and at the implementation branch. Both trace files have SHA-256 222caf36e1f9c12b9a051ae792da8091680ea84435f96075dba40fd8f1015bde, both manifests report trace_count 20000, and both PNG captures are identical.",
+      "proves": "The complete desktop trace path, including the CLI, the file transport, the flush point, and the capture manifest, is unchanged end to end."
+    },
+    {
+      "id": "local-full-promotion",
+      "kind": "command",
+      "location": "2026-08-17 local execution of cargo +1.97.1 xtask ci: commits, lockfiles, governance, host, compatibility, supply-chain, portable, and firmware gates pass; aggregate 90.732 s.",
+      "proves": "The change passes the canonical local promotion baseline before pull-request promotion."
     }
   ],
   "documentation": [
