@@ -1,0 +1,66 @@
+{
+  "schema": "rumiga.change-record.v1",
+  "task_id": "M0-013",
+  "title": "Enforce repository-owned Conventional Commits",
+  "status": "implemented",
+  "summary": "Replace the local-only commit regex with one Rust policy enforced by the commit hook, pull-request and main history ranges, pull-request titles, and the fail-closed CI aggregate.",
+  "scope": [
+    "Conventional Commit grammar and diagnostics",
+    "Raw Git commit-object and range validation",
+    "Local commit-msg hook",
+    "GitHub pull-request title and history enforcement",
+    "Required Quality Gate topology"
+  ],
+  "risk": {
+    "level": "medium",
+    "failure_mode": "An incorrect parser, event range, or aggregate dependency can block valid contributions or allow nonconforming history onto main.",
+    "rollback": "Revert the M0-013 implementation and documentation commits together to restore the previous local-only hook and seven-gate CI topology."
+  },
+  "compatibility": {
+    "status": "none",
+    "detail": "No emulator runtime, media, API, configuration, or firmware behavior changes."
+  },
+  "security": {
+    "status": "affected",
+    "detail": "Hosted validation removes the local --no-verify bypass from the protected-branch promotion path and reads only bounded repository commit metadata."
+  },
+  "tests": [
+    {
+      "id": "commit-policy-unit-tests",
+      "command": "cargo +1.97.1 test --locked -p rumiga-xtask commit_policy::tests",
+      "proves": "Supported Conventional Commit forms pass and malformed, WIP, autosquash, unsafe, oversized, and ambiguous inputs fail closed."
+    },
+    {
+      "id": "commit-policy-gate",
+      "command": "cargo +1.97.1 xtask ci --gate commits",
+      "proves": "The repository-owned parser validates real raw commit objects over the selected local or hosted event range."
+    },
+    {
+      "id": "complete-quality-baseline",
+      "command": "cargo +1.97.1 xtask ci",
+      "proves": "Commit policy composes with lockfile, governance, host, compatibility, supply-chain, portable, and firmware gates."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "hosted-commit-policy",
+      "kind": "command",
+      "location": "Pending hosted pull-request and main M0-013 commit-policy evidence",
+      "proves": "Pull-request commits and title plus the final main push range pass the required fail-closed aggregate from clean checkouts."
+    }
+  ],
+  "documentation": [
+    "CONTRIBUTING.md",
+    "REVIEWING.md",
+    "CI.md",
+    "IMPLEMENTATION_PLAN.md",
+    "PROJECT_STATUS.md",
+    "ROADMAP.md",
+    "README.md",
+    "governance/README.md"
+  ],
+  "release_note": "docs/release-notes/unreleased/M0-013.md",
+  "architecture_decisions": [
+    "docs/adr/0003-conventional-commit-policy.md"
+  ]
+}

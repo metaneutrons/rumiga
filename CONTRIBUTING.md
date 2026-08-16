@@ -76,11 +76,35 @@ unchanged.
 
 ## Commit And Pull Request
 
-Use imperative functional commit subjects such as `feat(core): ...`,
-`fix(display): ...`, `ci(evidence): ...`, or `docs(project): ...`. Each commit
-must build toward one reviewable result. Do not commit ROMs, ADFs, HDFs,
-private screenshots, packet captures, credentials, generated build trees, or
-machine-specific paths.
+Every commit and pull-request title uses:
+
+```text
+<type>(<optional-scope>)!: <description>
+```
+
+Allowed types are `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`,
+`refactor`, `revert`, `style`, and `test`. A scope starts and ends with a
+lowercase ASCII letter or digit and may contain lowercase letters, digits,
+`-`, `_`, `.`, or `/`. The header is at most 120 characters. Use `!` or a
+`BREAKING CHANGE:` footer for an intentional breaking change; separate any
+body or footer from the header with a blank line.
+
+Use imperative functional subjects such as `feat(core): add bounded events`,
+`fix(display): correct viewport origin`, `ci(evidence): publish manifest`, or
+`docs(project): close M0-013 evidence`. WIP, `fixup!`, `squash!`, `amend!`,
+and merge commits must not enter a promoted range. Each commit must build toward
+one reviewable result.
+
+The local `commit-msg` hook provides immediate feedback. The authoritative
+hosted `commits` gate validates the pull-request range and title, then validates
+the resulting `main` push again. Diagnose the current branch with:
+
+```sh
+cargo +1.97.1 xtask ci --gate commits
+```
+
+Do not commit ROMs, ADFs, HDFs, private screenshots, packet captures,
+credentials, generated build trees, or machine-specific paths.
 
 Complete every applicable pull-request checkbox. A checked box is an assertion
 to the reviewer, not decoration. Link the change record and paste the exact

@@ -20,6 +20,9 @@ an immutable artifact produced by that revision.
 The next engineering milestone is **M1: Portable Deterministic Core**. M0 now
 provides the reproducible host, target-build, policy, evidence, and governance
 baseline required to separate core-portability defects from local setup drift.
+M0-013 is a post-G0 governance hardening increment: implementation is complete
+locally, hosted promotion is pending, and M1-002 remains the next emulator-core
+task.
 
 Critical path:
 
@@ -72,6 +75,7 @@ milestone.
 | M0-010 | DONE | Add `xtask` or equivalent single entry point for local/CI quality gates | One documented command runs the same gates as CI |
 | M0-011 | DONE | Export current compatibility report and test counts as CI artifacts without private media | Hosted private-media-free artifact classifies all scenarios, inventories all tests, and passes independent checksum/privacy verification |
 | M0-012 | DONE | Add contribution, review, release-note, and architecture-decision templates | Hosted checksummed artifact validates the M0-012 task/test/evidence traceability example from a clean PR checkout |
+| M0-013 | ACTIVE | Enforce one Rust-owned Conventional Commit policy in local hooks, pull requests, and `main` pushes | Focused tests and the local gate pass; hosted PR/title/range and final `main` aggregate evidence is pending |
 
 M0-002 evidence (2026-08-14):
 
@@ -296,6 +300,25 @@ M0-012 evidence (2026-08-16):
   three payload checksums, a clean source revision, the 13-contract and
   task-link totals, public scope flags, and absence of private filesystem paths
 
+M0-013 implementation evidence (2026-08-16):
+
+- commit `0ed5f53` replaces the local shell regex with a bounded Rust parser
+  shared by `.githooks/commit-msg` and the canonical `commits` gate
+- the parser accepts the documented types, optional lowercase scopes, `!`,
+  breaking-change footers, revert messages, and existing Dependabot prefixes;
+  it rejects malformed, WIP, autosquash, merge, unsafe-control, non-UTF-8, and
+  oversized inputs
+- CI checks complete history with immutable event object IDs, validates every
+  commit after the merge base, validates the pull-request title for squash
+  safety, and validates the resulting `main` push range again
+- `cargo +1.97.1 test --locked -p rumiga-xtask` passes all 30 tests;
+  `cargo +1.97.1 clippy --locked -p rumiga-xtask --all-targets -- -D warnings`
+  and `cargo +1.97.1 xtask ci --gate commits` pass locally
+- the workflow structure test requires all eight canonical gate invocations and
+  the `commits` dependency in `Required Quality Gate`
+- hosted pull-request and final `main` evidence is pending; local hook success
+  alone is not promotion evidence
+
 ### M0 functional commits
 
 1. `docs(project): establish embedded-first roadmap and status`
@@ -323,6 +346,9 @@ M0-012 evidence (2026-08-16):
 23. `ci(governance): publish traceability evidence`
 24. `docs(governance): document engineering workflow`
 25. `docs(project): close M0-012 with hosted evidence`
+26. `feat(quality): enforce conventional commit policy`
+27. `docs(governance): document conventional commit policy`
+28. `docs(project): close M0-013 with hosted evidence`
 
 ### M0 promotion command set
 
