@@ -21,6 +21,7 @@ The active root workspace contains:
 
 ```text
 rumiga-core ---------------------> m68k
+     |                           -> rumiga-platform
      ^
      |
 rumiga-desktop --> rumiga-api
@@ -58,9 +59,14 @@ Important current constraints:
   allocator-backed disassembler compile under `no_std`; the optional FPU stays
   in the default `std` profile. The complete stock core graph compiles as a
   release build for bare-metal RISC-V.
-- Under `std`, the core still opens CPU trace files and can spawn a blitter
-  thread. The `no_std` profile excludes tracing and executes blits
-  synchronously until M1-004 and M1-005 replace both host-owned services.
+- The core no longer opens CPU trace files. It formats trace records and writes
+  them to an injected `rumiga-platform::TraceSink`, so tracing works in both
+  runtime profiles while file creation and buffering belong to the desktop
+  adapter. This is the first core-to-contract dependency edge and matches the
+  target architecture, where platform service contracts sit above the core.
+- Under `std`, the core can still spawn a blitter thread; the `no_std` profile
+  executes blits synchronously until M1-005 restores a deterministic single
+  owner.
 - The desktop binary owns CLI, REST, static web serving, presentation,
   evidence, media persistence, and loop scheduling in one module.
 - Desktop REST media I/O is isolated in `desktop/src/storage.rs`, confined to a
