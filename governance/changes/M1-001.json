@@ -1,0 +1,65 @@
+{
+  "schema": "rumiga.change-record.v1",
+  "task_id": "M1-001",
+  "title": "Define explicit core runtime profiles",
+  "status": "implemented",
+  "summary": "Add mutually exclusive std and no_std runtime profiles to rumiga-core and enforce their valid and invalid configurations in the canonical host gate.",
+  "scope": [
+    "rumiga-core Cargo feature contract",
+    "Core and alloc collection boundary",
+    "Host-only trace and blitter services",
+    "Dual-profile lint and test enforcement",
+    "Runtime profile architecture documentation"
+  ],
+  "risk": {
+    "level": "medium",
+    "failure_mode": "Feature drift could compile host services into the portable profile or change default desktop behavior.",
+    "rollback": "Revert the M1-001 core, CI, and documentation commits together to restore the previous unconditional std profile."
+  },
+  "compatibility": {
+    "status": "affected",
+    "detail": "The default desktop profile is unchanged; consumers disabling default features must now explicitly select no_std, where file tracing is unavailable and blits execute synchronously."
+  },
+  "security": {
+    "status": "none",
+    "detail": "No network, credential, authorization, media, or persistence policy changes."
+  },
+  "tests": [
+    {
+      "id": "core-explicit-std-profile",
+      "command": "cargo +1.97.1 check --locked -p rumiga-core --no-default-features --features std",
+      "proves": "The desktop-compatible runtime profile compiles when selected explicitly."
+    },
+    {
+      "id": "core-no-std-profile",
+      "command": "cargo +1.97.1 test --locked -p rumiga-core --no-default-features --features no_std",
+      "proves": "The allocator-backed core source profile compiles and passes its unit, integration, and golden-vector tests without the std feature."
+    },
+    {
+      "id": "core-feature-matrix-gate",
+      "command": "cargo +1.97.1 xtask ci --gate host",
+      "proves": "Both valid profiles pass, neither and both are rejected with stable diagnostics, and the default workspace behavior remains green."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "hosted-core-feature-matrix",
+      "kind": "command",
+      "location": "Pending hosted Linux x86_64 and macOS arm64 M1-001 host-gate evidence",
+      "proves": "The core feature contract composes with the complete host baseline on both supported development platforms."
+    }
+  ],
+  "documentation": [
+    "ARCHITECTURE.md",
+    "CI.md",
+    "IMPLEMENTATION_PLAN.md",
+    "PROJECT_STATUS.md",
+    "README.md",
+    "ROADMAP.md",
+    "docs/adr/README.md"
+  ],
+  "release_note": "docs/release-notes/unreleased/M1-001.md",
+  "architecture_decisions": [
+    "docs/adr/0002-core-runtime-feature-model.md"
+  ]
+}

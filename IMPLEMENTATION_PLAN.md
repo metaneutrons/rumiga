@@ -338,8 +338,8 @@ local promotion result.
 
 | Task | Status | Deliverable | Acceptance evidence |
 | --- | --- | --- | --- |
-| M1-001 | NEXT | Add `std`/`no_std` feature model to `rumiga-core` | Both feature sets compile; default is documented |
-| M1-002 | PLANNED | Make `m68k` compile under `no_std + alloc`; isolate FPU constants/features | 68000 and 68EC020 release profiles compile on RISC-V target |
+| M1-001 | IMPLEMENTED | Add `std`/`no_std` feature model to `rumiga-core` | Both feature sets compile, lint, and test locally; invalid selections fail closed; hosted Linux/macOS evidence is pending |
+| M1-002 | NEXT | Make `m68k` compile under `no_std + alloc`; isolate FPU constants/features | 68000 and 68EC020 release profiles compile on RISC-V target |
 | M1-003 | PLANNED | Replace `std` collections/cells with `core`/`alloc` where required | No `std::` use in canonical core build |
 | M1-004 | PLANNED | Introduce injected trace/log sink and remove core file creation | Host trace output remains byte-compatible in integration tests |
 | M1-005 | PLANNED | Remove core thread spawning and affinity; restore deterministic single-owner blitter | Frame/state digests match before/after on host fixtures |
@@ -351,15 +351,31 @@ local promotion result.
 | M1-011 | PLANNED | Measure 32-bit assumptions, alignment, endianness, and `usize` conversions | Miri/sanitizer/property fixtures cover critical boundaries |
 | M1-012 | PLANNED | Publish portability contract in architecture docs | Core dependency graph contains only approved `no_std` crates |
 
+M1-001 implementation evidence (2026-08-16):
+
+- commit `4349c73` defines mutually exclusive `std` and `no_std` profiles;
+  `std` remains the documented default
+- the core uses `core`/`alloc` primitives where required; filesystem tracing,
+  host threads, and CPU affinity are excluded from `no_std`
+- commit `c692571` adds the feature matrix to the canonical host gate on both
+  supported hosted operating systems
+- local `cargo +1.97.1 xtask ci --gate host` passes the explicit `std` check,
+  `no_std` Clippy and test suites, both expected-failure checks, the default
+  workspace, Rustdoc, and the web build
+- this is a source-profile result, not RISC-V target evidence: `m68k` remains
+  `std` until M1-002
+
 ### M1 functional commits
 
-1. `refactor(core): define std and no-std feature boundary`
-2. `refactor(cpu): make stock m68k profiles no-std`
-3. `refactor(core): inject trace and host services`
-4. `refactor(blitter): restore deterministic single-owner execution`
-5. `feat(platform): add capabilities errors and bounded queues`
-6. `test(core): add deterministic replay and state digests`
-7. `ci(core): enforce riscv no-std portability`
+1. `refactor(core): define std and no-std runtime profiles`
+2. `ci(core): enforce the runtime feature matrix`
+3. `docs(core): document the runtime profile contract`
+4. `refactor(cpu): make stock m68k profiles no-std`
+5. `refactor(core): inject trace and host services`
+6. `refactor(blitter): restore deterministic single-owner execution`
+7. `feat(platform): add capabilities errors and bounded queues`
+8. `test(core): add deterministic replay and state digests`
+9. `ci(core): enforce riscv no-std portability`
 
 ## M2 Backlog: D1001 Board Bring-Up
 
