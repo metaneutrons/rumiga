@@ -1,7 +1,8 @@
 # Rumiga Continuous Integration Contract
 
-This document defines the required host, governance, compatibility,
-supply-chain, and target-build checks implemented by M0-007 through M0-012.
+This document defines the required commit-history, host, governance,
+compatibility, supply-chain, and target-build checks implemented by M0-007
+through M0-013.
 Gate behavior is owned by
 `xtask/src/ci.rs`, orchestration is defined in `.github/workflows/ci.yml`, and
 tool versions remain canonical in `toolchain/manifest.toml` and its consuming
@@ -24,6 +25,7 @@ versions recorded in `toolchain/manifest.toml`.
 
 | Job | Required behavior |
 | --- | --- |
+| `Commit Policy` | Validate every selected raw Git commit message and the pull-request title against the repository-owned Conventional Commit policy; reject merge, WIP, and autosquash commits |
 | `Lockfile Integrity` | Verify locked Cargo metadata, install npm dependencies from the lockfile without lifecycle scripts, and reject lockfile mutation |
 | `Engineering Governance Evidence` | Validate contribution, review, issue, PR, ADR, release-note, and change-record contracts; upload checksummed task-to-evidence traceability |
 | `Host / Linux x86_64` | Run the complete Rust, core feature-matrix, and web host command set on `ubuntu-24.04` |
@@ -48,8 +50,8 @@ The complete local entry point is:
 cargo +1.97.1 xtask ci
 ```
 
-It runs `lockfiles`, `governance`, `host`, `compatibility`, `supply-chain`,
-`portable`, and `firmware` in that order. GitHub jobs preserve matrix
+It runs `commits`, `lockfiles`, `governance`, `host`, `compatibility`,
+`supply-chain`, `portable`, and `firmware` in that order. GitHub jobs preserve matrix
 parallelism by calling the same implementation with `--gate <name>`. The
 repository test suite structurally parses the workflow and rejects missing,
 extra, relocated, or version-drifted gate invocations as well as aggregate
@@ -67,6 +69,36 @@ SHA-256 values.
 options select a diagnostic subset while retaining canonical order. A subset is
 not a promotion result; only the command without `--gate` is the complete local
 baseline, and only the hosted matrix proves both supported host platforms.
+
+## Commit Policy Contract
+
+The commit-policy job checks out complete Git history and runs:
+
+```sh
+cargo +1.97.1 xtask ci --gate commits
+```
+
+For pull requests, the workflow supplies immutable base and head object IDs;
+the Rust validator computes their merge base and validates every commit unique
+to the head. It also validates the pull-request title because that title can
+become the retained header under a squash merge. Pushes to `main` validate the
+event's before/head range again. A manual run without a base validates its head
+commit; local execution selects commits after the `origin/main` merge base, or
+`HEAD` when no unique commit exists.
+
+The parser reads bounded raw commit objects rather than formatted log output.
+Messages must be UTF-8 with LF endings and use
+`<type>(<optional-scope>)!: <description>` with a maximum 120-character header.
+The accepted types are `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`,
+`refactor`, `revert`, `style`, and `test`. Optional scopes are lowercase ASCII;
+bodies require a blank separator. Breaking markers and `BREAKING CHANGE:`
+footers are supported. Merge, WIP, `fixup!`, `squash!`, and `amend!` commits
+fail closed.
+
+`.githooks/commit-msg` invokes the same parser against the proposed message for
+fast local feedback. Because local hooks can be bypassed, only the required
+hosted job and its aggregate dependency are promotion evidence. No npm package
+or external commit-policy service is required.
 
 ## Engineering Governance Contract
 

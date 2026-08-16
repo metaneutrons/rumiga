@@ -11,7 +11,7 @@ before reading individual lines so the intended contract is clear.
 3. Check tests and evidence against the claims being made.
 4. Check embedded resource bounds and portability.
 5. Check security, private-media handling, and dependency policy.
-6. Check documentation, release note, ADR, and rollback accuracy.
+6. Check commit scope, documentation, release note, ADR, and rollback accuracy.
 
 Report findings by severity:
 
@@ -56,6 +56,11 @@ The task, change record, tests, evidence, release note, ADR, and status document
 must agree. Reject stale counts, aspirational claims written as current fact,
 and evidence from another revision. User-visible controls must remain aligned
 across CLI, REST, web UI, persistence, and support bundles where applicable.
+
+The required `Commit Policy` job proves message syntax, range coverage, and a
+merge-capable pull-request title. Review still confirms that each declared type
+and scope accurately describes one functional change; a syntactically valid
+header does not prove a coherent commit.
 
 ## Decision
 

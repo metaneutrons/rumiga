@@ -196,10 +196,11 @@ the exact tools from `toolchain/manifest.toml`:
 cargo +1.97.1 xtask ci
 ```
 
-It runs lockfile, host, supply-chain, portable Rust, and ESP32-P4 firmware gates
-in canonical order. Tool-version drift, workflow drift, evidence checksum
-errors, and tracked-file mutation fail closed. For diagnosis, list or select
-individual gates with `cargo +1.97.1 xtask ci --list` and
+It runs commit policy, lockfile, governance, host, compatibility, supply-chain,
+portable Rust, and ESP32-P4 firmware gates in canonical order. Invalid commit
+ranges or pull-request titles, tool-version drift, workflow drift, evidence
+checksum errors, and tracked-file mutation fail closed. For diagnosis, list or
+select individual gates with `cargo +1.97.1 xtask ci --list` and
 `cargo +1.97.1 xtask ci --gate <name>`; only the command without `--gate`
 constitutes the complete local baseline.
 
@@ -208,10 +209,10 @@ parallel on pinned `ubuntu-24.04` x86_64 and `macos-15` arm64 runners. Both host
 legs enforce the `rumiga-core` runtime feature matrix, Rust formatting, Clippy,
 all workspace tests, warning-free documentation, web lint, and the production
 web build. Separate jobs compile the current bare-metal RISC-V `no_std`
-boundary and produce checksummed ESP32-P4 release evidence. Lockfile,
-supply-chain, host, portable, and firmware jobs feed one stable
-`Required Quality Gate` result and publish GitHub job summaries and evidence
-artifacts.
+boundary and produce checksummed ESP32-P4 release evidence. Commit policy,
+lockfile, governance, compatibility, supply-chain, host, portable, and firmware
+jobs feed one stable `Required Quality Gate` result and publish GitHub job
+summaries and evidence artifacts.
 
 Actions are pinned to immutable revisions, credentials are not persisted, and
 the workflow token is read-only. See the [continuous integration contract](CI.md)
@@ -256,7 +257,7 @@ Current baseline on 2026-08-16:
 
 | Check | Result |
 | --- | --- |
-| Cargo test inventory | Pass; 487 discovered, 4 reviewed ignored, and 483 runnable unit, integration, and documentation tests |
+| Cargo test inventory | Pass; 492 discovered, 4 reviewed ignored, and 488 runnable unit, integration, and documentation tests |
 | Clippy with `-D warnings` | Pass without warnings |
 | `cargo fmt --all --check` | Pass |
 | Cargo/npm lockfile integrity | Pass |
@@ -269,7 +270,8 @@ Current baseline on 2026-08-16:
 | Linux/macOS host CI | Pass on GitHub-hosted x86_64 and arm64 runners |
 | Public compatibility evidence | Pass locally and on GitHub; 1 asset-free scenario passes, 12 private-media scenarios are explicitly skipped, and 3 roadmap exclusions are unsupported; artifact published by run [`31910408906`](https://github.com/metaneutrons/rumiga/actions/runs/31910408906) |
 | Engineering governance evidence | Pass locally and on GitHub; 13 contracts and the M0-012 task/test/evidence traceability record validate; artifact published by run [`31933087138`](https://github.com/metaneutrons/rumiga/actions/runs/31933087138) |
-| Unified local quality command | Pass; all seven canonical gates complete through `cargo +1.97.1 xtask ci` |
+| Conventional Commit policy | Implemented locally; one Rust parser validates the hook, branch range, PR title, and required CI job; hosted promotion pending |
+| Unified local quality command | Previous seven-gate baseline passed; the new eight-gate M0-013 baseline awaits complete local and hosted promotion |
 | Protected branch gate | `Required Quality Gate` from GitHub Actions required on `main` |
 
 Do not interpret the CI badge as D1001 runtime readiness. M0-008 proves portable

@@ -13,3 +13,7 @@ or `released` record may not contain a pending evidence location.
 The Rust validator is authoritative for CI because it also verifies repository
 paths and cross-file relationships. The JSON Schema provides editor and tooling
 support; changes to either contract must keep the validator tests green.
+
+Commit syntax is owned separately by `xtask/src/commit_policy.rs`. The local
+hook provides early feedback, while the required hosted `commits` gate validates
+the complete event range and pull-request title before promotion.

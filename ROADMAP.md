@@ -161,6 +161,9 @@ without unpublished sibling repositories or machine-specific paths.
 - Version contribution, review, release-note, ADR, and task-to-evidence
   contracts with a repository-owned validator and hosted evidence artifact
   (completed by M0-012 with an independently verified hosted artifact).
+- Enforce one repository-owned Conventional Commit policy across local hooks,
+  pull-request commit ranges and titles, final `main` pushes, and the required
+  aggregate (implemented by M0-013; hosted promotion pending).
 
 ### Exit gate G0
 
@@ -171,6 +174,8 @@ without unpublished sibling repositories or machine-specific paths.
 - Firmware and ESP platform crates at least compile their minimal target.
 - Contribution, review, release-note, ADR, and change-record contracts validate
   from a clean checkout and a sample task links tests and evidence.
+- Every promoted commit range and merge-capable pull-request title satisfies the
+  repository-owned Conventional Commit policy.
 - CI fails when any required matrix leg is absent or skipped unexpectedly.
 
 ## M1: Portable Deterministic Core
