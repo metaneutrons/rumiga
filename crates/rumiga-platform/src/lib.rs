@@ -4,7 +4,8 @@
 //! Platform abstraction traits for the Rumiga Amiga emulator.
 //!
 //! Defines the interfaces that platform backends must implement for video
-//! output, audio output, input handling, and storage access.
+//! output, audio output, input handling, storage access, and diagnostic
+//! record transport.
 //!
 //! All traits are `no_std`-compatible and use only `core` and `alloc` types.
 
@@ -14,6 +15,30 @@ extern crate alloc;
 
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::fmt;
+
+/// Trace sink trait — transports diagnostic records emitted by the core.
+///
+/// The core formats a complete record and hands it to the sink. Record layout
+/// is therefore deterministic and independent of the transport, while file,
+/// serial, and in-memory transports stay in platform adapters. The core never
+/// opens a file, holds a path, or owns a buffered writer.
+///
+/// Records carry no line terminator. Each implementation appends the
+/// terminator its transport requires; a host file sink appends `\n`.
+///
+/// Both methods are infallible. Diagnostics must not change emulated state or
+/// abort emulation, so transport errors are absorbed by the implementation.
+pub trait TraceSink {
+    /// Write one complete record.
+    fn write_record(&mut self, record: fmt::Arguments<'_>);
+
+    /// Flush buffered records to the underlying transport.
+    ///
+    /// Callers must not rely on drop order for durability. Implementations
+    /// that buffer should also flush on drop as a backstop.
+    fn flush(&mut self);
+}
 
 /// Video output trait — presents rendered frames to the display.
 pub trait VideoOutput {
