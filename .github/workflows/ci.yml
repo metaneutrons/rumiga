@@ -86,11 +86,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install pinned Rust toolchains
-        run: |
-          rustup toolchain install 1.97.1 --profile minimal \
-            --component clippy,rustfmt --no-self-update
-          rustup toolchain install 1.85.0 --profile minimal --no-self-update
+      - name: Install pinned Rust toolchain
+        run: >-
+          rustup toolchain install 1.97.1 --profile minimal
+          --component clippy,rustfmt --no-self-update
 
       - name: Install pinned Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -209,10 +208,11 @@ jobs:
           fi
           brew install libslirp pkg-config
 
-      - name: Install pinned Rust toolchain
-        run: >-
-          rustup toolchain install 1.97.1 --profile minimal
-          --component clippy,rustfmt --no-self-update
+      - name: Install pinned Rust toolchains
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal \
+            --component clippy,rustfmt --no-self-update
+          rustup toolchain install 1.85.0 --profile minimal --no-self-update
 
       - name: Cache Rust build inputs
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1

@@ -89,6 +89,11 @@ fn assert_vellum_reuse_policy(root: &Path, manifest: &toml::Value, destination_l
 
 fn assert_ci_tool_pins(root: &Path, manifest: &toml::Value) {
     let ci_workflow = read(&root.join(".github/workflows/ci.yml"));
+    let host_job = ci_workflow
+        .split_once("  host:\n")
+        .and_then(|(_, remainder)| remainder.split_once("\n  compatibility:\n"))
+        .map(|(host_job, _)| host_job)
+        .expect("CI workflow must contain a bounded host job");
     let host_rust = manifest_string(manifest, "host", "rust");
     let host_rust_msrv = manifest_string(manifest, "host", "rust_msrv");
     let cargo_audit = manifest_string(manifest, "tools", "cargo_audit");
@@ -109,7 +114,7 @@ fn assert_ci_tool_pins(root: &Path, manifest: &toml::Value) {
         );
     }
     assert!(
-        ci_workflow.contains(&format!(
+        host_job.contains(&format!(
             "rustup toolchain install {host_rust_msrv} --profile minimal --no-self-update"
         )),
         "CI host job must install the declared Rust MSRV"
