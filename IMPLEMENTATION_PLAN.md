@@ -17,9 +17,9 @@ an immutable artifact produced by that revision.
 
 ## Current Focus
 
-The next engineering milestone is **M0: Hermetic Engineering Baseline**.
-Embedded driver work must not begin on top of the current non-reproducible
-workspace because failures would be impossible to distinguish from local setup.
+The next engineering milestone is **M1: Portable Deterministic Core**. M0 now
+provides the reproducible host, target-build, policy, evidence, and governance
+baseline required to separate core-portability defects from local setup drift.
 
 Critical path:
 
@@ -71,7 +71,7 @@ milestone.
 | M0-009 | DONE | Add advisory, license, source, and dependency-policy checks | Hosted policy evidence has no unreviewed vulnerability, yanked package, incompatible license, or source drift |
 | M0-010 | DONE | Add `xtask` or equivalent single entry point for local/CI quality gates | One documented command runs the same gates as CI |
 | M0-011 | DONE | Export current compatibility report and test counts as CI artifacts without private media | Hosted private-media-free artifact classifies all scenarios, inventories all tests, and passes independent checksum/privacy verification |
-| M0-012 | IN PROGRESS | Add contribution, review, release-note, and architecture-decision templates | Local governance gate and M0-012 traceability example pass; hosted artifact promotion pending |
+| M0-012 | DONE | Add contribution, review, release-note, and architecture-decision templates | Hosted checksummed artifact validates the M0-012 task/test/evidence traceability example from a clean PR checkout |
 
 M0-002 evidence (2026-08-14):
 
@@ -273,7 +273,7 @@ M0-011 evidence (2026-08-15):
   482-test totals, reviewed ignores, privacy flags, and absence of private
   filesystem paths
 
-M0-012 local evidence (2026-08-16):
+M0-012 evidence (2026-08-16):
 
 - `cargo +1.97.1 xtask ci --gate governance` validates 13 versioned contracts,
   one accepted ADR, one unreleased note, and one machine-readable change record
@@ -282,10 +282,19 @@ M0-012 local evidence (2026-08-16):
   risk/rollback, and ADR-0001
 - five focused tests reject malformed task IDs, unsafe paths, duplicate/missing
   Markdown contracts, private filesystem markers, and repository contract drift
-- `target/m0-012-governance-evidence` contains four regular UTF-8 files with
-  exact checksum coverage and no private paths; hosted run, artifact ID/archive
-  hash, clean revision, and independent download verification remain required
-  before task and M0 promotion
+- the complete local seven-gate baseline passes in 78.601 seconds, including
+  the pinned ESP32-P4 release build
+- GitHub Actions run
+  [`31933087138`](https://github.com/metaneutrons/rumiga/actions/runs/31933087138)
+  passes every required job for branch head
+  `ad461580287229366c6b0492e9cfedad2f6610fe`; PR merge revision
+  `11e68bddf0f7739ed11711c97de0483f8381b6a6` produced artifact
+  `governance-11e68bddf0f7739ed11711c97de0483f8381b6a6` (artifact ID
+  `9259855560`, archive SHA-256
+  `249614ac364af890f92da3dcb8a1a3e3917f4be553fb54eade2d4c314ccbb480`)
+- independent download verification confirms exactly four regular files, all
+  three payload checksums, a clean source revision, the 13-contract and
+  task-link totals, public scope flags, and absence of private filesystem paths
 
 ### M0 functional commits
 
@@ -329,7 +338,7 @@ local promotion result.
 
 | Task | Status | Deliverable | Acceptance evidence |
 | --- | --- | --- | --- |
-| M1-001 | PLANNED | Add `std`/`no_std` feature model to `rumiga-core` | Both feature sets compile; default is documented |
+| M1-001 | NEXT | Add `std`/`no_std` feature model to `rumiga-core` | Both feature sets compile; default is documented |
 | M1-002 | PLANNED | Make `m68k` compile under `no_std + alloc`; isolate FPU constants/features | 68000 and 68EC020 release profiles compile on RISC-V target |
 | M1-003 | PLANNED | Replace `std` collections/cells with `core`/`alloc` where required | No `std::` use in canonical core build |
 | M1-004 | PLANNED | Introduce injected trace/log sink and remove core file creation | Host trace output remains byte-compatible in integration tests |

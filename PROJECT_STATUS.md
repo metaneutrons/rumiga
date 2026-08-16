@@ -10,7 +10,7 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-16 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M0-011: public compatibility evidence |
+| Latest completed task | M0-012: engineering governance and traceability |
 | Development host | macOS, Apple Silicon |
 | Product target | Seeed reTerminal D1001, ESP32-P4 |
 | Product maturity | Desktop compatibility prototype |
@@ -84,9 +84,11 @@ No feature is called done merely because it compiled or booted once.
   private filesystem paths pass independent download verification.
 - Repository-owned contribution, review, PR/issue, ADR, release-note, and
   change-record contracts now validate through the Rust-owned governance gate.
-  Its local checksummed bundle links M0-012 to three test commands, evidence,
-  risk/rollback, status documents, a release note, and ADR-0001; hosted artifact
-  promotion remains pending.
+  GitHub Actions run
+  [`31933087138`](https://github.com/metaneutrons/rumiga/actions/runs/31933087138)
+  passes every required job and publishes governance artifact `9259855560`.
+  Independent verification confirms its four-file archive, all checksums,
+  clean revision, public scope, traceability links, and private-path exclusion.
 - GitHub Actions run
   [`31899884533`](https://github.com/metaneutrons/rumiga/actions/runs/31899884533)
   passes every M0-010 gate on Linux x86_64 and macOS arm64 and publishes both
@@ -283,8 +285,8 @@ Detailed gates are in `ROADMAP.md`; task IDs are in `IMPLEMENTATION_PLAN.md`.
 | Milestone | Status | Promotion evidence |
 | --- | --- | --- |
 | BASE: Desktop evidence foundation | Verified | Six current host scenarios and versioned evidence tooling |
-| M0: Hermetic engineering baseline | Active | Governance contracts and the seventh gate pass locally; M0-012 hosted artifact promotion remains |
-| M1: Portable deterministic core | Planned | `no_std` RISC-V compile and deterministic replay parity |
+| M0: Hermetic engineering baseline | Verified | All twelve tasks pass local and hosted gates; the governance artifact closes G0 with independently verified traceability |
+| M1: Portable deterministic core | Active | M1-001 is next: introduce the deliberate `std`/`no_std` core feature model |
 | M2: D1001 board bring-up | Planned | Flashable firmware, serial manifest, memory/display smoke |
 | M3: Bounded media and memory | Planned | 2 GiB HDF boots through bounded sector cache |
 | M4: D1001 display pipeline | Planned | Correct 50/60 Hz presentation and device framebuffer captures |

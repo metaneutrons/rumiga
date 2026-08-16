@@ -92,7 +92,7 @@ No track may bypass a shared quality gate to claim milestone completion.
 | ID | Outcome | Depends on | Status |
 | --- | --- | --- | --- |
 | BASE | Desktop evidence foundation | None | Verified |
-| M0 | Hermetic engineering baseline | BASE | Active |
+| M0 | Hermetic engineering baseline | BASE | Verified |
 | M1 | Portable deterministic core | M0 | Planned |
 | M2 | D1001 board bring-up | M0 | Planned in parallel with M1 |
 | M3 | Bounded media and memory | M1, M2 storage smoke | Planned |
@@ -160,7 +160,7 @@ without unpublished sibling repositories or machine-specific paths.
   (completed by M0-011 with an independently verified hosted artifact).
 - Version contribution, review, release-note, ADR, and task-to-evidence
   contracts with a repository-owned validator and hosted evidence artifact
-  (implemented by M0-012; hosted promotion evidence pending).
+  (completed by M0-012 with an independently verified hosted artifact).
 
 ### Exit gate G0
 
