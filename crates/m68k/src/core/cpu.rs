@@ -816,10 +816,11 @@ impl CpuCore {
                 }
             }
         }
-        if let Err(f) = bus.try_write_byte(addr, value)
-            && matches!(f.kind, BusFaultKind::BusError)
-        {
-            self.trigger_bus_error(bus, addr, true, false);
+        match bus.try_write_byte(addr, value) {
+            Err(f) if matches!(f.kind, BusFaultKind::BusError) => {
+                self.trigger_bus_error(bus, addr, true, false);
+            }
+            _ => {}
         }
     }
 
@@ -858,10 +859,11 @@ impl CpuCore {
                 }
             }
         }
-        if let Err(f) = bus.try_write_word(addr, value)
-            && matches!(f.kind, BusFaultKind::BusError)
-        {
-            self.trigger_bus_error(bus, addr, true, false);
+        match bus.try_write_word(addr, value) {
+            Err(f) if matches!(f.kind, BusFaultKind::BusError) => {
+                self.trigger_bus_error(bus, addr, true, false);
+            }
+            _ => {}
         }
     }
 
@@ -900,10 +902,11 @@ impl CpuCore {
                 }
             }
         }
-        if let Err(f) = bus.try_write_long(addr, value)
-            && matches!(f.kind, BusFaultKind::BusError)
-        {
-            self.trigger_bus_error(bus, addr, true, false);
+        match bus.try_write_long(addr, value) {
+            Err(f) if matches!(f.kind, BusFaultKind::BusError) => {
+                self.trigger_bus_error(bus, addr, true, false);
+            }
+            _ => {}
         }
     }
 
