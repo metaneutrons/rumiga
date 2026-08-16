@@ -67,7 +67,8 @@ scripts/                    capture, parity, and report tools
 
 ### Requirements
 
-- Rust 1.97.1 for the pinned host toolchain; 1.85.0 remains the declared MSRV.
+- Rust 1.97.1 for the pinned host toolchain and 1.85.0 for the declared MSRV
+  check.
 - Git.
 - Node.js 24.19.0 and npm 11.17.0 for clean workspace builds; the desktop
   binary embeds the generated web application.
@@ -84,7 +85,9 @@ compiled and tested with its explicit allocator-backed profile:
 
 ```sh
 cargo test --locked -p m68k --no-default-features --features no_std
+cargo +1.85.0 check --locked -p rumiga-core --no-default-features --features no_std
 cargo check --locked -p rumiga-core --no-default-features --features std
+cargo clippy --locked -p rumiga-core --all-targets --no-default-features --features std -- -D warnings
 cargo test --locked -p rumiga-core --no-default-features --features no_std
 cargo +1.97.1 xtask ci --gate portable
 ```
@@ -95,6 +98,9 @@ desktop FPU, file-backed CPU traces, and the current background blitter worker;
 executes the immediate blitter synchronously. The portable gate compiles
 `m68k` and the complete `rumiga-core` graph as optimized `no_std` releases for
 `riscv32imafc-unknown-none-elf`; it is compile evidence, not device execution.
+Within the core, portable `core`/`alloc` primitives are mandatory even for the
+desktop profile; strict Clippy rejects a `std` replacement when an equivalent
+portable primitive exists.
 
 ### Desktop
 

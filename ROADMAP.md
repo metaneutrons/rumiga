@@ -212,8 +212,12 @@ produces the same deterministic state transitions as the host build.
   core graph passes the release-mode bare-metal RISC-V gate. Pull-request run
   `31955508417` and final `main` run `31955947410` pass every required job;
   both checksummed governance artifacts were independently verified.
-- M1-003 is next. G1 remains open until forbidden host dependencies,
-  deterministic replay, and allocation bounds are also proven.
+- M1-003 is implemented locally: core primitives now use `core`/`alloc` where
+  available, the shared error contract no longer requires `std`, and strict
+  Clippy checks both explicit core profiles. The stock `no_std` core graph also
+  compiles with the declared Rust 1.85 MSRV. Hosted promotion evidence remains
+  required. G1 stays open until remaining host services, deterministic replay,
+  and allocation bounds are also proven.
 
 ### Exit gate G1
 

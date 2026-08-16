@@ -387,7 +387,7 @@ local promotion result.
 | --- | --- | --- | --- |
 | M1-001 | DONE | Add `std`/`no_std` feature model to `rumiga-core` | Local and hosted Linux/macOS gates compile, lint, and test both valid profiles and reject invalid selections |
 | M1-002 | DONE | Make `m68k` compile under `no_std + alloc`; isolate FPU constants/features | Local and hosted 68000/68EC020 stock-core release profiles compile on the RISC-V target; final `main` evidence is independently verified |
-| M1-003 | NEXT | Replace `std` collections/cells with `core`/`alloc` where required | No `std::` use in canonical core build |
+| M1-003 | IMPLEMENTED | Enforce `core`/`alloc` primitives in the canonical core | Both explicit profiles reject `std` replacements with portable equivalents; the stock core remains a bare-metal RISC-V release build |
 | M1-004 | PLANNED | Introduce injected trace/log sink and remove core file creation | Host trace output remains byte-compatible in integration tests |
 | M1-005 | PLANNED | Remove core thread spawning and affinity; restore deterministic single-owner blitter | Frame/state digests match before/after on host fixtures |
 | M1-006 | PLANNED | Introduce emulated clock, host yield, and monotonic scheduling contracts | PAL/NTSC timing tests do not read host wall clock |
@@ -463,6 +463,27 @@ M1-002 implementation evidence (2026-08-16):
   all payload checksums and the M1-002 traceability record were independently
   verified
 
+M1-003 implementation evidence (2026-08-16):
+
+- `rumiga-core` denies `clippy::std_instead_of_core` and
+  `clippy::std_instead_of_alloc`, so portable primitive replacements are caught
+  in the default desktop profile as well as the `no_std` profile
+- the core now uses `core::mem::take`; `MacAddressError` implements the shared
+  `core::error::Error` contract and has a profile-neutral regression test
+- `cargo +1.97.1 clippy --locked -p rumiga-core --all-targets
+  --no-default-features --features std -- -D warnings` passes the explicit
+  desktop boundary check
+- `cargo +1.97.1 test --locked -p rumiga-core --no-default-features --features
+  no_std` passes 146 unit tests plus applicable integration, golden-vector, and
+  differential suites; the optimized stock-core bare-metal RISC-V release check
+  passes
+- `cargo +1.85.0 check --locked -p rumiga-core --no-default-features --features
+  no_std` passes after replacing five newer `let`-chain expressions in `m68k`
+  with equivalent match guards; the host gate now installs and enforces the
+  declared MSRV
+- hosted pull-request and final `main` promotion evidence remain required
+  before M1-003 is marked DONE
+
 ### M1 functional commits
 
 1. `refactor(core): define std and no-std runtime profiles`
@@ -473,10 +494,14 @@ M1-002 implementation evidence (2026-08-16):
 6. `ci(core): enforce riscv no-std portability`
 7. `docs(core): document stock cpu portability`
 8. `docs(project): close M1-002 with hosted evidence`
-9. `refactor(core): inject trace and host services`
-10. `refactor(blitter): restore deterministic single-owner execution`
-11. `feat(platform): add capabilities errors and bounded queues`
-12. `test(core): add deterministic replay and state digests`
+9. `refactor(core): enforce portable primitive boundary`
+10. `ci(core): enforce portable primitive boundary`
+11. `docs(core): document portable primitive boundary`
+12. `docs(project): close M1-003 with hosted evidence`
+13. `refactor(core): inject trace and host services`
+14. `refactor(blitter): restore deterministic single-owner execution`
+15. `feat(platform): add capabilities errors and bounded queues`
+16. `test(core): add deterministic replay and state digests`
 
 ## M2 Backlog: D1001 Board Bring-Up
 
