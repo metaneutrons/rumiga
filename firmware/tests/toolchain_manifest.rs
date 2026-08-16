@@ -90,6 +90,7 @@ fn assert_vellum_reuse_policy(root: &Path, manifest: &toml::Value, destination_l
 fn assert_ci_tool_pins(root: &Path, manifest: &toml::Value) {
     let ci_workflow = read(&root.join(".github/workflows/ci.yml"));
     let host_rust = manifest_string(manifest, "host", "rust");
+    let host_rust_msrv = manifest_string(manifest, "host", "rust_msrv");
     let cargo_audit = manifest_string(manifest, "tools", "cargo_audit");
     let cargo_deny = manifest_string(manifest, "tools", "cargo_deny");
     let embedded_rust = manifest_string(manifest, "embedded_rust", "channel");
@@ -107,6 +108,12 @@ fn assert_ci_tool_pins(root: &Path, manifest: &toml::Value) {
             "CI must invoke the canonical {gate} gate"
         );
     }
+    assert!(
+        ci_workflow.contains(&format!(
+            "rustup toolchain install {host_rust_msrv} --profile minimal --no-self-update"
+        )),
+        "CI host job must install the declared Rust MSRV"
+    );
     assert!(
         ci_workflow
             .contains("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1")
