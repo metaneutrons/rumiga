@@ -18,6 +18,7 @@ no_std = ["m68k/no_std"]
 
 [dependencies]
 m68k = { workspace = true }
+rumiga-platform = { workspace = true }
 core_affinity = { workspace = true, optional = true }
 
 [dev-dependencies]

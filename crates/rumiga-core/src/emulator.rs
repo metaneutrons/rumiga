@@ -9,14 +9,13 @@
     clippy::cast_sign_loss
 )]
 
+use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
-#[cfg(feature = "std")]
 use m68k::AddressBus;
 use m68k::CpuCore;
 use m68k::{NoOpHleHandler, StepResult};
-#[cfg(feature = "std")]
-use std::io::Write;
+use rumiga_platform::TraceSink;
 
 use crate::audio::AudioState;
 use crate::blitter::BlitterState;
@@ -149,15 +148,12 @@ pub struct Emulator {
     pub sprites: SpriteEngine,
     /// RGB565 framebuffer (high-res PAL width × visible PAL height).
     pub framebuffer: Vec<u16>,
-    /// Optional `BufWriter` for instruction tracing.
-    #[cfg(feature = "std")]
-    pub trace_writer: Option<std::io::BufWriter<std::fs::File>>,
+    /// Optional injected sink for instruction tracing.
+    trace_sink: Option<Box<dyn TraceSink + Send>>,
     /// Optional trace limit (number of instructions).
-    #[cfg(feature = "std")]
-    pub trace_limit: Option<u64>,
+    trace_limit: Option<u64>,
     /// Count of traced instructions.
-    #[cfg(feature = "std")]
-    pub trace_count: u64,
+    trace_count: u64,
     /// Whether a complete frame has been rendered.
     pub frame_ready: bool,
     /// Total CPU cycles executed since start.
@@ -244,11 +240,8 @@ impl Emulator {
             audio: AudioState::new(),
             sprites: SpriteEngine::new(),
             framebuffer: vec![0; FRAMEBUFFER_SIZE],
-            #[cfg(feature = "std")]
-            trace_writer: None,
-            #[cfg(feature = "std")]
+            trace_sink: None,
             trace_limit: None,
-            #[cfg(feature = "std")]
             trace_count: 0,
             frame_ready: false,
             total_cycles: 0,
@@ -404,24 +397,45 @@ impl Emulator {
         }
     }
 
-    /// Enable CPU execution tracing to the specified file path.
+    /// Attach a trace sink and enable CPU execution tracing.
     ///
-    /// # Errors
+    /// `limit` bounds the number of recorded instructions; `None` records
+    /// without a bound. Attaching a sink resets the recorded count.
     ///
-    /// Returns any file creation error from the host filesystem.
-    #[cfg(feature = "std")]
-    pub fn enable_cpu_trace(&mut self, path: &str, limit: Option<u64>) -> std::io::Result<()> {
-        let file = std::fs::File::create(path)?;
-        self.trace_writer = Some(std::io::BufWriter::new(file));
+    /// The core neither opens files nor accepts host paths. Transport
+    /// ownership, including any buffered writer, belongs to the adapter that
+    /// supplies the sink.
+    pub fn set_trace_sink(&mut self, sink: Box<dyn TraceSink + Send>, limit: Option<u64>) {
+        self.trace_sink = Some(sink);
         self.trace_limit = limit;
         self.trace_count = 0;
-        Ok(())
     }
 
-    /// Format and write one trace line.
-    #[cfg(feature = "std")]
+    /// Flush the attached trace sink, if any.
+    pub fn flush_trace(&mut self) {
+        if let Some(sink) = self.trace_sink.as_mut() {
+            sink.flush();
+        }
+    }
+
+    /// Flush and detach the trace sink, disabling tracing.
+    pub fn clear_trace_sink(&mut self) {
+        self.flush_trace();
+        self.trace_sink = None;
+        self.trace_limit = None;
+    }
+
+    /// Number of instructions recorded through the trace sink.
+    #[must_use]
+    pub const fn trace_count(&self) -> u64 {
+        self.trace_count
+    }
+
+    /// Format and write one trace record to the attached sink.
+    ///
+    /// Does nothing when no sink is attached or the trace limit is reached.
     pub fn write_trace_line(&mut self) {
-        if let Some(ref mut writer) = self.trace_writer {
+        if let Some(sink) = self.trace_sink.as_mut() {
             if let Some(limit) = self.trace_limit {
                 if self.trace_count >= limit {
                     return;
@@ -435,8 +449,7 @@ impl Emulator {
             let dar = self.cpu.dar;
             let sr = self.cpu.get_sr();
 
-            let _ = writeln!(
-                writer,
+            sink.write_record(format_args!(
                 "PC: {:08X} | OP: {:04X} ({:<20}) | D0: {:08X} D1: {:08X} D2: {:08X} D3: {:08X} | A0: {:08X} A1: {:08X} A2: {:08X} A7: {:08X} | SR: {:04X}",
                 pc,
                 opcode,
@@ -450,7 +463,7 @@ impl Emulator {
                 dar[10],
                 dar[15],
                 sr
-            );
+            ));
 
             self.trace_count += 1;
         }
@@ -458,7 +471,6 @@ impl Emulator {
 
     /// Execute a single CPU instruction (for debugging/tracing).
     pub fn step_instruction(&mut self) {
-        #[cfg(feature = "std")]
         self.write_trace_line();
         let mut handler = NoOpHleHandler;
         let _ = self
@@ -493,7 +505,6 @@ impl Emulator {
                 self.cpu.int_level = 0;
             }
 
-            #[cfg(feature = "std")]
             self.write_trace_line();
             let step_res = self
                 .cpu

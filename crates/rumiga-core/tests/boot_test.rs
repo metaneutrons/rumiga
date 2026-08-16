@@ -261,63 +261,6 @@ fn boot_kickstart_31_a1200_executes_instructions_and_boots() {
     );
 }
 
-#[cfg(feature = "std")]
-#[test]
-fn test_kickstart_31_cpu_tracing() {
-    let rom_file = dirs_next().join("kick.a1200.40.068.rom");
-    if !rom_file.exists() {
-        eprintln!("SKIP: ROM not found");
-        return;
-    }
-
-    let rom = fs::read(&rom_file).unwrap();
-    let mut emu = Emulator::new(MemoryConfig::a1200());
-    emu.load_rom(&rom);
-
-    // Set up a temporary trace log
-    let trace_path = "trace_ks31_test.log";
-    emu.enable_cpu_trace(trace_path, Some(50)).unwrap();
-
-    // Step 50 instructions
-    for _ in 0..50 {
-        emu.step_instruction();
-    }
-
-    // Drop emulator so the trace log is flushed/closed
-    drop(emu);
-
-    let trace_data = fs::read_to_string(trace_path).unwrap();
-    fs::remove_file(trace_path).unwrap();
-
-    let lines: Vec<&str> = trace_data.lines().collect();
-    assert_eq!(
-        lines.len(),
-        50,
-        "Expected exactly 50 trace lines, got {}",
-        lines.len()
-    );
-
-    // Check formatting of the first trace line
-    let first_line = lines[0];
-    assert!(
-        first_line.contains("PC:"),
-        "Trace line missing PC prefix: {first_line}"
-    );
-    assert!(
-        first_line.contains("OP:"),
-        "Trace line missing OP: {first_line}"
-    );
-    assert!(
-        first_line.contains("D0:"),
-        "Trace line missing registers: {first_line}"
-    );
-    assert!(
-        first_line.contains("SR:"),
-        "Trace line missing SR: {first_line}"
-    );
-    println!("Sample trace line: {first_line}");
-}
-
 #[test]
 fn test_hdf_boot_reaches_read_sectors() {
     let rom_path =

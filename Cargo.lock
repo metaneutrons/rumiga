@@ -2055,6 +2055,7 @@ dependencies = [
  "core_affinity",
  "m68000",
  "m68k",
+ "rumiga-platform",
 ]
 
 [[package]]

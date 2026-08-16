@@ -6,12 +6,16 @@
 //! This crate implements the Amiga custom chipset, memory subsystem, and
 //! timing engine.
 //!
-//! The default `std` feature retains host filesystem tracing and background
-//! blitter execution. Embedded consumers select the mutually exclusive
-//! `no_std` profile with `--no-default-features --features no_std`; that profile
-//! requires an allocator, excludes host-only services, and forwards `no_std` to
-//! `m68k`. The canonical portable gate compiles that complete stock-core graph
-//! as an optimized bare-metal RISC-V release.
+//! The default `std` feature retains background blitter execution. Embedded
+//! consumers select the mutually exclusive `no_std` profile with
+//! `--no-default-features --features no_std`; that profile requires an
+//! allocator, excludes host-only services, and forwards `no_std` to `m68k`. The
+//! canonical portable gate compiles that complete stock-core graph as an
+//! optimized bare-metal RISC-V release.
+//!
+//! CPU tracing is available in both profiles. The core formats records and
+//! writes them to an injected [`TraceSink`]; file creation and buffering belong
+//! to the platform adapter that supplies the sink.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 // Primitive types with `core` or `alloc` equivalents must remain portable even
@@ -41,3 +45,6 @@ pub mod memory;
 pub mod network;
 pub mod playfield;
 pub mod sprites;
+
+/// Diagnostic record transport contract implemented by platform adapters.
+pub use rumiga_platform::TraceSink;
