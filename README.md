@@ -257,7 +257,7 @@ Current baseline on 2026-08-16:
 
 | Check | Result |
 | --- | --- |
-| Cargo test inventory | Pass; 492 discovered, 4 reviewed ignored, and 488 runnable unit, integration, and documentation tests |
+| Cargo test inventory | Pass; 493 discovered, 4 reviewed ignored, and 489 runnable unit, integration, and documentation tests |
 | Clippy with `-D warnings` | Pass without warnings |
 | `cargo fmt --all --check` | Pass |
 | Cargo/npm lockfile integrity | Pass |
