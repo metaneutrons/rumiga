@@ -527,6 +527,13 @@ M1-004 implementation evidence (2026-08-17):
   creation, truncation, the newline terminator, and host error reporting
 - `cargo +1.85.0 check --locked -p rumiga-core --no-default-features --features
   no_std` passes, so the declared MSRV still covers the new contract
+- a three-frame Kickstart 46.143 capture with a 20000-instruction trace limit
+  was run at pre-change revision `1a6da29` and at the implementation branch;
+  both trace files have SHA-256
+  `222caf36e1f9c12b9a051ae792da8091680ea84435f96075dba40fd8f1015bde`, both
+  manifests report `trace_count` 20000, and both PNG captures are identical
+- the complete local promotion baseline `cargo +1.97.1 xtask ci` passes all
+  eight gates in 90.732 seconds
 - hosted pull-request and final `main` evidence is pending promotion
 
 ### M1 functional commits
