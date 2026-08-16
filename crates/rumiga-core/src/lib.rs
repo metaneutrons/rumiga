@@ -9,8 +9,9 @@
 //! The default `std` feature retains host filesystem tracing and background
 //! blitter execution. Embedded consumers select the mutually exclusive
 //! `no_std` profile with `--no-default-features --features no_std`; that profile
-//! requires an allocator and excludes host-only services. Bare-metal RISC-V
-//! compilation also requires the `m68k` conversion tracked by M1-002.
+//! requires an allocator, excludes host-only services, and forwards `no_std` to
+//! `m68k`. The canonical portable gate compiles that complete stock-core graph
+//! as an optimized bare-metal RISC-V release.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 

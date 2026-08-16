@@ -21,9 +21,9 @@ The next engineering milestone is **M1: Portable Deterministic Core**. M0 now
 provides the reproducible host, target-build, policy, evidence, and governance
 baseline required to separate core-portability defects from local setup drift.
 M0-013 is a completed post-G0 governance hardening increment. Its local,
-pull-request, and final `main` promotion paths are verified. M1-002 is locally
-implemented and awaiting hosted promotion; M1-003 is the next implementation
-task after that evidence closes.
+pull-request, and final `main` promotion paths are verified. M1-002 is also
+complete with local, pull-request, and final `main` target-build evidence.
+M1-003 is the next implementation task.
 
 Critical path:
 
@@ -386,7 +386,7 @@ local promotion result.
 | Task | Status | Deliverable | Acceptance evidence |
 | --- | --- | --- | --- |
 | M1-001 | DONE | Add `std`/`no_std` feature model to `rumiga-core` | Local and hosted Linux/macOS gates compile, lint, and test both valid profiles and reject invalid selections |
-| M1-002 | ACTIVE | Make `m68k` compile under `no_std + alloc`; isolate FPU constants/features | 68000 and 68EC020 release profiles compile on RISC-V target; hosted promotion pending |
+| M1-002 | DONE | Make `m68k` compile under `no_std + alloc`; isolate FPU constants/features | Local and hosted 68000/68EC020 stock-core release profiles compile on the RISC-V target; final `main` evidence is independently verified |
 | M1-003 | NEXT | Replace `std` collections/cells with `core`/`alloc` where required | No `std::` use in canonical core build |
 | M1-004 | PLANNED | Introduce injected trace/log sink and remove core file creation | Host trace output remains byte-compatible in integration tests |
 | M1-005 | PLANNED | Remove core thread spawning and affinity; restore deterministic single-owner blitter | Frame/state digests match before/after on host fixtures |
@@ -437,8 +437,31 @@ M1-002 implementation evidence (2026-08-16):
 - `cargo +1.97.1 xtask ci --gate portable` compiles the foundation profile and
   then `m68k` plus `rumiga-core` as optimized `no_std` releases for
   `riscv32imafc-unknown-none-elf` in 864 milliseconds
-- hosted pull-request, checksummed governance, and final `main` evidence are
-  pending before M1-002 can move to `DONE`
+- the complete local eight-gate promotion baseline passes in 95.478 seconds,
+  including the pinned ESP32-P4 release build
+- pull-request run
+  [`31955508417`](https://github.com/metaneutrons/rumiga/actions/runs/31955508417)
+  passes all ten jobs in its final attempt for branch head
+  `8c5cbae426f84c2da42f1b7292df6cc0ba17a8d2`; portable job `95186193261`,
+  Linux job `95186193077`, macOS job `95186193298`, firmware job
+  `95186203507`, and aggregate job `95186299985` pass
+- pull-request merge revision `114f73b9962372832603424ab4620ddb7bbeee43`
+  produced governance artifact `9265830160` with archive SHA-256
+  `c3c392ae6c7fe20d3e4e001b013f2b25f9fb337eb0fa9da2114ffb2d28a69208`;
+  the clean-source claim and every internal payload checksum pass independent
+  download verification
+- final `main` run
+  [`31955947410`](https://github.com/metaneutrons/rumiga/actions/runs/31955947410)
+  validates the promoted three-commit range
+  `31e6f37366caec9055e2ab3a7827f69551ed433e..0e07e17028bd249ec44c5c4d1ca87feace4a2dba`;
+  portable job `95186495955`, commit-policy job `95186495962`, Linux job
+  `95186496046`, macOS job `95186496057`, firmware job `95186496064`, and
+  aggregate job `95187164742` pass
+- final governance artifact `9265939161`, built from clean `main` revision
+  `0e07e17028bd249ec44c5c4d1ca87feace4a2dba`, has archive SHA-256
+  `ea3b1043d8b54a0dded2a5d61764ca77c0547398029869367c0ba04d1ef6113d`;
+  all payload checksums and the M1-002 traceability record were independently
+  verified
 
 ### M1 functional commits
 
@@ -447,11 +470,13 @@ M1-002 implementation evidence (2026-08-16):
 3. `docs(core): document the runtime profile contract`
 4. `docs(project): close M1-001 with hosted evidence`
 5. `refactor(cpu): make stock m68k profiles no-std`
-6. `refactor(core): inject trace and host services`
-7. `refactor(blitter): restore deterministic single-owner execution`
-8. `feat(platform): add capabilities errors and bounded queues`
-9. `test(core): add deterministic replay and state digests`
-10. `ci(core): enforce riscv no-std portability`
+6. `ci(core): enforce riscv no-std portability`
+7. `docs(core): document stock cpu portability`
+8. `docs(project): close M1-002 with hosted evidence`
+9. `refactor(core): inject trace and host services`
+10. `refactor(blitter): restore deterministic single-owner execution`
+11. `feat(platform): add capabilities errors and bounded queues`
+12. `test(core): add deterministic replay and state digests`
 
 ## M2 Backlog: D1001 Board Bring-Up
 

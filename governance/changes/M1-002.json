@@ -2,7 +2,7 @@
   "schema": "rumiga.change-record.v1",
   "task_id": "M1-002",
   "title": "Make stock CPU profiles portable",
-  "status": "implemented",
+  "status": "verified",
   "summary": "Make the active m68k CPU and complete rumiga-core graph compile under no_std plus alloc for bare-metal 32-bit RISC-V while isolating the host-only FPU implementation.",
   "scope": [
     "m68k runtime feature contract",
@@ -51,7 +51,7 @@
     {
       "id": "hosted-stock-core-portability",
       "kind": "ci-artifact",
-      "location": "Pending hosted M1-002 pull-request and final main promotion evidence",
+      "location": "GitHub Actions PR run 31955508417 final attempt: portable job 95186193261, Linux job 95186193077, macOS job 95186193298, firmware job 95186203507, and aggregate job 95186299985 passed; governance artifact 9265830160 for clean merge revision 114f73b9962372832603424ab4620ddb7bbeee43 has digest sha256:c3c392ae6c7fe20d3e4e001b013f2b25f9fb337eb0fa9da2114ffb2d28a69208. Final main run 31955947410: portable job 95186495955, commit-policy job 95186495962, Linux job 95186496046, macOS job 95186496057, firmware job 95186496064, and aggregate job 95187164742 passed; governance artifact 9265939161 for clean revision 0e07e17028bd249ec44c5c4d1ca87feace4a2dba has digest sha256:ea3b1043d8b54a0dded2a5d61764ca77c0547398029869367c0ba04d1ef6113d",
       "proves": "Linux, macOS, bare-metal RISC-V, governance, and the strict aggregate validate the promoted CPU portability contract from clean revisions."
     }
   ],
@@ -63,6 +63,8 @@
     "README.md",
     "ROADMAP.md",
     "crates/m68k/README.md",
+    "crates/rumiga-core/src/lib.rs",
+    "docs/release-notes/unreleased/M1-001.md",
     "docs/adr/README.md"
   ],
   "release_note": "docs/release-notes/unreleased/M1-002.md",
