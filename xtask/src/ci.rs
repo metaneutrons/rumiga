@@ -13,14 +13,15 @@ use anyhow::{Context, Result, bail, ensure};
 use yaml_rust2::{Yaml, YamlLoader};
 
 use super::{
-    ToolchainManifest, capture, capture_git, compatibility, read_toolchain_manifest, run_checked,
-    sha256_bytes, sha256_file, supply_chain, workspace_root,
+    ToolchainManifest, capture, capture_git, commit_policy, compatibility, read_toolchain_manifest,
+    run_checked, sha256_bytes, sha256_file, supply_chain, workspace_root,
 };
 
 const FIRMWARE_EVIDENCE_DIRECTORY: &str = "target/m0-008-firmware-evidence";
 const SUPPLY_CHAIN_EVIDENCE_DIRECTORY: &str = "target/m0-009-supply-chain-evidence";
 
-const ALL_GATES: [Gate; 7] = [
+const ALL_GATES: [Gate; 8] = [
+    Gate::Commits,
     Gate::Lockfiles,
     Gate::Governance,
     Gate::Host,
@@ -32,6 +33,7 @@ const ALL_GATES: [Gate; 7] = [
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum Gate {
+    Commits,
     Lockfiles,
     Governance,
     Host,
@@ -44,6 +46,7 @@ enum Gate {
 impl Gate {
     const fn name(self) -> &'static str {
         match self {
+            Self::Commits => "commits",
             Self::Lockfiles => "lockfiles",
             Self::Governance => "governance",
             Self::Host => "host",
@@ -56,6 +59,7 @@ impl Gate {
 
     const fn job(self) -> &'static str {
         match self {
+            Self::Commits => "commits",
             Self::Lockfiles => "lockfiles",
             Self::Governance => "governance",
             Self::Host => "host",
@@ -68,6 +72,7 @@ impl Gate {
 
     const fn title(self) -> &'static str {
         match self {
+            Self::Commits => "Conventional commit policy",
             Self::Lockfiles => "Lockfile integrity",
             Self::Governance => "Engineering governance evidence",
             Self::Host => "Host validation",
@@ -238,6 +243,7 @@ fn run_guarded_gate(root: &Path, manifest: &ToolchainManifest, gate: Gate) -> Re
     }
 
     let result = match gate {
+        Gate::Commits => run_commit_gate(root, manifest),
         Gate::Lockfiles => run_lockfile_gate(root, manifest),
         Gate::Governance => run_governance_gate(root, manifest),
         Gate::Host => run_host_gate(root, manifest),
@@ -253,6 +259,11 @@ fn run_guarded_gate(root: &Path, manifest: &ToolchainManifest, gate: Gate) -> Re
         "quality gate modified tracked repository files; inspect git status and restore intentionally"
     );
     result
+}
+
+fn run_commit_gate(root: &Path, manifest: &ToolchainManifest) -> Result<()> {
+    verify_host_tools(root, manifest, false)?;
+    commit_policy::validate_repository(root)
 }
 
 fn is_ci() -> bool {
@@ -824,6 +835,7 @@ mod tests {
         assert_eq!(
             names,
             [
+                "commits",
                 "lockfiles",
                 "governance",
                 "host",

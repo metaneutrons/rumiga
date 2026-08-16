@@ -30,6 +30,52 @@ defaults:
     shell: bash
 
 jobs:
+  commits:
+    name: Commit Policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out complete history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install pinned Rust toolchain
+        run: >-
+          rustup toolchain install 1.97.1 --profile minimal --no-self-update
+
+      - name: Cache Rust build inputs
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          shared-key: commit-policy-linux
+
+      - name: Run commit policy gate
+        env:
+          RUMIGA_COMMIT_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          RUMIGA_COMMIT_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          RUMIGA_PR_TITLE: ${{ github.event.pull_request.title }}
+        run: cargo +1.97.1 xtask ci --gate commits
+
+      - name: Publish commit policy summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          RANGE_BASE: ${{ github.event.pull_request.base.sha || github.event.before || 'single-commit' }}
+          RANGE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          {
+            echo "## Conventional commit policy"
+            echo
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Base | \`${RANGE_BASE}\` |"
+            echo "| Head | \`${RANGE_HEAD}\` |"
+            echo "| Pull-request title | Validated when present |"
+            echo "| Merge commits | Rejected |"
+            echo "| Result | ${JOB_STATUS} |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
   lockfiles:
     name: Lockfile Integrity
     runs-on: ubuntu-24.04
@@ -459,13 +505,14 @@ jobs:
   quality-gate:
     name: Required Quality Gate
     if: always()
-    needs: [lockfiles, governance, host, compatibility, supply-chain, portable, firmware]
+    needs: [commits, lockfiles, governance, host, compatibility, supply-chain, portable, firmware]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}
     steps:
       - name: Publish and enforce aggregate result
         env:
+          COMMIT_RESULT: ${{ needs.commits.result }}
           COMPATIBILITY_RESULT: ${{ needs.compatibility.result }}
           FIRMWARE_RESULT: ${{ needs.firmware.result }}
           GOVERNANCE_RESULT: ${{ needs.governance.result }}
@@ -475,7 +522,7 @@ jobs:
           SUPPLY_CHAIN_RESULT: ${{ needs.supply-chain.result }}
         run: |
           aggregate=success
-          if [[ "${LOCKFILE_RESULT}" != success || "${GOVERNANCE_RESULT}" != success || "${HOST_RESULT}" != success || "${COMPATIBILITY_RESULT}" != success || "${SUPPLY_CHAIN_RESULT}" != success || "${PORTABLE_RESULT}" != success || "${FIRMWARE_RESULT}" != success ]]; then
+          if [[ "${COMMIT_RESULT}" != success || "${LOCKFILE_RESULT}" != success || "${GOVERNANCE_RESULT}" != success || "${HOST_RESULT}" != success || "${COMPATIBILITY_RESULT}" != success || "${SUPPLY_CHAIN_RESULT}" != success || "${PORTABLE_RESULT}" != success || "${FIRMWARE_RESULT}" != success ]]; then
             aggregate=failure
           fi
 
@@ -484,6 +531,7 @@ jobs:
             echo
             echo "| Required job | Result |"
             echo "| --- | --- |"
+            echo "| Conventional Commit Policy | ${COMMIT_RESULT} |"
             echo "| Lockfile Integrity | ${LOCKFILE_RESULT} |"
             echo "| Engineering Governance Evidence | ${GOVERNANCE_RESULT} |"
             echo "| Host matrix (Linux x86_64, macOS arm64) | ${HOST_RESULT} |"
