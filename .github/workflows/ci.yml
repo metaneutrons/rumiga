@@ -75,6 +75,55 @@ jobs:
             echo "| npm clean install without lifecycle scripts | ${JOB_STATUS} |"
           } >> "${GITHUB_STEP_SUMMARY}"
 
+  governance:
+    name: Engineering Governance Evidence
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Rust toolchain
+        run: >-
+          rustup toolchain install 1.97.1 --profile minimal --no-self-update
+
+      - name: Cache Rust build inputs
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          shared-key: governance-linux
+
+      - name: Run governance gate
+        run: cargo +1.97.1 xtask ci --gate governance
+
+      - name: Upload governance evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: governance-${{ github.sha }}
+          path: target/m0-012-governance-evidence
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 9
+
+      - name: Publish governance summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          manifest=target/m0-012-governance-evidence/manifest.json
+          {
+            echo "## Engineering governance evidence"
+            echo
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Contracts | $(jq -r '.summary.contracts // "unavailable"' "${manifest}" 2>/dev/null || echo unavailable) |"
+            echo "| ADRs / release notes / change records | $(jq -r '[.summary.architecture_decisions, .summary.release_notes, .summary.change_records] | join(" / ")' "${manifest}" 2>/dev/null || echo unavailable) |"
+            echo "| Test / evidence references | $(jq -r '[.summary.test_references, .summary.evidence_references] | join(" / ")' "${manifest}" 2>/dev/null || echo unavailable) |"
+            echo "| Artifact | governance-${GITHUB_SHA} |"
+            echo "| Result | ${JOB_STATUS} |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
   host:
     name: Host / ${{ matrix.label }}
     runs-on: ${{ matrix.os }}
@@ -410,7 +459,7 @@ jobs:
   quality-gate:
     name: Required Quality Gate
     if: always()
-    needs: [lockfiles, host, compatibility, supply-chain, portable, firmware]
+    needs: [lockfiles, governance, host, compatibility, supply-chain, portable, firmware]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}
@@ -419,13 +468,14 @@ jobs:
         env:
           COMPATIBILITY_RESULT: ${{ needs.compatibility.result }}
           FIRMWARE_RESULT: ${{ needs.firmware.result }}
+          GOVERNANCE_RESULT: ${{ needs.governance.result }}
           HOST_RESULT: ${{ needs.host.result }}
           LOCKFILE_RESULT: ${{ needs.lockfiles.result }}
           PORTABLE_RESULT: ${{ needs.portable.result }}
           SUPPLY_CHAIN_RESULT: ${{ needs.supply-chain.result }}
         run: |
           aggregate=success
-          if [[ "${LOCKFILE_RESULT}" != success || "${HOST_RESULT}" != success || "${COMPATIBILITY_RESULT}" != success || "${SUPPLY_CHAIN_RESULT}" != success || "${PORTABLE_RESULT}" != success || "${FIRMWARE_RESULT}" != success ]]; then
+          if [[ "${LOCKFILE_RESULT}" != success || "${GOVERNANCE_RESULT}" != success || "${HOST_RESULT}" != success || "${COMPATIBILITY_RESULT}" != success || "${SUPPLY_CHAIN_RESULT}" != success || "${PORTABLE_RESULT}" != success || "${FIRMWARE_RESULT}" != success ]]; then
             aggregate=failure
           fi
 
@@ -435,6 +485,7 @@ jobs:
             echo "| Required job | Result |"
             echo "| --- | --- |"
             echo "| Lockfile Integrity | ${LOCKFILE_RESULT} |"
+            echo "| Engineering Governance Evidence | ${GOVERNANCE_RESULT} |"
             echo "| Host matrix (Linux x86_64, macOS arm64) | ${HOST_RESULT} |"
             echo "| Public Compatibility Evidence | ${COMPATIBILITY_RESULT} |"
             echo "| Supply Chain Policy | ${SUPPLY_CHAIN_RESULT} |"
