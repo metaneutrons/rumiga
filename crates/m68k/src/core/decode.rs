@@ -129,6 +129,7 @@ fn dispatch_group_f<B: AddressBus>(cpu: &mut CpuCore, bus: &mut B, opcode: u16) 
         return exception_1111(cpu, opcode);
     }
 
+    #[cfg(all(feature = "fpu", feature = "std"))]
     let sub = (opcode >> 8) & 0xF;
 
     // MOVE16 (68030/68040): 16-byte aligned block transfer
@@ -192,6 +193,7 @@ fn dispatch_group_f<B: AddressBus>(cpu: &mut CpuCore, bus: &mut B, opcode: u16) 
     }
 
     // FScc: 1111 0010 01mm mrrr (0xF240-0xF27F) - set byte on FPU condition
+    #[cfg(all(feature = "fpu", feature = "std"))]
     if (opcode & 0xFFC0) == 0xF240 {
         let ea_mode = ((opcode >> 3) & 7) as u8;
         let ea_reg = (opcode & 7) as usize;
@@ -202,12 +204,14 @@ fn dispatch_group_f<B: AddressBus>(cpu: &mut CpuCore, bus: &mut B, opcode: u16) 
 
     // FBcc.W: 1111 0010 10cc cccc (0xF280-0xF2BF)
     // FBcc.L: 1111 0010 11cc cccc (0xF2C0-0xF2FF)
+    #[cfg(all(feature = "fpu", feature = "std"))]
     if (opcode & 0xFFC0) == 0xF280 {
         // FBcc.W - 16-bit displacement
         let cond = (opcode & 0x3F) as u8;
         let disp = cpu.read_imm_16(bus) as i16 as i32;
         return cpu.exec_fbcc(cond, disp);
     }
+    #[cfg(all(feature = "fpu", feature = "std"))]
     if (opcode & 0xFFC0) == 0xF2C0 {
         // FBcc.L - 32-bit displacement
         let cond = (opcode & 0x3F) as u8;
@@ -215,11 +219,13 @@ fn dispatch_group_f<B: AddressBus>(cpu: &mut CpuCore, bus: &mut B, opcode: u16) 
         return cpu.exec_fbcc(cond, disp);
     }
 
+    #[cfg(all(feature = "fpu", feature = "std"))]
     let cycles = match sub {
         0x2 => cpu.exec_fpu_op0(bus, opcode),
         0x3 => cpu.exec_fpu_op1(bus, opcode),
         _ => 0,
     };
+    #[cfg(all(feature = "fpu", feature = "std"))]
     if cycles != 0 {
         return cycles;
     }

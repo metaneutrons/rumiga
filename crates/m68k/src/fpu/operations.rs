@@ -80,24 +80,24 @@ impl CpuCore {
                         // The opmode field contains the ROM offset
                         let rom_offset = opmode as usize;
                         let constant = match rom_offset {
-                            0x00 => std::f64::consts::PI,      // Pi
-                            0x0B => std::f64::consts::LOG10_2, // log10(2)
-                            0x0C => std::f64::consts::E,       // e
-                            0x0D => std::f64::consts::LN_2,    // log_e(2) = ln(2)
-                            0x0E => std::f64::consts::LN_10,   // log_e(10) = ln(10)
-                            0x0F => 0.0,                       // Zero
-                            0x30 => std::f64::consts::LN_2,    // ln(2)
-                            0x31 => std::f64::consts::LN_10,   // ln(10)
-                            0x32 => 1.0,                       // 1.0
-                            0x33 => 10.0,                      // 10.0
-                            0x34 => 100.0,                     // 10^2
-                            0x35 => 1.0e4,                     // 10^4
-                            0x36 => 1.0e8,                     // 10^8
-                            0x37 => 1.0e16,                    // 10^16
-                            0x38 => 1.0e32,                    // 10^32
-                            0x39 => 1.0e64,                    // 10^64
-                            0x3A => 1.0e128,                   // 10^128
-                            0x3B => 1.0e256,                   // 10^256
+                            0x00 => core::f64::consts::PI,      // Pi
+                            0x0B => core::f64::consts::LOG10_2, // log10(2)
+                            0x0C => core::f64::consts::E,       // e
+                            0x0D => core::f64::consts::LN_2,    // log_e(2) = ln(2)
+                            0x0E => core::f64::consts::LN_10,   // log_e(10) = ln(10)
+                            0x0F => 0.0,                        // Zero
+                            0x30 => core::f64::consts::LN_2,    // ln(2)
+                            0x31 => core::f64::consts::LN_10,   // ln(10)
+                            0x32 => 1.0,                        // 1.0
+                            0x33 => 10.0,                       // 10.0
+                            0x34 => 100.0,                      // 10^2
+                            0x35 => 1.0e4,                      // 10^4
+                            0x36 => 1.0e8,                      // 10^8
+                            0x37 => 1.0e16,                     // 10^16
+                            0x38 => 1.0e32,                     // 10^32
+                            0x39 => 1.0e64,                     // 10^64
+                            0x3A => 1.0e128,                    // 10^128
+                            0x3B => 1.0e256,                    // 10^256
                             // Higher powers would overflow, return infinity
                             0x3C..=0x3F => f64::INFINITY,
                             _ => 0.0, // Unknown constant, return 0
@@ -337,24 +337,24 @@ impl CpuCore {
                         // The src field contains the ROM offset
                         let rom_offset = src;
                         let constant = match rom_offset {
-                            0x00 => std::f64::consts::PI,      // Pi
-                            0x0B => std::f64::consts::LOG10_2, // log10(2)
-                            0x0C => std::f64::consts::E,       // e
-                            0x0D => std::f64::consts::LN_2,    // log_e(2) = ln(2)
-                            0x0E => std::f64::consts::LN_10,   // log_e(10) = ln(10)
-                            0x0F => 0.0,                       // Zero
-                            0x30 => std::f64::consts::LN_2,    // ln(2)
-                            0x31 => std::f64::consts::LN_10,   // ln(10)
-                            0x32 => 1.0,                       // 1.0
-                            0x33 => 10.0,                      // 10.0
-                            0x34 => 100.0,                     // 10^2
-                            0x35 => 1.0e4,                     // 10^4
-                            0x36 => 1.0e8,                     // 10^8
-                            0x37 => 1.0e16,                    // 10^16
-                            0x38 => 1.0e32,                    // 10^32
-                            0x39 => 1.0e64,                    // 10^64
-                            0x3A => 1.0e128,                   // 10^128
-                            0x3B => 1.0e256,                   // 10^256
+                            0x00 => core::f64::consts::PI,      // Pi
+                            0x0B => core::f64::consts::LOG10_2, // log10(2)
+                            0x0C => core::f64::consts::E,       // e
+                            0x0D => core::f64::consts::LN_2,    // log_e(2) = ln(2)
+                            0x0E => core::f64::consts::LN_10,   // log_e(10) = ln(10)
+                            0x0F => 0.0,                        // Zero
+                            0x30 => core::f64::consts::LN_2,    // ln(2)
+                            0x31 => core::f64::consts::LN_10,   // ln(10)
+                            0x32 => 1.0,                        // 1.0
+                            0x33 => 10.0,                       // 10.0
+                            0x34 => 100.0,                      // 10^2
+                            0x35 => 1.0e4,                      // 10^4
+                            0x36 => 1.0e8,                      // 10^8
+                            0x37 => 1.0e16,                     // 10^16
+                            0x38 => 1.0e32,                     // 10^32
+                            0x39 => 1.0e64,                     // 10^64
+                            0x3A => 1.0e128,                    // 10^128
+                            0x3B => 1.0e256,                    // 10^256
                             // Higher powers would overflow, return infinity
                             0x3C..=0x3F => f64::INFINITY,
                             _ => 0.0, // Unknown constant, return 0

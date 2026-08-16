@@ -550,4 +550,20 @@ mod tests {
         assert!(matches!(cpu.step(&mut bus), StepResult::Stopped));
         assert!(cpu.is_stopped());
     }
+
+    #[cfg(not(feature = "fpu"))]
+    #[test]
+    fn stock_ec020_surfaces_fpu_opcode_as_line_f_trap() {
+        let mut bus = TestBus::new();
+        bus.write_word_raw(0, 0xF200);
+
+        let mut cpu = CpuCore::new();
+        cpu.set_cpu_type(CpuType::M68EC020);
+
+        assert!(matches!(
+            cpu.step(&mut bus),
+            StepResult::FlineTrap { opcode: 0xF200 }
+        ));
+        assert_eq!(cpu.pc, 2);
+    }
 }

@@ -35,6 +35,13 @@ path = "src/lib.rs"
 [[bin]]
 name = "m68k"
 path = "src/main.rs"
+required-features = ["std"]
+
+[features]
+default = ["std", "fpu"]
+std = []
+no_std = []
+fpu = []
 
 [dependencies]
 

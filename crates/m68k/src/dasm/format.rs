@@ -2,6 +2,11 @@
 //!
 //! Provides human-readable disassembly of M68000 instructions.
 
+use alloc::{
+    format,
+    string::{String, ToString},
+};
+
 use crate::core::types::CpuType;
 
 /// Register names for data registers

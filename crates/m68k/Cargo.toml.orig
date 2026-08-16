@@ -9,6 +9,17 @@ keywords = ["m68k", "68000", "68040", "cpu", "emulator"]
 categories = ["emulators"]
 exclude = ["tests/**/*"]
 
+[features]
+default = ["std", "fpu"]
+std = []
+no_std = []
+fpu = []
+
+[[bin]]
+name = "m68k"
+path = "src/main.rs"
+required-features = ["std"]
+
 [dependencies]
 
 [dev-dependencies]
