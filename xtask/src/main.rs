@@ -15,6 +15,7 @@ use sha2::{Digest, Sha256};
 
 mod ci;
 mod compatibility;
+mod governance;
 mod supply_chain;
 
 const BUILD_DIRECTORY: &str = "m0-008-firmware-build";
@@ -189,11 +190,12 @@ fn main() -> Result<()> {
         Some("compatibility-evidence") if arguments.next().is_none() => {
             compatibility::build_evidence()
         }
+        Some("governance-evidence") if arguments.next().is_none() => governance::build_evidence(),
         Some("supply-chain-evidence") if arguments.next().is_none() => {
             supply_chain::build_evidence()
         }
         _ => bail!(
-            "usage: cargo xtask <ci|compatibility-evidence|firmware-evidence|supply-chain-evidence> [options]"
+            "usage: cargo xtask <ci|compatibility-evidence|firmware-evidence|governance-evidence|supply-chain-evidence> [options]"
         ),
     }
 }

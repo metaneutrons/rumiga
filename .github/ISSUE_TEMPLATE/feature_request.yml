@@ -1,0 +1,41 @@
+name: Feature request
+description: Propose a scoped product or engineering outcome tied to the roadmap.
+title: "proposal: "
+labels:
+  - enhancement
+body:
+  - type: input
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the user, operator, compatibility, or engineering problem.
+    validations:
+      required: true
+  - type: input
+    id: roadmap
+    attributes:
+      label: Roadmap or task
+      description: Name the closest milestone/task ID or explain why a new task is needed.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: State observable behavior and explicit non-goals.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Acceptance evidence
+      description: Define tests and the host or D1001 evidence level needed to call this complete.
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints and risks
+      description: Include embedded resource, compatibility, security, licensing, and migration concerns.
+    validations:
+      required: false

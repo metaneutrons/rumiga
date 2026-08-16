@@ -1,0 +1,67 @@
+{
+  "schema": "rumiga.change-record.v1",
+  "task_id": "M0-012",
+  "title": "Version engineering governance and traceability",
+  "status": "implemented",
+  "summary": "Add repository-owned contributor, review, release-note, ADR, and machine-readable change contracts with a required Rust validation gate.",
+  "scope": [
+    "Contribution and review policy",
+    "GitHub pull-request and issue templates",
+    "Architecture decision lifecycle",
+    "Unreleased note format",
+    "Machine-readable change records",
+    "Checksummed governance CI evidence"
+  ],
+  "risk": {
+    "level": "medium",
+    "failure_mode": "An incorrect validator or stale cross-file contract can block every pull request or allow incomplete traceability.",
+    "rollback": "Revert the M0-012 functional commits together so the workflow and canonical gate list remain consistent."
+  },
+  "compatibility": {
+    "status": "none",
+    "detail": "No emulator runtime, media, API, or persisted configuration behavior changes."
+  },
+  "security": {
+    "status": "affected",
+    "detail": "Contributor and evidence contracts explicitly reject credentials, copyrighted media, private endpoints, and local filesystem paths."
+  },
+  "tests": [
+    {
+      "id": "governance-unit-tests",
+      "command": "cargo +1.97.1 test --locked -p rumiga-xtask governance::tests",
+      "proves": "Task IDs, Markdown contracts, path confinement, and private-path detection fail closed."
+    },
+    {
+      "id": "governance-gate",
+      "command": "cargo +1.97.1 xtask ci --gate governance",
+      "proves": "Every required contract and cross-file traceability link validates and the evidence bundle has exact checksums."
+    },
+    {
+      "id": "complete-quality-baseline",
+      "command": "cargo +1.97.1 xtask ci",
+      "proves": "Governance composes with every existing host, compatibility, supply-chain, portable, and firmware gate."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "governance-evidence-bundle",
+      "kind": "ci-artifact",
+      "location": "pending hosted M0-012 promotion",
+      "proves": "Required contracts, ADRs, release notes, change records, source revision, and checksums are machine readable."
+    }
+  ],
+  "documentation": [
+    "CONTRIBUTING.md",
+    "REVIEWING.md",
+    "CI.md",
+    "IMPLEMENTATION_PLAN.md",
+    "PROJECT_STATUS.md",
+    "ROADMAP.md",
+    "README.md",
+    "governance/README.md"
+  ],
+  "release_note": "docs/release-notes/unreleased/M0-012.md",
+  "architecture_decisions": [
+    "docs/adr/0001-governance-traceability.md"
+  ]
+}
