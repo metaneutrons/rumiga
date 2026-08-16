@@ -305,18 +305,58 @@ fn verify_manifest(manifest: &ToolchainManifest) -> Result<()> {
         "portable Rust target is empty"
     );
     ensure!(
-        !manifest.portable_rust.packages.is_empty(),
-        "portable Rust package list is empty"
+        !manifest.portable_rust.profiles.is_empty(),
+        "portable Rust profile list is empty"
     );
-    let packages = manifest
+    let profile_names = manifest
         .portable_rust
-        .packages
+        .profiles
         .iter()
+        .map(|profile| &profile.name)
         .collect::<BTreeSet<_>>();
     ensure!(
-        packages.len() == manifest.portable_rust.packages.len(),
-        "portable Rust package list contains duplicates"
+        profile_names.len() == manifest.portable_rust.profiles.len(),
+        "portable Rust profile names contain duplicates"
     );
+    for profile in &manifest.portable_rust.profiles {
+        ensure!(
+            !profile.name.trim().is_empty(),
+            "portable Rust profile name is empty"
+        );
+        ensure!(
+            !profile.packages.is_empty(),
+            "portable Rust profile {} has no packages",
+            profile.name
+        );
+        let packages = profile.packages.iter().collect::<BTreeSet<_>>();
+        ensure!(
+            packages.len() == profile.packages.len(),
+            "portable Rust profile {} contains duplicate packages",
+            profile.name
+        );
+        ensure!(
+            profile
+                .packages
+                .iter()
+                .all(|package| !package.trim().is_empty()),
+            "portable Rust profile {} contains an empty package",
+            profile.name
+        );
+        let features = profile.features.iter().collect::<BTreeSet<_>>();
+        ensure!(
+            features.len() == profile.features.len(),
+            "portable Rust profile {} contains duplicate features",
+            profile.name
+        );
+        ensure!(
+            profile
+                .features
+                .iter()
+                .all(|feature| !feature.trim().is_empty()),
+            "portable Rust profile {} contains an empty feature",
+            profile.name
+        );
+    }
     Ok(())
 }
 
@@ -402,6 +442,7 @@ fn run_host_gate(root: &Path, manifest: &ToolchainManifest) -> Result<()> {
         &["fmt", "--all", "--", "--check"],
         "Rust formatting",
     )?;
+    verify_m68k_feature_model(root, manifest)?;
     verify_core_feature_model(root, manifest)?;
     run_cargo(
         root,
@@ -475,23 +516,39 @@ fn run_portable_gate(root: &Path, manifest: &ToolchainManifest) -> Result<()> {
         manifest.portable_rust.target
     );
 
-    let mut arguments = vec![
-        "check".to_owned(),
-        "--locked".to_owned(),
-        "--target".to_owned(),
-        manifest.portable_rust.target.clone(),
-    ];
-    for package in &manifest.portable_rust.packages {
-        arguments.push("-p".to_owned());
-        arguments.push(package.clone());
+    for profile in &manifest.portable_rust.profiles {
+        let mut arguments = vec![
+            "check".to_owned(),
+            "--locked".to_owned(),
+            "--target".to_owned(),
+            manifest.portable_rust.target.clone(),
+        ];
+        if profile.release {
+            arguments.push("--release".to_owned());
+        }
+        if !profile.default_features {
+            arguments.push("--no-default-features".to_owned());
+        }
+        if !profile.features.is_empty() {
+            arguments.push("--features".to_owned());
+            arguments.push(profile.features.join(","));
+        }
+        for package in &profile.packages {
+            arguments.push("-p".to_owned());
+            arguments.push(package.clone());
+        }
+        let mut command = Command::new("cargo");
+        command
+            .current_dir(root)
+            .arg(format!("+{}", manifest.host.rust))
+            .args(arguments)
+            .stdin(Stdio::null());
+        run_checked(
+            &mut command,
+            &format!("portable Rust profile {}", profile.name),
+        )?;
     }
-    let mut command = Command::new("cargo");
-    command
-        .current_dir(root)
-        .arg(format!("+{}", manifest.host.rust))
-        .args(arguments)
-        .stdin(Stdio::null());
-    run_checked(&mut command, "portable Rust boundary")
+    Ok(())
 }
 
 fn run_firmware_gate(root: &Path, manifest: &ToolchainManifest) -> Result<()> {
@@ -517,6 +574,92 @@ fn run_cargo(
 ) -> Result<()> {
     let mut command = cargo_command(root, manifest, arguments);
     run_checked(&mut command, description)
+}
+
+fn verify_m68k_feature_model(root: &Path, manifest: &ToolchainManifest) -> Result<()> {
+    run_cargo(
+        root,
+        manifest,
+        &[
+            "check",
+            "--locked",
+            "-p",
+            "m68k",
+            "--no-default-features",
+            "--features",
+            "std",
+        ],
+        "m68k stock std profile",
+    )?;
+    run_cargo(
+        root,
+        manifest,
+        &[
+            "clippy",
+            "--locked",
+            "-p",
+            "m68k",
+            "--all-targets",
+            "--no-default-features",
+            "--features",
+            "no_std",
+            "--",
+            "-D",
+            "warnings",
+        ],
+        "m68k no_std Clippy",
+    )?;
+    run_cargo(
+        root,
+        manifest,
+        &[
+            "test",
+            "--locked",
+            "-p",
+            "m68k",
+            "--no-default-features",
+            "--features",
+            "no_std",
+        ],
+        "m68k no_std tests",
+    )?;
+    run_cargo_expect_failure(
+        root,
+        manifest,
+        &["check", "--locked", "-p", "m68k", "--no-default-features"],
+        "m68k missing runtime feature rejection",
+        "select exactly one runtime feature: `std` or `no_std`",
+    )?;
+    run_cargo_expect_failure(
+        root,
+        manifest,
+        &[
+            "check",
+            "--locked",
+            "-p",
+            "m68k",
+            "--no-default-features",
+            "--features",
+            "std,no_std",
+        ],
+        "m68k conflicting runtime feature rejection",
+        "features `std` and `no_std` are mutually exclusive",
+    )?;
+    run_cargo_expect_failure(
+        root,
+        manifest,
+        &[
+            "check",
+            "--locked",
+            "-p",
+            "m68k",
+            "--no-default-features",
+            "--features",
+            "no_std,fpu",
+        ],
+        "m68k no_std FPU rejection",
+        "feature `fpu` requires the `std` runtime profile",
+    )
 }
 
 fn verify_core_feature_model(root: &Path, manifest: &ToolchainManifest) -> Result<()> {

@@ -122,8 +122,36 @@ fn assert_target_baseline(manifest: &toml::Value) {
     assert_eq!(manifest["target"]["physical_psram"].as_str(), Some("32MB"));
     assert_eq!(
         manifest["portable_rust"]["scope"].as_str(),
-        Some("current-no-std-boundary")
+        Some("portable-core-boundary")
     );
+    let portable_profiles = manifest["portable_rust"]["profiles"]
+        .as_array()
+        .expect("portable_rust.profiles must be an array");
+    assert_eq!(portable_profiles.len(), 2);
+
+    let foundation = portable_profiles
+        .iter()
+        .find(|profile| profile["name"].as_str() == Some("foundation"))
+        .expect("foundation portable profile must exist");
+    assert_eq!(
+        string_array(&foundation["packages"]),
+        ["m68000", "rumiga-api", "rumiga-platform"]
+    );
+    assert_eq!(foundation["release"].as_bool(), Some(false));
+    assert_eq!(foundation["default_features"].as_bool(), Some(true));
+    assert!(string_array(&foundation["features"]).is_empty());
+
+    let stock_core = portable_profiles
+        .iter()
+        .find(|profile| profile["name"].as_str() == Some("stock-amiga-core"))
+        .expect("stock-amiga-core portable profile must exist");
+    assert_eq!(
+        string_array(&stock_core["packages"]),
+        ["m68k", "rumiga-core"]
+    );
+    assert_eq!(stock_core["release"].as_bool(), Some(true));
+    assert_eq!(stock_core["default_features"].as_bool(), Some(false));
+    assert_eq!(string_array(&stock_core["features"]), ["no_std"]);
     assert_eq!(
         manifest["build"]["evidence_schema"].as_str(),
         Some("rumiga.firmware.build.v1")
