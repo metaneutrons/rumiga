@@ -32,7 +32,7 @@ pedantic = { level = "deny", priority = -1 }
 nursery = { level = "deny", priority = -1 }
 cargo = { level = "deny", priority = -1 }
 multiple_crate_versions = "allow"
-# `no_std` is a deliberate, mutually exclusive runtime profile in rumiga-core.
+# `no_std` is a deliberate, mutually exclusive runtime profile in the CPU/core crates.
 negative_feature_names = "allow"
 # Const qualification is an API choice, not a correctness property.
 missing_const_for_fn = "allow"
@@ -44,7 +44,7 @@ core_affinity = "0.8"
 embuild = "=0.33.3"
 esp-idf-svc = { version = "=0.52.1", default-features = false }
 m68000 = { path = "crates/m68000" }
-m68k = { path = "crates/m68k" }
+m68k = { path = "crates/m68k", default-features = false }
 minifb = "0.28"
 rumiga-api = { path = "crates/rumiga-api" }
 rumiga-core = { path = "crates/rumiga-core" }

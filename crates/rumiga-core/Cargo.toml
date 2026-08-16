@@ -13,8 +13,8 @@ publish = false
 
 [features]
 default = ["std"]
-std = ["dep:core_affinity"]
-no_std = []
+std = ["dep:core_affinity", "m68k/std", "m68k/fpu"]
+no_std = ["m68k/no_std"]
 
 [dependencies]
 m68k = { workspace = true }
