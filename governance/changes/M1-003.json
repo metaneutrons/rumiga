@@ -1,0 +1,78 @@
+{
+  "schema": "rumiga.change-record.v1",
+  "task_id": "M1-003",
+  "title": "Enforce canonical core primitive boundary",
+  "status": "implemented",
+  "summary": "Require portable core and allocation primitives throughout rumiga-core, make the MAC-address error contract available without std, validate the rule under both explicit runtime profiles, and enforce the declared Rust MSRV for the stock no_std core graph.",
+  "scope": [
+    "rumiga-core primitive import policy",
+    "Portable MAC-address error contract",
+    "Desktop and no_std Clippy profile enforcement",
+    "Declared Rust MSRV enforcement",
+    "Bare-metal stock-core regression evidence"
+  ],
+  "risk": {
+    "level": "medium",
+    "failure_mode": "An over-broad portability rule could reject legitimate host adapters or a primitive substitution could alter desktop behavior.",
+    "rollback": "Revert the M1-003 core and CI commits together to restore the prior primitive imports and host matrix while retaining the existing runtime feature contract."
+  },
+  "compatibility": {
+    "status": "none",
+    "detail": "Default desktop behavior and runtime feature selection are unchanged; the shared MAC-address error contract is additionally available to no_std consumers."
+  },
+  "security": {
+    "status": "none",
+    "detail": "No network transport, credential, authorization, persistence, unsafe-code, or FFI behavior changes."
+  },
+  "tests": [
+    {
+      "id": "core-std-primitive-boundary",
+      "command": "cargo +1.97.1 clippy --locked -p rumiga-core --all-targets --no-default-features --features std -- -D warnings",
+      "proves": "The desktop-selected core path rejects standard-library primitives with core or alloc equivalents."
+    },
+    {
+      "id": "core-no-std-primitive-boundary",
+      "command": "cargo +1.97.1 test --locked -p rumiga-core --no-default-features --features no_std",
+      "proves": "The allocator-backed profile passes the core, integration, golden-vector, differential, and portable error-contract regressions."
+    },
+    {
+      "id": "stock-core-riscv-release",
+      "command": "cargo +1.97.1 check --locked --release -p rumiga-core --target riscv32imafc-unknown-none-elf --no-default-features --features no_std",
+      "proves": "The complete stock core graph remains an optimized bare-metal RISC-V no_std release build."
+    },
+    {
+      "id": "stock-core-declared-msrv",
+      "command": "cargo +1.85.0 check --locked -p rumiga-core --no-default-features --features no_std",
+      "proves": "The complete stock core graph compiles with the workspace's declared Rust MSRV."
+    },
+    {
+      "id": "core-profile-host-gate",
+      "command": "cargo +1.97.1 xtask ci --gate host",
+      "proves": "The canonical host gate runs strict Clippy for both core runtime profiles alongside the complete host baseline."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "local-core-primitive-boundary",
+      "kind": "command",
+      "location": "2026-08-16 local execution: explicit std Clippy, no_std Clippy, 146 core unit tests plus applicable integration suites, the optimized stock-core bare-metal RISC-V release check, and the declared Rust 1.85 MSRV check passed.",
+      "proves": "The implemented primitive boundary is locally valid before pull-request promotion."
+    }
+  ],
+  "documentation": [
+    "ARCHITECTURE.md",
+    "CI.md",
+    "IMPLEMENTATION_PLAN.md",
+    "PROJECT_STATUS.md",
+    "README.md",
+    "ROADMAP.md",
+    "TOOLCHAIN.md",
+    "crates/rumiga-core/src/lib.rs",
+    "docs/adr/0005-canonical-core-primitive-boundary.md",
+    "docs/adr/README.md"
+  ],
+  "release_note": "docs/release-notes/unreleased/M1-003.md",
+  "architecture_decisions": [
+    "docs/adr/0005-canonical-core-primitive-boundary.md"
+  ]
+}

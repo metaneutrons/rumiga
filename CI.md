@@ -130,11 +130,11 @@ branch settings match policy, or that host evidence proves D1001 behavior.
 
 ## Host Matrix Contract
 
-Both host legs use Rust `1.97.1`, Node.js `24.19.0`, and npm `11.17.0`. The
-workflow validates the installed versions against repository-owned files before
-building. Ubuntu installs `libglib2.0-dev`, `libslirp-dev`, and `pkg-config`;
-macOS installs the equivalent Homebrew `libslirp` and `pkg-config` formulae.
-Each leg executes the canonical host gate:
+Both host legs use Rust `1.97.1`, the declared Rust `1.85.0` MSRV, Node.js
+`24.19.0`, and npm `11.17.0`. The workflow validates the installed versions
+against repository-owned files before building. Ubuntu installs `libglib2.0-dev`,
+`libslirp-dev`, and `pkg-config`; macOS installs the equivalent Homebrew
+`libslirp` and `pkg-config` formulae. Each leg executes the canonical host gate:
 
 ```sh
 cargo +1.97.1 xtask ci --gate host
@@ -143,12 +143,16 @@ cargo +1.97.1 xtask ci --gate host
 The gate expands to the locked npm install, web lint and production build,
 Rust format, the `m68k` and `rumiga-core` runtime matrices, locked workspace
 Clippy and tests, and warning-free Rustdoc. The runtime matrices explicitly
-compile `std`, lint and test `no_std`, and verify that invalid selections fail
-with the required diagnostics. The CPU matrix also rejects FPU under `no_std`
-and tests the stock Line-F fallback. Default workspace commands continue to
-exercise the FPU-enabled desktop graph. The web build runs before Rust
-compilation because `rumiga-desktop` embeds the generated `web/out` directory
-in its binary.
+compile and lint `std`, lint and test `no_std`, and verify that invalid
+selections fail with the required diagnostics. `rumiga-core` denies
+standard-library primitives when `core` or `alloc` provides the same contract;
+this is therefore checked in the desktop profile as well as the portable one.
+The same gate compiles the stock `no_std` core graph with the declared MSRV, so
+the workspace `rust-version` cannot silently fall behind the code. The CPU
+matrix also rejects FPU under `no_std` and tests the stock Line-F fallback.
+Default workspace commands continue to exercise the FPU-enabled
+desktop graph. The web build runs before Rust compilation because
+`rumiga-desktop` embeds the generated `web/out` directory in its binary.
 
 GitHub's Rust and npm caches may improve runtime but are never build inputs:
 every install and Cargo command remains lockfile-enforced.

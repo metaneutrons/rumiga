@@ -96,6 +96,7 @@ Install the exact Rust toolchains:
 
 ```sh
 rustup toolchain install 1.97.1 --component clippy,rustfmt
+rustup toolchain install 1.85.0 --profile minimal
 rustup toolchain install nightly-2026-07-27 --profile minimal --component rust-src
 ```
 
@@ -136,9 +137,11 @@ Compile the current real `no_std` boundary through its canonical gate with:
 cargo +1.97.1 xtask ci --gate portable
 ```
 
-`rumiga-core` and `m68k` are not included because they still depend on `std`;
-M1 owns that conversion. Build, package, and verify the full ESP-IDF firmware
-with:
+The foundation profile intentionally checks the platform crates separately;
+the `stock-amiga-core` profile then compiles `m68k` and `rumiga-core` together
+as an optimized `no_std` release. The host gate additionally checks that the
+stock core graph compiles with the declared Rust 1.85 MSRV. Build, package, and
+verify the full ESP-IDF firmware with:
 
 ```sh
 cargo +1.97.1 xtask ci --gate firmware

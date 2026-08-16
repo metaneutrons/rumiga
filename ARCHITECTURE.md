@@ -48,6 +48,12 @@ Important current constraints:
 - `rumiga-core` now has mutually exclusive `std` and `no_std` profiles; `std`
   remains the desktop default and the `no_std + alloc` source profile is
   host-compiled, linted, and tested.
+- Core code must use `core` or `alloc` whenever an equivalent exists. The
+  portable primitive rule is linted under both explicit runtime profiles, so a
+  desktop-only build cannot quietly reintroduce a standard-library equivalent.
+- The host gate also compiles the stock `no_std` core graph with the declared
+  Rust 1.85 MSRV; this guards the language-level portability contract as well
+  as the current pinned host toolchain.
 - `m68k` has the same explicit runtime boundary. Its integer CPU path and
   allocator-backed disassembler compile under `no_std`; the optional FPU stays
   in the default `std` profile. The complete stock core graph compiles as a
