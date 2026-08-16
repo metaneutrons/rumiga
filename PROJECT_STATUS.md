@@ -11,8 +11,8 @@ ordered work; this file records what is actually proven now.
 | Status date | 2026-08-16 |
 | Audited baseline revision | Repository revision containing this document |
 | Latest completed task | M0-013: enforced Conventional Commit policy |
-| Current implementation | M1-002: stock `m68k` `no_std + alloc` portability |
-| Next task | M1-002: make stock `m68k` profiles `no_std + alloc` |
+| Current implementation | M1-002: hosted promotion of stock `m68k` portability |
+| Next task | M1-003: enforce the canonical core `core`/`alloc` boundary |
 | Development host | macOS, Apple Silicon |
 | Product target | Seeed reTerminal D1001, ESP32-P4 |
 | Product maturity | Desktop compatibility prototype |
@@ -107,8 +107,10 @@ No feature is called done merely because it compiled or booted once.
   report. GitHub Actions run
   [`31890919057`](https://github.com/metaneutrons/rumiga/actions/runs/31890919057)
   publishes the independently revalidated artifact.
-- `m68000`, `rumiga-api`, and `rumiga-platform` compile for bare-metal
-  `riscv32imafc-unknown-none-elf`; this is the genuine `no_std` boundary today.
+- `m68000`, `rumiga-api`, `rumiga-platform`, `m68k`, and the complete
+  `rumiga-core` graph compile for bare-metal
+  `riscv32imafc-unknown-none-elf`. The stock CPU/core profile is an optimized
+  `no_std` release build; hosted M1-002 promotion is pending.
 - Desktop REST media operations use a configured canonical storage root,
   bounded streaming uploads, atomic no-overwrite publication, stable errors,
   and traversal/symlink escape tests.
@@ -133,6 +135,13 @@ No feature is called done merely because it compiled or booted once.
 - Governance artifact `9260313104` records the clean pull-request merge
   revision and M1-001 traceability. Its archive digest and all three payload
   checksums were independently verified.
+- `m68k` has explicit `std` and allocator-backed `no_std` profiles. The default
+  desktop graph retains the optional FPU; the stock profile rejects FPU,
+  preserves Line-F handling, and contains no `std::` source references.
+- The canonical host gate validates both CPU runtime profiles, three invalid
+  feature combinations, the FPU-less 68EC020 regression, and unchanged default
+  workspace behavior. The canonical portable gate now builds `m68k` and
+  `rumiga-core` together in release mode for bare-metal RISC-V.
 - One bounded Rust parser now owns Conventional Commit syntax for the local
   `commit-msg` hook and canonical `commits` gate. It validates raw Git objects,
   event ranges, merge-free history, and pull-request titles without npm.
@@ -148,9 +157,9 @@ No feature is called done merely because it compiled or booted once.
 
 ### What is not yet true
 
-- The complete `rumiga-core` dependency graph is not bare-metal `no_std` yet:
-  `m68k` still requires `std`. M1-002 must convert it before the core enters the
-  RISC-V portable gate.
+- M1-002 has repeatable local host and bare-metal compile evidence, but no
+  clean hosted pull-request artifact or final `main` promotion yet. The target
+  check also does not prove allocator integration, execution, or performance.
 - Host files, `std::thread`, `JoinHandle`, and `core_affinity` still exist in
   the default core profile. M1-004 and M1-005 must replace them with injected
   services and deterministic single-owner execution.
@@ -186,7 +195,7 @@ No feature is called done merely because it compiled or booted once.
 | REST API | Partial | Desktop localhost server, shared DTOs, and sandboxed media storage exist; authentication, browser workflows, and the device server are missing |
 | Web UI | Partial | Lint/build and static contract parity pass; browser workflow and device evidence are missing |
 | A2065 networking | Partial | Device model and desktop SLIRP link exist; guest packet flow and D1001 Wi-Fi bridge are missing |
-| Core portability | Verified source boundary | Explicit `std` and allocator-backed `no_std` profiles pass locally and on both hosted operating systems; `m68k` still blocks bare-metal RISC-V |
+| Core portability | Implemented, promotion pending | Explicit CPU/core runtime profiles pass locally; the complete stock graph compiles as a bare-metal RISC-V release, with hosted M1-002 evidence still pending |
 | Platform abstraction | Partial | A small `no_std` trait crate exists; contracts lack backpressure, capabilities, clock, block media, network, lifecycle, and telemetry |
 | D1001 firmware | Partial | Locked IDF 6.0.0 build produces a validated, checksummed release bundle; firmware services are stubs and no hardware evidence exists |
 | Release operations | Planned | No device image, signed release, OTA rollback, HIL, SBOM, or soak evidence |
@@ -203,12 +212,14 @@ The following commands were run during this audit:
 | `cargo check --locked -p rumiga-core --no-default-features --features std` | Pass | The desktop runtime profile is independently selectable |
 | `cargo test --locked -p rumiga-core --no-default-features --features no_std` | Pass | The core source profile passes 145 unit tests plus all applicable integration and golden-vector suites without its `std` feature |
 | Invalid core feature selections | Pass | Neither and both runtime profiles fail with one stable compile-time diagnostic |
+| `cargo test --locked -p m68k --no-default-features --features no_std` | Pass | Eight CPU tests plus the doctest pass; an FPU opcode on stock 68EC020 remains a Line-F trap |
+| Invalid CPU feature selections | Pass | Missing, conflicting, and `no_std,fpu` selections fail with their stable single diagnostics |
 | GitHub Actions run `31934749529` | Pass | Linux x86_64, macOS arm64, every supporting gate, and the strict aggregate validate M1-001 from a clean pull-request merge revision |
 | `cargo fmt --all --check` | Pass | Formatting is confined to repository-owned workspace sources |
 | `cargo check --locked --manifest-path firmware/Cargo.toml` | Pass | Firmware is a valid host-side workspace build unit; this is not target evidence |
 | `cargo check --locked --manifest-path crates/rumiga-platform-esp/Cargo.toml` | Pass | ESP adapter is a valid host-side workspace build unit; drivers remain stubs |
 | `cargo test --locked -p rumiga-firmware --test toolchain_manifest` | Pass | Rust, Node/npm, ESP-IDF, BSP, Cargo config, and locked ESP crate pins agree |
-| Bare-metal RISC-V package check | Pass | Current `no_std` packages compile for `riscv32imafc-unknown-none-elf`; core portability remains M1 |
+| Bare-metal RISC-V package check | Pass | Foundation packages plus `m68k` and complete `rumiga-core` compile for `riscv32imafc-unknown-none-elf`; stock core uses `no_std` release mode |
 | `cargo +1.97.1 xtask firmware-evidence` | Pass | IDF 6.0.0 firmware compile, link, board configuration, image generation, and all artifact checksums pass locally; this is not boot evidence |
 | GitHub Actions run `31890919057` | Pass | Portable RISC-V and ESP32-P4 jobs pass; artifact `9248602076` contains the checksummed firmware bundle built from a clean pull-request merge revision |
 | `npm run lint` | Pass | Web static lint baseline is green |
@@ -277,7 +288,7 @@ until an explicit HIL test qualifies the larger geometry.
 | ID | Severity | Risk | Required response |
 | --- | --- | --- | --- |
 | R-001 | Critical | Whole HDF images are resident in RAM | Introduce a bounded sector `BlockDevice` contract before A1200 device integration |
-| R-003 | Critical | The default core still owns host threads and files; the new `no_std` source path is not yet the canonical target graph | Convert `m68k`, inject trace services, and restore deterministic single-owner blitter execution in M1-002 through M1-005 |
+| R-003 | Critical | The default core still owns host threads and files even though the stock `no_std` graph now reaches the canonical RISC-V target | Enforce forbidden imports, inject trace services, and restore deterministic single-owner blitter execution in M1-003 through M1-005 |
 | R-004 | High | No D1001 firmware has booted | The pinned M0-008 build artifact is published; capture serial boot evidence in M2 |
 | R-005 | High | USB-C host wiring and VBUS behavior are not qualified | Verify schematic and actual board before promising direct USB-C peripherals; document required adapter/hub |
 | R-006 | High | Performance on ESP32-P4 is unknown | Add cycle, frame, PSRAM bandwidth, and memory benchmarks before compatibility expansion |
@@ -324,7 +335,7 @@ Detailed gates are in `ROADMAP.md`; task IDs are in `IMPLEMENTATION_PLAN.md`.
 | --- | --- | --- |
 | BASE: Desktop evidence foundation | Verified | Six current host scenarios and versioned evidence tooling |
 | M0: Hermetic engineering baseline | Verified | All thirteen M0 tasks pass local, pull-request, and final `main` promotion evidence |
-| M1: Portable deterministic core | Active | M1-001 is verified on Linux and macOS; M1-002 CPU portability is next and G1 remains open |
+| M1: Portable deterministic core | Active | M1-001 is verified; M1-002 passes local CPU/core RISC-V release gates and awaits hosted promotion; G1 remains open |
 | M2: D1001 board bring-up | Planned | Flashable firmware, serial manifest, memory/display smoke |
 | M3: Bounded media and memory | Planned | 2 GiB HDF boots through bounded sector cache |
 | M4: D1001 display pipeline | Planned | Correct 50/60 Hz presentation and device framebuffer captures |

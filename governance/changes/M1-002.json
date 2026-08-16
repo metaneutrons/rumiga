@@ -1,0 +1,72 @@
+{
+  "schema": "rumiga.change-record.v1",
+  "task_id": "M1-002",
+  "title": "Make stock CPU profiles portable",
+  "status": "implemented",
+  "summary": "Make the active m68k CPU and complete rumiga-core graph compile under no_std plus alloc for bare-metal 32-bit RISC-V while isolating the host-only FPU implementation.",
+  "scope": [
+    "m68k runtime feature contract",
+    "Allocator-backed disassembler boundary",
+    "Host-only FPU feature isolation",
+    "rumiga-core dependency feature forwarding",
+    "Declarative RISC-V portable profiles",
+    "Host and target feature-matrix enforcement"
+  ],
+  "risk": {
+    "level": "high",
+    "failure_mode": "Cargo feature unification or incorrect F-line fallback could reintroduce std into firmware builds or change stock CPU exception behavior.",
+    "rollback": "Revert the M1-002 CPU, core feature forwarding, portable profile, CI, and documentation commits together to restore the previous host-only CPU graph."
+  },
+  "compatibility": {
+    "status": "affected",
+    "detail": "Default desktop consumers retain std and FPU behavior; consumers disabling m68k defaults must now select exactly one runtime profile, and FPU remains unavailable under no_std."
+  },
+  "security": {
+    "status": "none",
+    "detail": "No network, credential, authorization, media, persistence, unsafe-code, or FFI policy changes."
+  },
+  "tests": [
+    {
+      "id": "m68k-no-std-riscv-release",
+      "command": "cargo +1.97.1 check --locked --release -p m68k --target riscv32imafc-unknown-none-elf --no-default-features --features no_std",
+      "proves": "The active integer CPU implementation compiles without std as an optimized bare-metal 32-bit RISC-V artifact."
+    },
+    {
+      "id": "core-no-std-riscv-release",
+      "command": "cargo +1.97.1 check --locked --release -p rumiga-core --target riscv32imafc-unknown-none-elf --no-default-features --features no_std",
+      "proves": "The complete stock Amiga core dependency graph, including m68k, compiles for the pinned bare-metal target."
+    },
+    {
+      "id": "m68k-feature-matrix",
+      "command": "cargo +1.97.1 xtask ci --gate host",
+      "proves": "Valid std and no_std CPU profiles pass, invalid combinations fail with stable diagnostics, Line-F fallback is preserved, and the default FPU-enabled workspace remains green."
+    },
+    {
+      "id": "portable-profile-gate",
+      "command": "cargo +1.97.1 xtask ci --gate portable",
+      "proves": "Repository-owned declarative profiles enforce the foundation and optimized stock-core RISC-V builds."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "hosted-stock-core-portability",
+      "kind": "ci-artifact",
+      "location": "Pending hosted M1-002 pull-request and final main promotion evidence",
+      "proves": "Linux, macOS, bare-metal RISC-V, governance, and the strict aggregate validate the promoted CPU portability contract from clean revisions."
+    }
+  ],
+  "documentation": [
+    "ARCHITECTURE.md",
+    "CI.md",
+    "IMPLEMENTATION_PLAN.md",
+    "PROJECT_STATUS.md",
+    "README.md",
+    "ROADMAP.md",
+    "crates/m68k/README.md",
+    "docs/adr/README.md"
+  ],
+  "release_note": "docs/release-notes/unreleased/M1-002.md",
+  "architecture_decisions": [
+    "docs/adr/0004-stock-cpu-portability.md"
+  ]
+}
