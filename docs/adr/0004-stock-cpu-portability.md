@@ -1,6 +1,6 @@
 # ADR-0004: Stock CPU Portability And FPU Boundary
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-08-16
 - Owners: @metaneutrons
 - Task: M1-002
@@ -62,8 +62,13 @@ because accidental feature omissions must fail with a targeted diagnostic.
 default FPU-enabled workspace, all invalid combinations, and the stock Line-F
 behavior. `cargo +1.97.1 xtask ci --gate portable` compiles `m68k` and
 `rumiga-core` as optimized `no_std` release artifacts for bare-metal 32-bit
-RISC-V. Hosted pull-request and final `main` evidence remain required before
-acceptance.
+RISC-V. Pull-request run
+[`31955508417`](https://github.com/metaneutrons/rumiga/actions/runs/31955508417)
+and final `main` run
+[`31955947410`](https://github.com/metaneutrons/rumiga/actions/runs/31955947410)
+pass every required job. Their governance artifacts have independently
+verified archive digests, complete payload checksums, and clean source
+revisions.
 
 ## Supersession
 

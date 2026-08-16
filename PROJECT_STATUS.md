@@ -10,9 +10,9 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-16 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M0-013: enforced Conventional Commit policy |
-| Current implementation | M1-002: hosted promotion of stock `m68k` portability |
-| Next task | M1-003: enforce the canonical core `core`/`alloc` boundary |
+| Latest completed task | M1-002: verified stock `m68k` portability |
+| Current implementation | M1-003: enforce the canonical core `core`/`alloc` boundary |
+| Next task | M1-004: inject trace/log services and remove core file creation |
 | Development host | macOS, Apple Silicon |
 | Product target | Seeed reTerminal D1001, ESP32-P4 |
 | Product maturity | Desktop compatibility prototype |
@@ -110,7 +110,12 @@ No feature is called done merely because it compiled or booted once.
 - `m68000`, `rumiga-api`, `rumiga-platform`, `m68k`, and the complete
   `rumiga-core` graph compile for bare-metal
   `riscv32imafc-unknown-none-elf`. The stock CPU/core profile is an optimized
-  `no_std` release build; hosted M1-002 promotion is pending.
+  `no_std` release build. Pull-request run
+  [`31955508417`](https://github.com/metaneutrons/rumiga/actions/runs/31955508417)
+  and final `main` run
+  [`31955947410`](https://github.com/metaneutrons/rumiga/actions/runs/31955947410)
+  pass the portable, host, firmware, policy, evidence, and strict aggregate
+  jobs from clean revisions.
 - Desktop REST media operations use a configured canonical storage root,
   bounded streaming uploads, atomic no-overwrite publication, stable errors,
   and traversal/symlink escape tests.
@@ -142,6 +147,11 @@ No feature is called done merely because it compiled or booted once.
   feature combinations, the FPU-less 68EC020 regression, and unchanged default
   workspace behavior. The canonical portable gate now builds `m68k` and
   `rumiga-core` together in release mode for bare-metal RISC-V.
+- Governance artifacts `9265830160` and `9265939161` record the clean
+  pull-request merge and final `main` revisions. Their archive SHA-256 digests
+  (`c3c392ae6c7fe20d3e4e001b013f2b25f9fb337eb0fa9da2114ffb2d28a69208`
+  and `ea3b1043d8b54a0dded2a5d61764ca77c0547398029869367c0ba04d1ef6113d`)
+  and every internal payload checksum were independently verified.
 - One bounded Rust parser now owns Conventional Commit syntax for the local
   `commit-msg` hook and canonical `commits` gate. It validates raw Git objects,
   event ranges, merge-free history, and pull-request titles without npm.
@@ -157,9 +167,9 @@ No feature is called done merely because it compiled or booted once.
 
 ### What is not yet true
 
-- M1-002 has repeatable local host and bare-metal compile evidence, but no
-  clean hosted pull-request artifact or final `main` promotion yet. The target
-  check also does not prove allocator integration, execution, or performance.
+- M1-002 proves the stock CPU/core graph compiles for the bare-metal target;
+  it does not prove D1001 allocator integration, target execution, or
+  performance. Those remain gated by later M1 instrumentation and M2 HIL work.
 - Host files, `std::thread`, `JoinHandle`, and `core_affinity` still exist in
   the default core profile. M1-004 and M1-005 must replace them with injected
   services and deterministic single-owner execution.
@@ -195,7 +205,7 @@ No feature is called done merely because it compiled or booted once.
 | REST API | Partial | Desktop localhost server, shared DTOs, and sandboxed media storage exist; authentication, browser workflows, and the device server are missing |
 | Web UI | Partial | Lint/build and static contract parity pass; browser workflow and device evidence are missing |
 | A2065 networking | Partial | Device model and desktop SLIRP link exist; guest packet flow and D1001 Wi-Fi bridge are missing |
-| Core portability | Implemented, promotion pending | Explicit CPU/core runtime profiles pass locally; the complete stock graph compiles as a bare-metal RISC-V release, with hosted M1-002 evidence still pending |
+| Core portability | Partial | M1-002 verifies explicit CPU/core profiles and the complete stock graph as a bare-metal RISC-V release; deterministic replay, allocation bounds, and removal of canonical host dependencies remain open |
 | Platform abstraction | Partial | A small `no_std` trait crate exists; contracts lack backpressure, capabilities, clock, block media, network, lifecycle, and telemetry |
 | D1001 firmware | Partial | Locked IDF 6.0.0 build produces a validated, checksummed release bundle; firmware services are stubs and no hardware evidence exists |
 | Release operations | Planned | No device image, signed release, OTA rollback, HIL, SBOM, or soak evidence |
@@ -228,9 +238,11 @@ The following commands were run during this audit:
 | `(cd web && npm audit --audit-level=high)` | Pass | No known npm vulnerabilities reported |
 | `actionlint .github/workflows/ci.yml` | Pass | Workflow syntax, matrix expressions, and action inputs are structurally valid |
 | `cargo +1.97.1 xtask ci --gate commits` | Pass | Local, hosted PR/title, and final `main` ranges satisfy the shared Conventional Commit policy |
-| `cargo +1.97.1 xtask ci` | Pass | The complete eight-gate local M0-013 baseline is green in 91.516 seconds |
+| `cargo +1.97.1 xtask ci` | Pass | The complete eight-gate local M1-002 baseline is green in 95.478 seconds, including the optimized stock-core RISC-V and ESP32-P4 release builds |
 | GitHub Actions run `31952285487` | Pass | PR commits, title, all required jobs, and strict aggregate validate from a clean pull-request merge revision |
 | GitHub Actions run `31952671051` | Pass | The final three-commit `main` push range, all required jobs, and strict aggregate validate from a clean checkout |
+| GitHub Actions run `31955508417` | Pass | M1-002 pull-request commits/title and all ten final-attempt jobs pass; the portable job builds `m68k` plus `rumiga-core` as optimized bare-metal RISC-V releases |
+| GitHub Actions run `31955947410` | Pass | The exact promoted three-commit range, both host systems, portable and ESP32-P4 builds, evidence jobs, and required aggregate pass on `main` |
 | GitHub Actions run `31899884533` | Pass | The same named gate implementations pass on hosted Linux x86_64 and macOS arm64 and feed the strict aggregate |
 
 The CI workflow validates both lockfiles, the complete host Rust/web matrix, the
@@ -335,7 +347,7 @@ Detailed gates are in `ROADMAP.md`; task IDs are in `IMPLEMENTATION_PLAN.md`.
 | --- | --- | --- |
 | BASE: Desktop evidence foundation | Verified | Six current host scenarios and versioned evidence tooling |
 | M0: Hermetic engineering baseline | Verified | All thirteen M0 tasks pass local, pull-request, and final `main` promotion evidence |
-| M1: Portable deterministic core | Active | M1-001 is verified; M1-002 passes local CPU/core RISC-V release gates and awaits hosted promotion; G1 remains open |
+| M1: Portable deterministic core | Active | M1-001 and M1-002 are verified; M1-003 is next, and G1 remains open |
 | M2: D1001 board bring-up | Planned | Flashable firmware, serial manifest, memory/display smoke |
 | M3: Bounded media and memory | Planned | 2 GiB HDF boots through bounded sector cache |
 | M4: D1001 display pipeline | Planned | Correct 50/60 Hz presentation and device framebuffer captures |

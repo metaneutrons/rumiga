@@ -207,12 +207,13 @@ produces the same deterministic state transitions as the host build.
 - The host gate enforces valid and invalid feature selections on macOS and
   Linux. GitHub Actions run `31934749529` passes both hosts and the strict
   aggregate; its checksummed governance artifact was independently verified.
-- M1-002 is implemented locally: `m68k` now has explicit runtime profiles, the
-  FPU is isolated to the default `std` profile, and the complete stock
-  M68000/68EC020 core graph passes the release-mode bare-metal RISC-V gate.
-  Hosted pull-request and final `main` promotion evidence remain pending.
-- M1-003 is next after M1-002 promotion. G1 remains open until forbidden host
-  dependencies, deterministic replay, and allocation bounds are also proven.
+- M1-002 is verified: `m68k` now has explicit runtime profiles, the FPU is
+  isolated to the default `std` profile, and the complete stock M68000/68EC020
+  core graph passes the release-mode bare-metal RISC-V gate. Pull-request run
+  `31955508417` and final `main` run `31955947410` pass every required job;
+  both checksummed governance artifacts were independently verified.
+- M1-003 is next. G1 remains open until forbidden host dependencies,
+  deterministic replay, and allocation bounds are also proven.
 
 ### Exit gate G1
 

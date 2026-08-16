@@ -31,4 +31,4 @@ Numbering is contiguous; `0000-template.md` is reserved and is not a decision.
 | [ADR-0001](0001-governance-traceability.md) | Accepted | M0-012 | Version governance contracts and machine-readable change records |
 | [ADR-0002](0002-core-runtime-feature-model.md) | Accepted | M1-001 | Define explicit, mutually exclusive `std` and `no_std` core runtime profiles |
 | [ADR-0003](0003-conventional-commit-policy.md) | Accepted | M0-013 | Enforce one Rust-owned Conventional Commit policy locally and in hosted CI |
-| [ADR-0004](0004-stock-cpu-portability.md) | Proposed | M1-002 | Separate the portable stock CPU path from the host-only FPU implementation |
+| [ADR-0004](0004-stock-cpu-portability.md) | Accepted | M1-002 | Separate the portable stock CPU path from the host-only FPU implementation |
