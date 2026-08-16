@@ -2,7 +2,7 @@
   "schema": "rumiga.change-record.v1",
   "task_id": "M0-012",
   "title": "Version engineering governance and traceability",
-  "status": "implemented",
+  "status": "verified",
   "summary": "Add repository-owned contributor, review, release-note, ADR, and machine-readable change contracts with a required Rust validation gate.",
   "scope": [
     "Contribution and review policy",
@@ -46,7 +46,7 @@
     {
       "id": "governance-evidence-bundle",
       "kind": "ci-artifact",
-      "location": "pending hosted M0-012 promotion",
+      "location": "GitHub Actions run 31933087138, artifact 9259855560 governance-11e68bddf0f7739ed11711c97de0483f8381b6a6, archive sha256:249614ac364af890f92da3dcb8a1a3e3917f4be553fb54eade2d4c314ccbb480",
       "proves": "Required contracts, ADRs, release notes, change records, source revision, and checksums are machine readable."
     }
   ],

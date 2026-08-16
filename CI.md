@@ -246,6 +246,17 @@ Independent download verification confirmed exact archive coverage, all five
 payload checksums, the clean revision, scenario/test totals, reviewed ignores,
 privacy flags, and no private filesystem paths.
 
+The first M0-012 hosted baseline is GitHub Actions run
+[`31933087138`](https://github.com/metaneutrons/rumiga/actions/runs/31933087138)
+for branch head `ad461580287229366c6b0492e9cfedad2f6610fe`. Pull-request merge
+revision `11e68bddf0f7739ed11711c97de0483f8381b6a6` produced artifact
+`governance-11e68bddf0f7739ed11711c97de0483f8381b6a6` (artifact ID
+`9259855560`, archive SHA-256
+`249614ac364af890f92da3dcb8a1a3e3917f4be553fb54eade2d4c314ccbb480`).
+Independent download verification confirmed exactly four regular files, all
+three payload checksums, a clean source revision, the 13-contract and
+task-link totals, public scope flags, and no private filesystem paths.
+
 CI intentionally uses only synthetic and repository-owned fixtures. It does not
 access private Kickstart, Workbench, ADF, HDF, packet capture, or D1001 assets.
 Firmware evidence proves compile, link, layout, and image generation only. Its

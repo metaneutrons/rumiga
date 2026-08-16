@@ -251,7 +251,7 @@ Current baseline on 2026-08-16:
 | ESP32-P4 firmware evidence | Pass locally and on GitHub for locked IDF 6.0.0; checksummed artifact published by run [`31890919057`](https://github.com/metaneutrons/rumiga/actions/runs/31890919057) |
 | Linux/macOS host CI | Pass on GitHub-hosted x86_64 and arm64 runners |
 | Public compatibility evidence | Pass locally and on GitHub; 1 asset-free scenario passes, 12 private-media scenarios are explicitly skipped, and 3 roadmap exclusions are unsupported; artifact published by run [`31910408906`](https://github.com/metaneutrons/rumiga/actions/runs/31910408906) |
-| Engineering governance evidence | Pass locally; 13 contracts and the M0-012 task/test/evidence traceability record validate; hosted promotion pending |
+| Engineering governance evidence | Pass locally and on GitHub; 13 contracts and the M0-012 task/test/evidence traceability record validate; artifact published by run [`31933087138`](https://github.com/metaneutrons/rumiga/actions/runs/31933087138) |
 | Unified local quality command | Pass; all seven canonical gates complete through `cargo +1.97.1 xtask ci` |
 | Protected branch gate | `Required Quality Gate` from GitHub Actions required on `main` |
 
