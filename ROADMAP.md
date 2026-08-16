@@ -199,7 +199,8 @@ produces the same deterministic state transitions as the host build.
   default, while `no_std + alloc` excludes core-owned tracing, threads, and
   affinity and passes the complete applicable core test suite on the host.
 - The host gate enforces valid and invalid feature selections on macOS and
-  Linux. Hosted promotion is pending.
+  Linux. GitHub Actions run `31934749529` passes both hosts and the strict
+  aggregate; its checksummed governance artifact was independently verified.
 - M1-002 is next. Until `m68k` is converted and the portable gate includes the
   core, M1-001 is not bare-metal RISC-V evidence and G1 remains open.
 

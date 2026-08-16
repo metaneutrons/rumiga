@@ -262,6 +262,19 @@ Independent download verification confirmed exactly four regular files, all
 three payload checksums, a clean source revision, the 13-contract and
 task-link totals, public scope flags, and no private filesystem paths.
 
+The M1-001 core runtime-profile baseline is GitHub Actions run
+[`31934749529`](https://github.com/metaneutrons/rumiga/actions/runs/31934749529)
+for branch head `f538f0ba811691703dd88b1c75d7cceaa5dc8676`. Linux host job
+`95134810493` and macOS host job `95134810516` independently pass the explicit
+`std`, `no_std`, invalid-selection, and default-workspace matrix before the
+strict aggregate succeeds. Pull-request merge revision
+`aab85a06bd8c893397b5e9ac719c77863628c5a1` produced artifact
+`governance-aab85a06bd8c893397b5e9ac719c77863628c5a1` (artifact ID
+`9260313104`, archive SHA-256
+`e59760be76a9b1be3599fed1dc8300c08c64ed667c13506d224a122e7042c7b6`).
+Independent download verification confirmed all three payload checksums, the
+clean revision, and the complete two-task traceability set.
+
 CI intentionally uses only synthetic and repository-owned fixtures. It does not
 access private Kickstart, Workbench, ADF, HDF, packet capture, or D1001 assets.
 Firmware evidence proves compile, link, layout, and image generation only. Its
