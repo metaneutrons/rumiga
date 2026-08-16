@@ -11,9 +11,14 @@ keywords.workspace = true
 categories.workspace = true
 publish = false
 
+[features]
+default = ["std"]
+std = ["dep:core_affinity"]
+no_std = []
+
 [dependencies]
 m68k = { workspace = true }
-core_affinity = { workspace = true }
+core_affinity = { workspace = true, optional = true }
 
 [dev-dependencies]
 m68000 = { workspace = true }

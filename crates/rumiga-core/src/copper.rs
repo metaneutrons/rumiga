@@ -8,6 +8,9 @@
 //! (write a register), WAIT (wait for beam position), and SKIP (conditionally
 //! skip the next instruction).
 
+#[cfg(test)]
+use alloc::vec::Vec;
+
 /// Minimum register offset the Copper can write without the danger bit.
 const SAFE_REG_MIN: u16 = 0x40;
 

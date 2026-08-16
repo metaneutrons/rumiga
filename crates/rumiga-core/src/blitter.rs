@@ -7,6 +7,11 @@
 //! up to four DMA channels (A, B, C, D) and a configurable minterm logic
 //! function. This implementation executes blits immediately (non-cycle-accurate).
 
+#[cfg(test)]
+use alloc::vec;
+#[cfg(test)]
+use alloc::vec::Vec;
+
 /// Channel enable bit for source A.
 const USE_A: u16 = 1 << 11;
 /// Channel enable bit for source B.

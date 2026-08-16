@@ -13,6 +13,9 @@
 )]
 #![cfg_attr(test, allow(clippy::cast_possible_truncation, clippy::redundant_clone))]
 
+use alloc::vec;
+use alloc::vec::Vec;
+
 /// Sectors per track in an ADF image.
 const SECTORS_PER_TRACK: u32 = 11;
 

@@ -3,7 +3,9 @@
 
 //! Shared network primitives used by emulated network devices.
 
-use std::fmt;
+use alloc::format;
+use alloc::string::String;
+use core::fmt;
 
 /// A validated Ethernet MAC address.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -37,6 +39,7 @@ impl fmt::Display for MacAddressError {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for MacAddressError {}
 
 impl MacAddress {
