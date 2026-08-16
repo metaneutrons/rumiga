@@ -14,6 +14,9 @@
 //! as an optimized bare-metal RISC-V release.
 
 #![cfg_attr(not(feature = "std"), no_std)]
+// Primitive types with `core` or `alloc` equivalents must remain portable even
+// when their callers select the desktop runtime profile.
+#![deny(clippy::std_instead_of_alloc, clippy::std_instead_of_core)]
 
 #[cfg(all(feature = "std", feature = "no_std"))]
 compile_error!("features `std` and `no_std` are mutually exclusive");

@@ -1159,7 +1159,7 @@ impl Emulator {
 
     #[cfg(feature = "std")]
     fn start_blitter_execution(&mut self) {
-        let mut chip_ram = std::mem::take(&mut self.memory.chip_ram);
+        let mut chip_ram = core::mem::take(&mut self.memory.chip_ram);
         let mut blitter = self.blitter.clone();
         let handle = std::thread::spawn(move || {
             // Pin the blitter background task to the last available CPU core
