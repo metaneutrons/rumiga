@@ -13,6 +13,9 @@
     clippy::unreadable_literal
 )]
 
+use alloc::vec;
+use alloc::vec::Vec;
+
 /// ATA Status bits.
 pub const IDE_STATUS_BSY: u8 = 0x80;
 pub const IDE_STATUS_DRDY: u8 = 0x40;

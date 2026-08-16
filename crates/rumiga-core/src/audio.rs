@@ -464,10 +464,9 @@ mod tests {
         let sum_inactive: i32 = left_inactive.iter().map(|&s| i32::from(s.abs())).sum();
         let sum_active: i32 = left_active.iter().map(|&s| i32::from(s.abs())).sum();
 
-        println!("Sum inactive: {sum_inactive}, Sum active: {sum_active}");
         assert!(
             sum_active < sum_inactive,
-            "Active low pass should attenuate high frequencies"
+            "active low pass should attenuate high frequencies: unfiltered={sum_inactive}, filtered={sum_active}"
         );
     }
 

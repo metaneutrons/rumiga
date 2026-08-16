@@ -15,7 +15,9 @@
     clippy::too_many_lines
 )]
 
-use std::cell::{Cell, RefCell};
+use alloc::vec;
+use alloc::vec::{Drain, Vec};
+use core::cell::{Cell, RefCell};
 
 use m68k::AddressBus;
 
@@ -184,6 +186,7 @@ pub struct AmigaMemory {
     /// Optional A2065-compatible Zorro II Ethernet card.
     pub a2065: RefCell<A2065>,
     /// Active blitter execution thread.
+    #[cfg(feature = "std")]
     pub blit_thread: Option<std::thread::JoinHandle<(Vec<u8>, BlitterState)>>,
     /// Set when the blitter thread finishes and RAM is restored.
     pub blitter_completed: bool,
@@ -227,6 +230,7 @@ impl AmigaMemory {
             gayle_id_cnt: Cell::new(0),
             ide: RefCell::new(AtaController::new()),
             a2065: RefCell::new(A2065::new_disabled()),
+            #[cfg(feature = "std")]
             blit_thread: None,
             blitter_completed: false,
             completed_blitter: None,
@@ -260,6 +264,7 @@ impl AmigaMemory {
     }
 
     /// Wait for the active background blit thread to complete and restore chip RAM.
+    #[cfg(feature = "std")]
     pub fn sync_blitter(&mut self) {
         if let Some(handle) = self.blit_thread.take() {
             if let Ok((chip_ram, blitter)) = handle.join() {
@@ -271,6 +276,7 @@ impl AmigaMemory {
     }
 
     /// Check if the active background blit thread is finished, and restore chip RAM if so.
+    #[cfg(feature = "std")]
     pub fn sync_blitter_lazy(&mut self) {
         let is_finished = if let Some(ref handle) = self.blit_thread {
             handle.is_finished()
@@ -281,6 +287,29 @@ impl AmigaMemory {
             self.sync_blitter();
         }
     }
+
+    /// Report whether a host blitter worker currently owns chip RAM.
+    #[must_use]
+    #[cfg(feature = "std")]
+    pub(crate) fn blitter_active(&self) -> bool {
+        self.blit_thread.is_some()
+    }
+
+    /// Report whether a host blitter worker currently owns chip RAM.
+    #[must_use]
+    #[cfg(not(feature = "std"))]
+    #[allow(clippy::unused_self, reason = "preserves the runtime-neutral core API")]
+    pub(crate) const fn blitter_active(&self) -> bool {
+        false
+    }
+
+    /// Synchronize with the host blitter worker; `no_std` blits are synchronous.
+    #[cfg(not(feature = "std"))]
+    pub fn sync_blitter(&mut self) {}
+
+    /// Poll the host blitter worker; `no_std` blits are synchronous.
+    #[cfg(not(feature = "std"))]
+    pub fn sync_blitter_lazy(&mut self) {}
 
     fn gayle_ide_register(addr: u32) -> Option<usize> {
         if !(GAYLE_IDE_START..GAYLE_IDE_END).contains(&addr) {
@@ -473,7 +502,7 @@ impl AmigaMemory {
     }
 
     /// Drain the register write log, returning an iterator over (offset, value) pairs.
-    pub fn drain_reg_writes(&mut self) -> std::vec::Drain<'_, (u16, u16)> {
+    pub fn drain_reg_writes(&mut self) -> Drain<'_, (u16, u16)> {
         self.reg_write_log.drain(..)
     }
 

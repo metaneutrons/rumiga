@@ -5,6 +5,22 @@
 //!
 //! This crate implements the Amiga custom chipset, memory subsystem, and
 //! timing engine.
+//!
+//! The default `std` feature retains host filesystem tracing and background
+//! blitter execution. Embedded consumers select the mutually exclusive
+//! `no_std` profile with `--no-default-features --features no_std`; that profile
+//! requires an allocator and excludes host-only services. Bare-metal RISC-V
+//! compilation also requires the `m68k` conversion tracked by M1-002.
+
+#![cfg_attr(not(feature = "std"), no_std)]
+
+#[cfg(all(feature = "std", feature = "no_std"))]
+compile_error!("features `std` and `no_std` are mutually exclusive");
+
+#[cfg(not(any(feature = "std", feature = "no_std")))]
+compile_error!("select exactly one runtime feature: `std` or `no_std`");
+
+extern crate alloc;
 
 pub mod a2065;
 pub mod audio;

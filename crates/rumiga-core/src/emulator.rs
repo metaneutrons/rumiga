@@ -9,8 +9,13 @@
     clippy::cast_sign_loss
 )]
 
+use alloc::vec;
+use alloc::vec::Vec;
+#[cfg(feature = "std")]
+use m68k::AddressBus;
 use m68k::CpuCore;
-use m68k::{AddressBus, NoOpHleHandler, StepResult};
+use m68k::{NoOpHleHandler, StepResult};
+#[cfg(feature = "std")]
 use std::io::Write;
 
 use crate::audio::AudioState;
@@ -145,10 +150,13 @@ pub struct Emulator {
     /// RGB565 framebuffer (high-res PAL width × visible PAL height).
     pub framebuffer: Vec<u16>,
     /// Optional `BufWriter` for instruction tracing.
+    #[cfg(feature = "std")]
     pub trace_writer: Option<std::io::BufWriter<std::fs::File>>,
     /// Optional trace limit (number of instructions).
+    #[cfg(feature = "std")]
     pub trace_limit: Option<u64>,
     /// Count of traced instructions.
+    #[cfg(feature = "std")]
     pub trace_count: u64,
     /// Whether a complete frame has been rendered.
     pub frame_ready: bool,
@@ -236,8 +244,11 @@ impl Emulator {
             audio: AudioState::new(),
             sprites: SpriteEngine::new(),
             framebuffer: vec![0; FRAMEBUFFER_SIZE],
+            #[cfg(feature = "std")]
             trace_writer: None,
+            #[cfg(feature = "std")]
             trace_limit: None,
+            #[cfg(feature = "std")]
             trace_count: 0,
             frame_ready: false,
             total_cycles: 0,
@@ -281,7 +292,7 @@ impl Emulator {
 
     /// Wait for the active background blit to complete, updating emulator status.
     pub fn sync_blitter(&mut self) {
-        if self.memory.blit_thread.is_some() {
+        if self.memory.blitter_active() {
             self.memory.sync_blitter();
         }
         if self.memory.blitter_completed {
@@ -292,7 +303,7 @@ impl Emulator {
 
     /// Check if the active background blit is finished, updating emulator status if so.
     pub fn sync_blitter_lazy(&mut self) {
-        if self.memory.blit_thread.is_some() {
+        if self.memory.blitter_active() {
             self.memory.sync_blitter_lazy();
         }
         if self.memory.blitter_completed {
@@ -398,6 +409,7 @@ impl Emulator {
     /// # Errors
     ///
     /// Returns any file creation error from the host filesystem.
+    #[cfg(feature = "std")]
     pub fn enable_cpu_trace(&mut self, path: &str, limit: Option<u64>) -> std::io::Result<()> {
         let file = std::fs::File::create(path)?;
         self.trace_writer = Some(std::io::BufWriter::new(file));
@@ -407,6 +419,7 @@ impl Emulator {
     }
 
     /// Format and write one trace line.
+    #[cfg(feature = "std")]
     pub fn write_trace_line(&mut self) {
         if let Some(ref mut writer) = self.trace_writer {
             if let Some(limit) = self.trace_limit {
@@ -445,6 +458,7 @@ impl Emulator {
 
     /// Execute a single CPU instruction (for debugging/tracing).
     pub fn step_instruction(&mut self) {
+        #[cfg(feature = "std")]
         self.write_trace_line();
         let mut handler = NoOpHleHandler;
         let _ = self
@@ -479,6 +493,7 @@ impl Emulator {
                 self.cpu.int_level = 0;
             }
 
+            #[cfg(feature = "std")]
             self.write_trace_line();
             let step_res = self
                 .cpu
@@ -887,11 +902,11 @@ impl Emulator {
     /// Sync live chipset state into the custom register shadow so CPU reads are correct.
     fn sync_readable_regs(&mut self) {
         // Lazy check of background blitter done signal
-        if self.memory.blit_thread.is_some() {
+        if self.memory.blitter_active() {
             self.sync_blitter_lazy();
         }
 
-        let blit_busy = self.memory.blit_thread.is_some();
+        let blit_busy = self.memory.blitter_active();
 
         let regs = &mut self.memory.custom_regs;
         // VPOSR: bit 15=LOF, bits 14-8=Agnus ID, bits 0-2=vpos high
@@ -1131,18 +1146,19 @@ impl Emulator {
             custom::BLTADAT => self.blitter.bltadat = value,
             custom::BLTSIZE => {
                 self.blitter.start_legacy_size_blit(value);
-                self.start_blitter_thread();
+                self.start_blitter_execution();
             }
             custom::BLTSIZV => self.blitter.set_vertical_size(value),
             custom::BLTSIZH => {
                 self.blitter.start_horizontal_size_blit(value);
-                self.start_blitter_thread();
+                self.start_blitter_execution();
             }
             _ => {}
         }
     }
 
-    fn start_blitter_thread(&mut self) {
+    #[cfg(feature = "std")]
+    fn start_blitter_execution(&mut self) {
         let mut chip_ram = std::mem::take(&mut self.memory.chip_ram);
         let mut blitter = self.blitter.clone();
         let handle = std::thread::spawn(move || {
@@ -1156,6 +1172,11 @@ impl Emulator {
             (chip_ram, blitter)
         });
         self.memory.blit_thread = Some(handle);
+    }
+
+    #[cfg(not(feature = "std"))]
+    fn start_blitter_execution(&mut self) {
+        self.blitter.execute_blit(&mut self.memory.chip_ram);
     }
 
     /// Get the current framebuffer contents.
@@ -1290,6 +1311,7 @@ impl Emulator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use m68k::AddressBus;
 
     #[test]
     fn new_creates_valid_state() {
@@ -1389,7 +1411,7 @@ mod tests {
     }
 
     #[test]
-    fn test_threaded_blitter_execution() {
+    fn blitter_execution_completes_and_syncs_state() {
         let mut emu = Emulator::new(MemoryConfig::a500());
         emu.memory.overlay = false;
 
@@ -1412,7 +1434,7 @@ mod tests {
         // Trigger blit: 1 row, 2 words wide
         emu.dispatch_register_write(custom::BLTSIZE, (1 << 6) | 2);
 
-        // Attempting to read Chip RAM at 0x2000 should lazily spin-wait and block until the blit finishes!
+        // Reading the destination observes the completed blit in either runtime mode.
         let val1 = emu.memory.read_byte(0x2000);
         let val2 = emu.memory.read_byte(0x2001);
         let val3 = emu.memory.read_byte(0x2002);
@@ -1426,8 +1448,8 @@ mod tests {
         // Sync the blitter status on the Emulator side to finalize its flags
         emu.sync_blitter();
 
-        // The blit_thread in memory should now be cleared
-        assert!(emu.memory.blit_thread.is_none());
+        // No execution remains active after synchronization.
+        assert!(!emu.memory.blitter_active());
         assert!(!emu.blitter.busy);
         assert!(emu.blitter.done);
         assert_eq!(emu.blitter.bltapt, 0x1004);

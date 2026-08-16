@@ -261,6 +261,7 @@ fn boot_kickstart_31_a1200_executes_instructions_and_boots() {
     );
 }
 
+#[cfg(feature = "std")]
 #[test]
 fn test_kickstart_31_cpu_tracing() {
     let rom_file = dirs_next().join("kick.a1200.40.068.rom");

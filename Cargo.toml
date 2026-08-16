@@ -32,6 +32,8 @@ pedantic = { level = "deny", priority = -1 }
 nursery = { level = "deny", priority = -1 }
 cargo = { level = "deny", priority = -1 }
 multiple_crate_versions = "allow"
+# `no_std` is a deliberate, mutually exclusive runtime profile in rumiga-core.
+negative_feature_names = "allow"
 # Const qualification is an API choice, not a correctness property.
 missing_const_for_fn = "allow"
 # FMA changes rounding and would make cross-platform audio evidence less stable.
