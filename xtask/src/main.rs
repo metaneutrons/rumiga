@@ -66,6 +66,7 @@ struct EmbeddedRustConfiguration {
 #[derive(Debug, Deserialize)]
 struct HostConfiguration {
     rust: String,
+    rust_msrv: String,
     node: String,
     npm: String,
 }

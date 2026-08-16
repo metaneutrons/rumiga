@@ -296,6 +296,16 @@ fn verify_manifest(manifest: &ToolchainManifest) -> Result<()> {
         "host Rust pin is invalid"
     );
     ensure!(
+        valid_version_pin(&manifest.host.rust_msrv),
+        "declared Rust MSRV pin is invalid"
+    );
+    ensure!(
+        version_pin_not_newer_than(&manifest.host.rust_msrv, &manifest.host.rust),
+        "declared Rust MSRV {} must not be newer than host Rust {}",
+        manifest.host.rust_msrv,
+        manifest.host.rust
+    );
+    ensure!(
         valid_version_pin(&manifest.host.node),
         "Node.js pin is invalid"
     );
@@ -361,32 +371,29 @@ fn verify_manifest(manifest: &ToolchainManifest) -> Result<()> {
 }
 
 fn valid_version_pin(value: &str) -> bool {
-    let components = value.split('.').collect::<Vec<_>>();
-    components.len() == 3
-        && components.iter().all(|component| {
-            !component.is_empty() && component.bytes().all(|byte| byte.is_ascii_digit())
-        })
+    version_components(value).is_some()
+}
+
+fn version_pin_not_newer_than(value: &str, maximum: &str) -> bool {
+    match (version_components(value), version_components(maximum)) {
+        (Some(value), Some(maximum)) => value <= maximum,
+        _ => false,
+    }
+}
+
+fn version_components(value: &str) -> Option<[u32; 3]> {
+    let mut components = value.split('.');
+    let major = components.next()?.parse().ok()?;
+    let minor = components.next()?.parse().ok()?;
+    let patch = components.next()?.parse().ok()?;
+    if components.next().is_some() {
+        return None;
+    }
+    Some([major, minor, patch])
 }
 
 fn verify_host_tools(root: &Path, manifest: &ToolchainManifest, require_node: bool) -> Result<()> {
-    let rustc = capture(
-        root,
-        "rustup",
-        &["run", &manifest.host.rust, "rustc", "--version"],
-    )?;
-    ensure!(
-        rustc.split_whitespace().nth(1) == Some(manifest.host.rust.as_str()),
-        "rustc does not match toolchain/manifest.toml: {rustc}"
-    );
-    let cargo = capture(
-        root,
-        "rustup",
-        &["run", &manifest.host.rust, "cargo", "--version"],
-    )?;
-    ensure!(
-        cargo.split_whitespace().nth(1) == Some(manifest.host.rust.as_str()),
-        "Cargo does not match toolchain/manifest.toml: {cargo}"
-    );
+    verify_rust_toolchain(root, &manifest.host.rust, "host")?;
 
     if require_node {
         let node = capture(root, "node", &["--version"])?;
@@ -400,6 +407,20 @@ fn verify_host_tools(root: &Path, manifest: &ToolchainManifest, require_node: bo
             "npm does not match toolchain/manifest.toml: {npm}"
         );
     }
+    Ok(())
+}
+
+fn verify_rust_toolchain(root: &Path, toolchain: &str, role: &str) -> Result<()> {
+    let rustc = capture(root, "rustup", &["run", toolchain, "rustc", "--version"])?;
+    ensure!(
+        rustc.split_whitespace().nth(1) == Some(toolchain),
+        "{role} rustc does not match toolchain/manifest.toml: {rustc}"
+    );
+    let cargo = capture(root, "rustup", &["run", toolchain, "cargo", "--version"])?;
+    ensure!(
+        cargo.split_whitespace().nth(1) == Some(toolchain),
+        "{role} Cargo does not match toolchain/manifest.toml: {cargo}"
+    );
     Ok(())
 }
 
@@ -663,6 +684,7 @@ fn verify_m68k_feature_model(root: &Path, manifest: &ToolchainManifest) -> Resul
 }
 
 fn verify_core_feature_model(root: &Path, manifest: &ToolchainManifest) -> Result<()> {
+    verify_core_msrv_profile(root, manifest)?;
     run_cargo(
         root,
         manifest,
@@ -747,6 +769,25 @@ fn verify_core_feature_model(root: &Path, manifest: &ToolchainManifest) -> Resul
         "rumiga-core conflicting runtime feature rejection",
         "features `std` and `no_std` are mutually exclusive",
     )
+}
+
+fn verify_core_msrv_profile(root: &Path, manifest: &ToolchainManifest) -> Result<()> {
+    verify_rust_toolchain(root, &manifest.host.rust_msrv, "declared MSRV")?;
+    let mut command = Command::new("cargo");
+    command
+        .current_dir(root)
+        .arg(format!("+{}", manifest.host.rust_msrv))
+        .args([
+            "check",
+            "--locked",
+            "-p",
+            "rumiga-core",
+            "--no-default-features",
+            "--features",
+            "no_std",
+        ])
+        .stdin(Stdio::null());
+    run_checked(&mut command, "rumiga-core declared MSRV no_std check")
 }
 
 fn run_cargo_expect_failure(
@@ -952,7 +993,7 @@ fn yaml_get<'a>(node: &'a Yaml, key: &str) -> Option<&'a Yaml> {
 mod tests {
     use super::{
         ALL_GATES, CliAction, Gate, gate_names, parse_arguments, parse_checksum_line,
-        verify_workflow_contract,
+        valid_version_pin, verify_workflow_contract, version_pin_not_newer_than,
     };
     use crate::{read_toolchain_manifest, workspace_root};
 
@@ -1013,6 +1054,16 @@ mod tests {
                 .len(),
             names.len()
         );
+    }
+
+    #[test]
+    fn version_pins_are_strict_and_ordered() {
+        assert!(valid_version_pin("1.85.0"));
+        assert!(!valid_version_pin("1.85"));
+        assert!(!valid_version_pin("1.85.0.1"));
+        assert!(!valid_version_pin("1.a.0"));
+        assert!(version_pin_not_newer_than("1.85.0", "1.97.1"));
+        assert!(!version_pin_not_newer_than("1.98.0", "1.97.1"));
     }
 
     #[test]
