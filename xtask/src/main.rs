@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 mod ci;
+mod commit_policy;
 mod compatibility;
 mod governance;
 mod supply_chain;
@@ -186,6 +187,10 @@ fn main() -> Result<()> {
             let arguments = arguments.collect::<Vec<_>>();
             ci::run(&arguments)
         }
+        Some("commit-policy") => {
+            let arguments = arguments.collect::<Vec<_>>();
+            commit_policy::run(&arguments)
+        }
         Some("firmware-evidence") if arguments.next().is_none() => build_firmware_evidence(),
         Some("compatibility-evidence") if arguments.next().is_none() => {
             compatibility::build_evidence()
@@ -195,7 +200,7 @@ fn main() -> Result<()> {
             supply_chain::build_evidence()
         }
         _ => bail!(
-            "usage: cargo xtask <ci|compatibility-evidence|firmware-evidence|governance-evidence|supply-chain-evidence> [options]"
+            "usage: cargo xtask <ci|commit-policy|compatibility-evidence|firmware-evidence|governance-evidence|supply-chain-evidence> [options]"
         ),
     }
 }
