@@ -39,8 +39,7 @@ impl fmt::Display for MacAddressError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for MacAddressError {}
+impl core::error::Error for MacAddressError {}
 
 impl MacAddress {
     /// WinUAE-compatible default for A2065 drivers, which expect Commodore's OUI.
@@ -167,5 +166,12 @@ mod tests {
             MacAddress::from_unicast_str("00-80-10-4d-49-47"),
             Err(MacAddressError::InvalidFormat)
         );
+    }
+
+    #[test]
+    fn mac_address_error_uses_the_portable_error_contract() {
+        fn assert_core_error<T: core::error::Error>() {}
+
+        assert_core_error::<MacAddressError>();
     }
 }
