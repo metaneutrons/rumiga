@@ -1,0 +1,6 @@
+# Default and governance ownership. Branch protection decides when approval is required.
+* @metaneutrons
+/.github/ @metaneutrons
+/governance/ @metaneutrons
+/docs/adr/ @metaneutrons
+/docs/release-notes/ @metaneutrons
