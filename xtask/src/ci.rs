@@ -391,6 +391,7 @@ fn run_host_gate(root: &Path, manifest: &ToolchainManifest) -> Result<()> {
         &["fmt", "--all", "--", "--check"],
         "Rust formatting",
     )?;
+    verify_core_feature_model(root, manifest)?;
     run_cargo(
         root,
         manifest,
@@ -505,6 +506,104 @@ fn run_cargo(
 ) -> Result<()> {
     let mut command = cargo_command(root, manifest, arguments);
     run_checked(&mut command, description)
+}
+
+fn verify_core_feature_model(root: &Path, manifest: &ToolchainManifest) -> Result<()> {
+    run_cargo(
+        root,
+        manifest,
+        &[
+            "check",
+            "--locked",
+            "-p",
+            "rumiga-core",
+            "--no-default-features",
+            "--features",
+            "std",
+        ],
+        "rumiga-core explicit std profile",
+    )?;
+    run_cargo(
+        root,
+        manifest,
+        &[
+            "clippy",
+            "--locked",
+            "-p",
+            "rumiga-core",
+            "--all-targets",
+            "--no-default-features",
+            "--features",
+            "no_std",
+            "--",
+            "-D",
+            "warnings",
+        ],
+        "rumiga-core no_std Clippy",
+    )?;
+    run_cargo(
+        root,
+        manifest,
+        &[
+            "test",
+            "--locked",
+            "-p",
+            "rumiga-core",
+            "--no-default-features",
+            "--features",
+            "no_std",
+        ],
+        "rumiga-core no_std tests",
+    )?;
+    run_cargo_expect_failure(
+        root,
+        manifest,
+        &[
+            "check",
+            "--locked",
+            "-p",
+            "rumiga-core",
+            "--no-default-features",
+        ],
+        "rumiga-core missing runtime feature rejection",
+        "select exactly one runtime feature: `std` or `no_std`",
+    )?;
+    run_cargo_expect_failure(
+        root,
+        manifest,
+        &["check", "--locked", "-p", "rumiga-core", "--all-features"],
+        "rumiga-core conflicting runtime feature rejection",
+        "features `std` and `no_std` are mutually exclusive",
+    )
+}
+
+fn run_cargo_expect_failure(
+    root: &Path,
+    manifest: &ToolchainManifest,
+    arguments: &[&str],
+    description: &str,
+    expected_diagnostic: &str,
+) -> Result<()> {
+    let mut command = cargo_command(root, manifest, arguments);
+    command.env("CARGO_TERM_COLOR", "never");
+    let output = command
+        .output()
+        .with_context(|| format!("failed to start {description}"))?;
+    ensure!(
+        !output.status.success(),
+        "{description} unexpectedly succeeded"
+    );
+    let diagnostic = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    ensure!(
+        diagnostic.contains(expected_diagnostic),
+        "{description} failed without the required diagnostic {expected_diagnostic:?}: {}",
+        diagnostic.trim()
+    );
+    Ok(())
 }
 
 fn cargo_command(root: &Path, manifest: &ToolchainManifest, arguments: &[&str]) -> Command {

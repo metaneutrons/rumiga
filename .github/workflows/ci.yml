@@ -207,7 +207,7 @@ jobs:
             echo "| npm | \`$(npm --version 2>/dev/null || echo unavailable)\` |"
             echo "| Result | ${JOB_STATUS} |"
             echo
-            echo "Rust format, Clippy, tests, documentation, web lint, and web build are required."
+            echo "Rust format, the rumiga-core std/no_std matrix, Clippy, tests, documentation, web lint, and web build are required."
           } >> "${GITHUB_STEP_SUMMARY}"
 
   compatibility:
