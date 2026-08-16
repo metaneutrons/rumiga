@@ -1,6 +1,6 @@
 # ADR-0003: Repository-Owned Conventional Commit Policy
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-08-16
 - Owners: @metaneutrons
 - Task: M0-013
@@ -65,7 +65,14 @@ commit messages.
 breaking, revert, Dependabot, malformed, WIP, autosquash, size, encoding, and
 scope cases. `cargo +1.97.1 xtask ci --gate commits` validates the selected Git
 range and the structural CI test requires the job in `Required Quality Gate`.
-Hosted pull-request and `main` evidence remains pending until M0-013 promotion.
+The complete local eight-gate baseline passes in 91.516 seconds. GitHub Actions
+pull-request run
+[`31952285487`](https://github.com/metaneutrons/rumiga/actions/runs/31952285487)
+validates all three commits and the PR title; final `main` run
+[`31952671051`](https://github.com/metaneutrons/rumiga/actions/runs/31952671051)
+validates the exact promoted three-commit range. Both strict aggregates pass,
+and both downloaded governance bundles pass archive and payload checksum
+verification with clean source revisions.
 
 ## Supersession
 

@@ -10,8 +10,8 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-16 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M1-001: explicit core runtime feature model |
-| Current implementation | M0-013: hosted Conventional Commit enforcement; promotion pending |
+| Latest completed task | M0-013: enforced Conventional Commit policy |
+| Current implementation | M1-002: stock `m68k` `no_std + alloc` portability |
 | Next task | M1-002: make stock `m68k` profiles `no_std + alloc` |
 | Development host | macOS, Apple Silicon |
 | Product target | Seeed reTerminal D1001, ESP32-P4 |
@@ -70,9 +70,9 @@ No feature is called done merely because it compiled or booted once.
 - The host CI contract uses pinned Ubuntu x86_64 and macOS arm64 runners,
   immutable action revisions, minimal token permissions, complete Rust/web
   gates, per-job summaries, and one fail-closed aggregate result.
-- `cargo +1.97.1 xtask ci` is the single complete local entry point. The last
-  fully promoted baseline covers seven required gate categories; M0-013 adds
-  commit history as an eighth. GitHub uses the same implementations in
+- `cargo +1.97.1 xtask ci` is the single complete local entry point. The fully
+  promoted baseline covers eight required gate categories, including commit
+  history. GitHub uses the same implementations in
   parallel, repository tests reject workflow topology drift, and each gate
   rejects tool drift, tracked-file mutation, or incomplete evidence checksums.
 - The public compatibility gate emits a private-media-free, checksummed
@@ -133,15 +133,18 @@ No feature is called done merely because it compiled or booted once.
 - Governance artifact `9260313104` records the clean pull-request merge
   revision and M1-001 traceability. Its archive digest and all three payload
   checksums were independently verified.
-
-### What is implemented pending hosted verification
-
 - One bounded Rust parser now owns Conventional Commit syntax for the local
   `commit-msg` hook and canonical `commits` gate. It validates raw Git objects,
   event ranges, merge-free history, and pull-request titles without npm.
-- All 30 `rumiga-xtask` tests, strict Clippy, the local commit gate, and the
-  eight-gate workflow topology contract pass. Hosted pull-request and final
-  `main` range evidence is pending, so M0-013 is not yet Verified.
+- All 31 `rumiga-xtask` tests, strict Clippy, the local 91.516-second eight-gate
+  baseline, and the workflow topology contract pass. Pull-request run
+  [`31952285487`](https://github.com/metaneutrons/rumiga/actions/runs/31952285487)
+  verifies the three commits, PR title, and strict aggregate. Final `main` run
+  [`31952671051`](https://github.com/metaneutrons/rumiga/actions/runs/31952671051)
+  verifies the exact promoted three-commit range and strict aggregate.
+- Governance artifacts `9264985708` and `9265088957` have independently
+  verified archive digests, complete payload checksums, clean source revisions,
+  public scope, and passing M0-013 traceability reports.
 
 ### What is not yet true
 
@@ -195,7 +198,7 @@ The following commands were run during this audit:
 | Check | Result | Interpretation |
 | --- | --- | --- |
 | `cargo metadata --locked --no-deps --format-version 1 --quiet` | Pass | Root Cargo manifest and lockfile agree |
-| `cargo test --locked --workspace` | Pass | 475 unit, integration, and documentation tests are discovered locally, including quality-orchestrator, storage-confinement, ESP-pin, and evidence tooling |
+| `cargo test --locked --workspace` | Pass | 493 tests are discovered: 489 runnable and 4 reviewed ignored, including quality-orchestrator, storage-confinement, ESP-pin, and evidence tooling |
 | `cargo clippy --locked --workspace --all-targets -- -D warnings` | Pass | All workspace targets pass without warnings |
 | `cargo check --locked -p rumiga-core --no-default-features --features std` | Pass | The desktop runtime profile is independently selectable |
 | `cargo test --locked -p rumiga-core --no-default-features --features no_std` | Pass | The core source profile passes 145 unit tests plus all applicable integration and golden-vector suites without its `std` feature |
@@ -213,8 +216,10 @@ The following commands were run during this audit:
 | `(cd web && npm ci --ignore-scripts)` | Pass | npm manifest and tracked lockfile agree |
 | `(cd web && npm audit --audit-level=high)` | Pass | No known npm vulnerabilities reported |
 | `actionlint .github/workflows/ci.yml` | Pass | Workflow syntax, matrix expressions, and action inputs are structurally valid |
-| `cargo +1.97.1 xtask ci --gate commits` | Pass | Raw local branch commits satisfy the shared Conventional Commit policy; hosted PR/title/main evidence is pending |
-| `cargo +1.97.1 xtask ci` | Previous baseline pass | The seven-gate promoted baseline is green; complete eight-gate M0-013 promotion is pending |
+| `cargo +1.97.1 xtask ci --gate commits` | Pass | Local, hosted PR/title, and final `main` ranges satisfy the shared Conventional Commit policy |
+| `cargo +1.97.1 xtask ci` | Pass | The complete eight-gate local M0-013 baseline is green in 91.516 seconds |
+| GitHub Actions run `31952285487` | Pass | PR commits, title, all required jobs, and strict aggregate validate from a clean pull-request merge revision |
+| GitHub Actions run `31952671051` | Pass | The final three-commit `main` push range, all required jobs, and strict aggregate validate from a clean checkout |
 | GitHub Actions run `31899884533` | Pass | The same named gate implementations pass on hosted Linux x86_64 and macOS arm64 and feed the strict aggregate |
 
 The CI workflow validates both lockfiles, the complete host Rust/web matrix, the
@@ -318,7 +323,7 @@ Detailed gates are in `ROADMAP.md`; task IDs are in `IMPLEMENTATION_PLAN.md`.
 | Milestone | Status | Promotion evidence |
 | --- | --- | --- |
 | BASE: Desktop evidence foundation | Verified | Six current host scenarios and versioned evidence tooling |
-| M0: Hermetic engineering baseline | Verified baseline; hardening active | All twelve G0 tasks are verified; M0-013 Conventional Commit enforcement awaits hosted promotion |
+| M0: Hermetic engineering baseline | Verified | All thirteen M0 tasks pass local, pull-request, and final `main` promotion evidence |
 | M1: Portable deterministic core | Active | M1-001 is verified on Linux and macOS; M1-002 CPU portability is next and G1 remains open |
 | M2: D1001 board bring-up | Planned | Flashable firmware, serial manifest, memory/display smoke |
 | M3: Bounded media and memory | Planned | 2 GiB HDF boots through bounded sector cache |
