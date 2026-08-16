@@ -36,7 +36,16 @@ struct ToolchainManifest {
 #[derive(Debug, Deserialize)]
 struct PortableRustConfiguration {
     target: String,
+    profiles: Vec<PortableRustProfile>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PortableRustProfile {
+    name: String,
     packages: Vec<String>,
+    release: bool,
+    default_features: bool,
+    features: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]

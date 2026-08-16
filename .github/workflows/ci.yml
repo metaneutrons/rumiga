@@ -419,7 +419,8 @@ jobs:
             echo "| Field | Value |"
             echo "| --- | --- |"
             echo "| Target | \`${portable_target}\` |"
-            echo "| Packages | \`m68000\`, \`rumiga-api\`, \`rumiga-platform\` |"
+            echo "| Foundation profile | \`m68000\`, \`rumiga-api\`, \`rumiga-platform\` |"
+            echo "| Stock core release profile | \`m68k\`, \`rumiga-core\` with \`no_std\` |"
             echo "| Result | ${JOB_STATUS} |"
           } >> "${GITHUB_STEP_SUMMARY}"
 

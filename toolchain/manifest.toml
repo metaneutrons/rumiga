@@ -13,8 +13,21 @@ physical_psram = "32MB"
 
 [portable_rust]
 target = "riscv32imafc-unknown-none-elf"
+scope = "portable-core-boundary"
+
+[[portable_rust.profiles]]
+name = "foundation"
 packages = ["m68000", "rumiga-api", "rumiga-platform"]
-scope = "current-no-std-boundary"
+release = false
+default_features = true
+features = []
+
+[[portable_rust.profiles]]
+name = "stock-amiga-core"
+packages = ["m68k", "rumiga-core"]
+release = true
+default_features = false
+features = ["no_std"]
 
 [host]
 rust = "1.97.1"
