@@ -46,7 +46,7 @@ jobs:
           rustup toolchain install 1.97.1 --profile minimal --no-self-update
 
       - name: Cache Rust build inputs
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: commit-policy-linux
 
@@ -136,7 +136,7 @@ jobs:
           rustup toolchain install 1.97.1 --profile minimal --no-self-update
 
       - name: Cache Rust build inputs
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: governance-linux
 
@@ -215,7 +215,7 @@ jobs:
           rustup toolchain install 1.85.0 --profile minimal --no-self-update
 
       - name: Cache Rust build inputs
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: host-${{ matrix.os }}
 
@@ -280,7 +280,7 @@ jobs:
           rustup toolchain install 1.97.1 --profile minimal --no-self-update
 
       - name: Cache Rust build inputs
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: compatibility-linux
 
@@ -398,7 +398,7 @@ jobs:
           rustup target add --toolchain 1.97.1 "${portable_target}"
 
       - name: Cache Rust build inputs
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: portable-riscv
 
@@ -464,7 +464,7 @@ jobs:
             --profile minimal --component rust-src --no-self-update
 
       - name: Cache Rust build inputs
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-targets: false
           shared-key: firmware-esp32p4
