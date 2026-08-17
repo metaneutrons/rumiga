@@ -100,6 +100,17 @@ Both trace files have SHA-256
 capture manifests report `trace_count` 20000, and both PNG captures are
 identical, so the CLI, transport, flush point, and manifest are unchanged.
 
+Clean pull-request run
+[`31998824989`](https://github.com/metaneutrons/rumiga/actions/runs/31998824989)
+produced governance artifact `9277710435` with archive SHA-256
+`034fd3df10f7be6ca0e1e6b0733ee7160ad0a489df46266df36bbfb6341f2115`. Final
+`main` run
+[`31999223974`](https://github.com/metaneutrons/rumiga/actions/runs/31999223974)
+produced governance artifact `9277831470` with archive SHA-256
+`9de663eceb3284882630e29c1bb8b251839b08b6e4d5b97b24319edc49dc6d45`. Both
+artifacts were independently downloaded; their internal checksums, clean-source
+claims, and M1-004 traceability records were verified.
+
 ## Supersession
 
 None. This replaces the host-owned tracing that ADR-0002 and ADR-0005 recorded

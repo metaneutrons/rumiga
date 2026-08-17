@@ -220,6 +220,17 @@ produces the same deterministic state transitions as the host build.
   and final `main` run
   [`31961501684`](https://github.com/metaneutrons/rumiga/actions/runs/31961501684)
   pass every required job; both checksummed governance artifacts were
+  independently verified.
+- M1-004 is verified: the core no longer creates trace files. It formats trace
+  records and writes them to an injected platform sink, so tracing works in both
+  runtime profiles while file creation and buffering belong to the desktop
+  adapter. A differential capture at the pre-change revision and at the change
+  produces an identical trace file, trace count, and screenshot. Pull-request
+  run
+  [`31998824989`](https://github.com/metaneutrons/rumiga/actions/runs/31998824989)
+  and final `main` run
+  [`31999223974`](https://github.com/metaneutrons/rumiga/actions/runs/31999223974)
+  pass every required job; both checksummed governance artifacts were
   independently verified. G1 stays open until remaining host services,
   deterministic replay, and allocation bounds are also proven.
 

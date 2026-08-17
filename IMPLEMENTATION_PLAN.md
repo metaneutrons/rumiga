@@ -24,8 +24,8 @@ M0-013 is a completed post-G0 governance hardening increment. Its local,
 pull-request, and final `main` promotion paths are verified. M1-002 is also
 complete with local, pull-request, and final `main` target-build evidence.
 M1-003 is complete with local, pull-request, and final `main` portability
-evidence. M1-004 is implemented locally and awaits hosted promotion evidence.
-M1-005 is the next implementation task.
+evidence. M1-004 is complete with local, pull-request, and final `main` trace
+boundary evidence. M1-005 is the next implementation task.
 
 Critical path:
 
@@ -504,7 +504,7 @@ M1-003 verified evidence (2026-08-16):
   internal payload checksums, the clean-source claim, and the M1-003
   traceability record were independently verified
 
-M1-004 implementation evidence (2026-08-17):
+M1-004 verified evidence (2026-08-17):
 
 - `rumiga-platform` defines the `TraceSink` contract; `rumiga-core` re-exports
   it, holds an optional boxed sink, and no longer creates files or accepts host
@@ -534,7 +534,29 @@ M1-004 implementation evidence (2026-08-17):
   manifests report `trace_count` 20000, and both PNG captures are identical
 - the complete local promotion baseline `cargo +1.97.1 xtask ci` passes all
   eight gates in 90.732 seconds
-- hosted pull-request and final `main` evidence is pending promotion
+- pull-request run
+  [`31998824989`](https://github.com/metaneutrons/rumiga/actions/runs/31998824989)
+  passes all ten jobs for branch head
+  `af7ef4af571750bc56620978bfdc28712fa51378`; Linux job `95295246690`, macOS
+  job `95295246675`, firmware job `95295246715`, and aggregate job
+  `95296126338` pass
+- pull-request governance artifact `9277710435`, produced from clean merge
+  revision `e700c4fdf58e328dfcd905a33df6310056b8821d`, has archive SHA-256
+  `034fd3df10f7be6ca0e1e6b0733ee7160ad0a489df46266df36bbfb6341f2115`; all
+  internal payload checksums and the M1-004 traceability record were
+  independently verified
+- final `main` run
+  [`31999223974`](https://github.com/metaneutrons/rumiga/actions/runs/31999223974)
+  passes all ten jobs for clean revision
+  `4b958f88fe18af897e0c4a5328cec801bb5a6a7c`; Linux job `95296309635`, macOS
+  job `95296309498`, firmware job `95296309561`, and aggregate job
+  `95297244733` pass
+- final governance artifact `9277831470` has archive SHA-256
+  `9de663eceb3284882630e29c1bb8b251839b08b6e4d5b97b24319edc49dc6d45`; all
+  internal payload checksums, the clean-source claim, and the M1-004
+  traceability record digest
+  `3998e06035db8cebda232344be2e3928e131985d03cd55b449c456a6b9727b5c` were
+  independently verified
 
 ### M1 functional commits
 
@@ -550,10 +572,15 @@ M1-004 implementation evidence (2026-08-17):
 10. `ci(core): enforce portable primitive boundary`
 11. `docs(core): document portable primitive boundary`
 12. `docs(project): close M1-003 with hosted evidence`
-13. `refactor(core): inject trace and host services`
-14. `refactor(blitter): restore deterministic single-owner execution`
-15. `feat(platform): add capabilities errors and bounded queues`
-16. `test(core): add deterministic replay and state digests`
+13. `feat(platform): add injected trace sink contract`
+14. `refactor(core): move trace file ownership to the desktop adapter`
+15. `test(core): pin trace record layout and sink bounds`
+16. `docs(core): document the injected trace sink`
+17. `docs(project): record trace sink differential evidence`
+18. `docs(project): close M1-004 with hosted evidence`
+19. `refactor(blitter): restore deterministic single-owner execution`
+20. `feat(platform): add capabilities errors and bounded queues`
+21. `test(core): add deterministic replay and state digests`
 
 ## M2 Backlog: D1001 Board Bring-Up
 
