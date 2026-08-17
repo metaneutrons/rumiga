@@ -228,10 +228,12 @@ cargo +1.97.1 xtask ci --gate firmware
 The repository-owned task builds a clean release target directory, verifies the
 resolved ESP-IDF checkout commit and native compiler, rejects a dynamic or
 non-RISC-V ELF, checks the D1001 SDK configuration and flash layout, creates an
-unpadded merged image from the ESP-IDF bootloader, the ESP-IDF partition table,
-and the flash geometry declared by the resolved `sdkconfig`, verifies that the
-merged image embeds exactly those bytes and that the application fits its
-declared partition, and emits `rumiga.firmware.build.v1` evidence under
+unpadded merged image from the ESP-IDF bootloader, the product partition layout in
+`firmware/partitions.csv`, and the flash geometry declared by the resolved
+`sdkconfig`, verifies that the merged image embeds the bootloader byte for byte,
+carries the declared layout entry by entry, keeps the bootloader inside its
+window, and leaves the application within its slot, and emits
+`rumiga.firmware.build.v1` evidence under
 `target/m0-008-firmware-evidence`. `SHA256SUMS` covers the ELF, final linker map,
 merged image, bootloader, partition table, resolved `sdkconfig`, flash arguments,
 size report, and JSON manifest. CI validates those hashes before uploading

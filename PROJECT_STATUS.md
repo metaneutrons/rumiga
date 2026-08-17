@@ -299,6 +299,17 @@ Both the pinned Seeed BSP and Vellum select a 16 MB firmware flash geometry even
 though the board physically exposes 32 MB. Rumiga preserves that proven baseline
 until an explicit HIL test qualifies the larger geometry.
 
+The flash layout is repository-owned in `firmware/partitions.csv`: 320 KiB `nvs`,
+4 KiB `nvs_keys`, 8 KiB `otadata`, 4 KiB `phy_init`, 108 KiB `coredump`, two 6 MiB
+application slots, and `storage` last. Because the variable-size partition is
+last, both slots keep identical offsets on either geometry, so qualifying the
+upper 16 MB only extends `storage` from 3.5 MiB to 19.5 MiB. The partition table
+sits at `0x10000`, which gives the bootloader a 57,344-byte window; the stock
+`0x8000` offset left 480 bytes and could not hold a Secure Boot V2 signature
+block. Secure Boot is reserved rather than enabled, because signed binaries
+require a private key that must stay out of the repository and the evidence
+bundle.
+
 ## Critical Risks
 
 | ID | Severity | Risk | Required response |

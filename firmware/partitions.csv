@@ -1,0 +1,28 @@
+# Rumiga D1001 flash partition layout.
+#
+# Offsets are fixed so that the variable-size data partition is last. The two
+# application slots therefore keep identical offsets on the configured 16 MB
+# geometry and on the board's full 32 MB part, so an image built for one works
+# on the other and qualifying the upper half only extends `storage`.
+#
+# The partition table itself sits at 0x10000, which leaves the bootloader a
+# 56 KiB window. The stock 0x8000 offset left 480 bytes of headroom and cannot
+# hold a Secure Boot V2 signature block.
+#
+# Application slots are 6 MiB because slot size is effectively permanent once
+# devices ship: an OTA image must fit the table already flashed on the device.
+# The forecast for a feature-complete image is 1.8 MiB lean and 3.8 MiB with a
+# heavyweight HTTP stack, TLS, and uncompressed web assets.
+#
+# Sizes are chosen so that no alignment gap is left unallocated. Application
+# partitions require 64 KiB alignment, data partitions 4 KiB.
+#
+# Name,     Type, SubType,  Offset,   Size,     Flags
+nvs,        data, nvs,      0x11000,  0x50000,
+nvs_keys,   data, nvs_keys, 0x61000,  0x1000,   encrypted
+otadata,    data, ota,      0x62000,  0x2000,
+phy_init,   data, phy,      0x64000,  0x1000,
+coredump,   data, coredump, 0x65000,  0x1B000,
+ota_0,      app,  ota_0,    0x80000,  0x600000,
+ota_1,      app,  ota_1,    0x680000, 0x600000,
+storage,    data, fat,      0xC80000, 0x380000,

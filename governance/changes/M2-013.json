@@ -1,0 +1,78 @@
+{
+  "schema": "rumiga.change-record.v1",
+  "task_id": "M2-013",
+  "title": "Define the product flash partition layout",
+  "status": "implemented",
+  "summary": "Own the D1001 flash layout in firmware/partitions.csv with two 6 MiB OTA slots, crash-dump and storage partitions, and room for NVS encryption, move the partition table to 0x10000 so the bootloader window can hold a signed bootloader, apply the layout when the flashable image is generated, and verify the shipped image against it.",
+  "scope": [
+    "Repository-owned product partition layout",
+    "Partition table offset and bootloader window",
+    "Flashable image layout application",
+    "Merged image layout verification",
+    "Layout invariant test coverage"
+  ],
+  "risk": {
+    "level": "high",
+    "failure_mode": "An application slot size is effectively permanent once devices ship, because an OTA image must fit the table already flashed on the device. An undersized slot or a wrong offset can only be corrected with a cable and physical access.",
+    "rollback": "Revert the M2-013 commits to restore the stock ESP-IDF table and the 0x8000 offset. No device has been flashed, so no deployed layout depends on this change."
+  },
+  "compatibility": {
+    "status": "affected",
+    "detail": "Every partition offset changes, so an image built before this change and an image built after it are not interchangeable on a device. No device has been flashed yet, so the cost is one-time. Both application slots sit at fixed offsets with the variable data partition last, so qualifying the board's full 32 MB part only extends storage and does not invalidate an image built against the 16 MB table."
+  },
+  "security": {
+    "status": "affected",
+    "detail": "The bootloader window grows from 24,576 to 57,344 bytes, which is the precondition for Secure Boot V2; the stock offset left 480 bytes and could not hold a signature block. nvs_keys is reserved so NVS encryption can protect Wi-Fi credentials without a later layout change. Secure Boot itself is not enabled: signed binaries require a private key that must not enter the repository or the evidence bundle, so offline signing against a protected key belongs to the release process."
+  },
+  "tests": [
+    {
+      "id": "partition-layout-unit-coverage",
+      "command": "cargo +1.97.1 test --locked -p rumiga-xtask",
+      "proves": "The layout parser and subtype mapping reject malformed input, and the shipped layout is contiguous, aligned, fills the configured geometry exactly, and declares two equal-sized OTA slots."
+    },
+    {
+      "id": "firmware-evidence-gate",
+      "command": "cargo +1.97.1 xtask ci --gate firmware",
+      "proves": "The flashable image embeds the layout declared by firmware/partitions.csv entry by entry, the bootloader fits its window, and the application fits its slot."
+    },
+    {
+      "id": "full-local-promotion",
+      "command": "cargo +1.97.1 xtask ci",
+      "proves": "Commit policy, lockfiles, governance, host checks, compatibility, supply chain, the portable RISC-V profile, and the ESP32-P4 firmware build all pass for the change."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "local-partition-layout",
+      "kind": "command",
+      "location": "2026-08-17 local execution: the firmware gate reports a 24,096-byte bootloader in a 57,344-byte window, the eight declared partitions decoded from the flashable image, and an application occupying 175,040 of 6,291,456 slot bytes in ota_0 at 0x80000.",
+      "proves": "The layout is applied to the shipped image and verified against the repository-owned declaration."
+    },
+    {
+      "id": "local-slot-size-forecast",
+      "kind": "command",
+      "location": "2026-08-17 local measurement: a bare-metal riscv32imafc staticlib that forces Emulator construction, run_frame, and step_instruction measures 498,032 bytes of text and 54,857 bytes of rodata for rumiga-core, m68k, and rumiga-platform. The web bundle is 797,418 bytes raw and 199,792 bytes gzipped. The stub ESP-IDF application is 163,590 bytes of text.",
+      "proves": "The 6 MiB slot size rests on measured component sizes plus labelled estimates for the ESP-IDF components that are not yet integrated, rather than on a guess."
+    },
+    {
+      "id": "hosted-promotion",
+      "kind": "ci-artifact",
+      "location": "Pending: hosted pull-request and final main promotion evidence is required before this record moves to verified.",
+      "proves": "Nothing yet."
+    }
+  ],
+  "documentation": [
+    "ARCHITECTURE.md",
+    "CI.md",
+    "IMPLEMENTATION_PLAN.md",
+    "PROJECT_STATUS.md",
+    "TOOLCHAIN.md",
+    "docs/adr/0007-product-flash-partition-layout.md",
+    "docs/adr/README.md",
+    "firmware/partitions.csv"
+  ],
+  "release_note": "docs/release-notes/unreleased/M2-013.md",
+  "architecture_decisions": [
+    "docs/adr/0007-product-flash-partition-layout.md"
+  ]
+}
