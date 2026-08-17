@@ -1373,7 +1373,21 @@ fn sha256_file(path: &Path) -> Result<String> {
         }
         hasher.update(&buffer[..count]);
     }
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(hex_lowercase(&hasher.finalize()))
+}
+
+/// Render bytes as lowercase hexadecimal.
+///
+/// `digest` 0.11 returns an `Array` that does not implement `LowerHex`, so the
+/// encoding is explicit rather than a formatting flag.
+fn hex_lowercase(bytes: &[u8]) -> String {
+    const DIGITS: [u8; 16] = *b"0123456789abcdef";
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        encoded.push(char::from(DIGITS[usize::from(byte >> 4)]));
+        encoded.push(char::from(DIGITS[usize::from(byte & 0x0F)]));
+    }
+    encoded
 }
 
 fn capture_git(directory: &Path, arguments: &[&str]) -> Result<String> {
@@ -1416,7 +1430,7 @@ fn run_checked(command: &mut Command, description: &str) -> Result<()> {
 }
 
 fn sha256_bytes(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    hex_lowercase(&Sha256::digest(bytes))
 }
 
 #[cfg(test)]
