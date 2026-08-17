@@ -150,9 +150,15 @@ cargo +1.97.1 xtask ci --gate firmware
 The task owns a clean target directory, unsets ambient linker and IDF overrides,
 checks the actual IDF commit and GCC path from CMake, validates the static
 RISC-V ELF and final Rust linker map, enforces the D1001 configuration, and
-creates the merged flash image. Its JSON manifest records source revision,
-tool versions, input and artifact hashes, target metadata, and explicit negative
-claims. Local dirty-worktree evidence is marked as such; CI rejects it.
+creates the merged flash image from the ESP-IDF bootloader, the ESP-IDF
+partition table, and the flash geometry declared by the resolved `sdkconfig`.
+It then verifies that the merged image embeds exactly those bytes and that the
+application fits its declared partition, because the image tool otherwise
+substitutes its own defaults and rewrites the bootloader image header. Its JSON
+manifest records source revision, tool versions, input and artifact hashes,
+target metadata, the merged-image regions with the decoded partition table, and
+explicit negative claims. Local dirty-worktree evidence is marked as such; CI
+rejects it.
 
 Generate and verify the M0-009 policy artifact with the exact host Rust, Node,
 npm, and Cargo scanner versions above:

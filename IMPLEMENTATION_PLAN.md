@@ -198,6 +198,37 @@ M0-008 evidence (2026-08-15):
 - hosted artifact ID `9248602076` contains all expected files, has archive
   SHA-256 `a49535d56c0be4740ce6711a99e28829608044e99ada9be66e7b5cf593c5cc7e`,
   and passes all nine payload checksums after download
+
+M0-008 evidence correction (2026-08-17):
+
+The board-configuration claim above applied to the resolved `sdkconfig`,
+`flasher_args.json`, `bootloader.bin`, and `partition-table.bin`, but not to the
+merged flash image in the same bundle. `espflash save-image` was invoked without
+`--bootloader`, `--partition-table`, and the flash geometry, so it substituted
+its own defaults. Every bundle produced before this correction therefore shipped
+a merged image that contradicts its own configuration evidence:
+
+| Property | Configuration evidence | Merged image before the fix |
+| --- | --- | --- |
+| Application partition | 1,048,576 bytes | 4,128,768 bytes |
+| Flash geometry in the image header | 16 MB | 4 MB |
+| Flash frequency in the image header | 80 MHz | 40 MHz |
+| Bootloader | ESP-IDF build from the pinned `sdkconfig` | espflash default with a rewritten header |
+
+The evidence task now passes the ESP-IDF bootloader, the ESP-IDF partition
+table, and the flash mode, size, and frequency derived from the resolved
+`sdkconfig`, then verifies that the merged image embeds exactly those bytes and
+that the application fits its declared partition. The manifest records the
+merged-image regions, their digests, and the decoded partition table, so a
+future layout change is visible in the manifest diff. The corrected local bundle
+reports an identical bootloader and partition-table digest inside and outside the
+merged image, an image header of 16 MB at 80 MHz, and an application occupying
+175,040 of 1,048,576 partition bytes.
+
+This correction does not change the partition layout itself. The bundle still
+uses the stock ESP-IDF single-application table with no OTA slots and no data
+partition beyond `nvs` and `phy_init`; defining the product layout remains
+M2-003.
 - conversion of `rumiga-core` and `m68k` to `no_std + alloc` remains M1, while
   flash, boot, peripherals, and performance remain M2+
 
