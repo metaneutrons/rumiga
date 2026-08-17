@@ -83,6 +83,17 @@ On Node `26.7.0` with npm `11.19.0`, `npm ci` installs 355 packages,
 The Node release index was read directly for the LTS status and the npm pairing
 rather than taken from memory.
 
+Clean pull-request run
+[`32070931258`](https://github.com/metaneutrons/rumiga/actions/runs/32070931258)
+produced governance artifact `9301688782` with archive SHA-256
+`e9e60d858b18d0b946500cd52855630edacfff694e828b5df4fc598486bcd1b8`. Final `main`
+run
+[`32072021615`](https://github.com/metaneutrons/rumiga/actions/runs/32072021615)
+produced governance artifact `9302065297` with archive SHA-256
+`eeaf3756244b1fcd6f1bc45d2b530efe9f910cdf0a1004e65fa32a58205f80c3`. Both were
+independently downloaded and verified, and both host legs installed Node `26.7.0`
+on a foreign runner before building the web export.
+
 ## Supersession
 
 None. This records an explicit exception to the pin conservatism that ADR-0001's

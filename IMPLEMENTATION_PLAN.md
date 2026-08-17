@@ -403,7 +403,7 @@ M0-014 verified evidence (2026-08-17):
   passes all ten jobs for clean revision
   `7d162b7345e7a1d2d6ab48e9dc9bdbe7fc9685e1`
 
-M0-015 evidence (2026-08-17):
+M0-015 verified evidence (2026-08-17):
 
 - `toolchain/manifest.toml` moves Node from `24.19.0` to `26.7.0` and npm from
   `11.17.0` to `11.19.0`, the pairing the Node release index records for that
@@ -425,7 +425,24 @@ M0-015 evidence (2026-08-17):
   `npm run lint` is clean, and `npm run build` produces the five static routes
 - Dependabot pull request 2, which proposed `@types/node` 26 while the runtime was
   still pinned to 24, is superseded by this change
-- hosted pull-request and final `main` evidence is pending promotion
+- pull-request run
+  [`32070931258`](https://github.com/metaneutrons/rumiga/actions/runs/32070931258)
+  passes all ten jobs; Linux job `95513773424`, macOS job `95513773474`, and
+  aggregate job `95516139977` pass, so both host legs installed Node `26.7.0`,
+  validated it against the repository files, and built the web export
+- pull-request governance artifact `9301688782`, produced from clean merge
+  revision `690502a33b98c9fb901b09dfe5708eb22af9bb45`, has archive SHA-256
+  `e9e60d858b18d0b946500cd52855630edacfff694e828b5df4fc598486bcd1b8`; all payload
+  checksums and the M0-015 traceability record were independently verified
+- final `main` run
+  [`32072021615`](https://github.com/metaneutrons/rumiga/actions/runs/32072021615)
+  passes all ten jobs for clean revision
+  `60443ca7b45499cb099f92f6bb1ecf1622ce18d8`; Linux job `95517110078`, macOS job
+  `95517110152`, and aggregate job `95518955331` pass
+- final governance artifact `9302065297` has archive SHA-256
+  `eeaf3756244b1fcd6f1bc45d2b530efe9f910cdf0a1004e65fa32a58205f80c3`; all payload
+  checksums, the clean-source claim, and the M0-015 traceability record were
+  independently verified
 
 ### M0 functional commits
 
