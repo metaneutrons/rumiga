@@ -37,3 +37,4 @@ Numbering is contiguous; `0000-template.md` is reserved and is not a decision.
 | [ADR-0007](0007-product-flash-partition-layout.md) | Accepted | M2-013 | Own the product flash layout with two 6 MiB OTA slots and a Secure Boot bootloader window |
 | [ADR-0008](0008-reversible-security-posture.md) | Accepted | M2-014 | Exercise flash encryption with virtual eFuses and reject any configuration that would burn one |
 | [ADR-0009](0009-node-current-line-pin.md) | Accepted | M0-015 | Pin Node to the current 26 line as a documented exception to the LTS rule |
+| [ADR-0010](0010-deterministic-blitter-ownership.md) | Accepted | M1-005 | Execute the blitter in place under one owner and prove it with state digests |

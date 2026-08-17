@@ -1,0 +1,91 @@
+{
+  "schema": "rumiga.change-record.v1",
+  "task_id": "M1-005",
+  "title": "Restore deterministic single-owner blitter execution",
+  "status": "implemented",
+  "summary": "Execute the blitter in place in both runtime profiles so the core owns its state throughout, remove host thread spawning and CPU affinity from the core, raise the blitter interrupt where completion happens, and introduce a dependency-free state digest that proves both profiles reach the same machine state.",
+  "scope": [
+    "Blitter execution ownership and profile unification",
+    "Blitter completion signalling",
+    "Guest-visible BBUSY semantics",
+    "Deterministic state and frame digests",
+    "Host thread and CPU affinity removal"
+  ],
+  "risk": {
+    "level": "high",
+    "failure_mode": "Blits no longer overlap CPU execution, so throughput could regress on the desktop. A wrong digest field order or a missed state field would make the determinism evidence weaker than it appears without failing any test.",
+    "rollback": "Revert the M1-005 commits to restore the threaded blitter and the removed sync methods. No persisted format depends on the change; the digest is new and has no recorded consumers yet."
+  },
+  "compatibility": {
+    "status": "affected",
+    "detail": "Emulator::sync_blitter and sync_blitter_lazy are removed together with the AmigaMemory thread fields and their sync methods; callers need no replacement because a blit result is visible to the next access. A blit now takes no emulated time, so DMACONR BBUSY always reads clear and a guest WaitBlit loop exits immediately. Desktop frame output is unchanged: a 60-frame Kickstart 46.143 capture is byte-identical to the same capture from the previous implementation. core_affinity leaves the workspace."
+  },
+  "security": {
+    "status": "none",
+    "detail": "No network transport, credential, authorization, persistence, unsafe-code, or FFI behavior changes. Removing a thread and its CPU affinity selection reduces host surface rather than adding any. The new digest is explicitly non-cryptographic and carries no integrity claim, which its module documentation states."
+  },
+  "tests": [
+    {
+      "id": "blitter-determinism-std",
+      "command": "cargo +1.97.1 test --locked -p rumiga-core --lib",
+      "proves": "Repeated blit runs agree, completion requests the blitter interrupt, BBUSY reads clear, and the digest distinguishes distinct machine states. All four fail on the previous implementation."
+    },
+    {
+      "id": "blitter-determinism-no-std",
+      "command": "cargo +1.97.1 test --locked -p rumiga-core --no-default-features --features no_std --lib",
+      "proves": "The portable profile reaches the same pinned fixture digest as the desktop profile, so the two blitter paths cannot diverge silently."
+    },
+    {
+      "id": "digest-known-answer",
+      "command": "cargo +1.97.1 test --locked -p rumiga-core --lib digest",
+      "proves": "The digest matches published FNV-1a vectors and changes when field order or field width changes, so recorded values stay comparable across builds."
+    },
+    {
+      "id": "host-capture-differential",
+      "command": "cargo +1.97.1 run --locked --release -p rumiga-desktop -- assets/kick.a1200.46.143.rom --capture <png> --capture-frames 60",
+      "proves": "The rendered frame is byte-identical across repeated runs and against the threaded implementation."
+    },
+    {
+      "id": "full-local-promotion",
+      "command": "cargo +1.97.1 xtask ci",
+      "proves": "Commit policy, lockfiles, governance, host checks, compatibility, supply chain, the portable RISC-V profile, and the ESP32-P4 firmware build all pass."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "local-defects-closed-by-removal",
+      "kind": "command",
+      "location": "2026-08-18 local execution: three tests fail on revision 1a5bee2 and pass after the change. The blitter interrupt was raised only by a later synchronisation and therefore never under no_std; the guest-visible BBUSY bit reported whether a host thread handle existed; and a state digest taken while the worker held chip RAM digested an empty slice because core::mem::take had removed the emulator's copy.",
+      "proves": "The threaded blitter leaked host scheduling into emulated state in three distinct ways, and removing it closes all three."
+    },
+    {
+      "id": "local-profile-equality",
+      "kind": "command",
+      "location": "2026-08-18 local execution: both explicit runtime profiles pass 154 core unit tests and both reach the pinned fixture digest (0xb366f315f0023f2d, 0x42a5a13053f16d25).",
+      "proves": "The desktop and portable blitter paths reach an identical machine state, which the architecture previously claimed without evidence."
+    },
+    {
+      "id": "local-host-capture-differential",
+      "kind": "host-scenario",
+      "location": "2026-08-18 local execution: three consecutive 60-frame Kickstart 46.143 captures share SHA-256 prefix 03a0b882b85474795554180cfa138110 and match the same capture produced from the threaded implementation at revision 1a5bee2 in a separate worktree.",
+      "proves": "Removing the thread changes no rendered output on a real host fixture."
+    },
+    {
+      "id": "hosted-promotion",
+      "kind": "ci-artifact",
+      "location": "Pending: hosted pull-request and final main promotion evidence is required before this record moves to verified.",
+      "proves": "Nothing yet."
+    }
+  ],
+  "documentation": [
+    "ARCHITECTURE.md",
+    "IMPLEMENTATION_PLAN.md",
+    "PROJECT_STATUS.md",
+    "docs/adr/0010-deterministic-blitter-ownership.md",
+    "docs/adr/README.md"
+  ],
+  "release_note": "docs/release-notes/unreleased/M1-005.md",
+  "architecture_decisions": [
+    "docs/adr/0010-deterministic-blitter-ownership.md"
+  ]
+}

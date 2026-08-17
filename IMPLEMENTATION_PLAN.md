@@ -497,7 +497,7 @@ local promotion result.
 | M1-002 | DONE | Make `m68k` compile under `no_std + alloc`; isolate FPU constants/features | Local and hosted 68000/68EC020 stock-core release profiles compile on the RISC-V target; final `main` evidence is independently verified |
 | M1-003 | DONE | Enforce `core`/`alloc` primitives in the canonical core | Both explicit profiles reject `std` replacements with portable equivalents; the stock core remains a bare-metal RISC-V release build |
 | M1-004 | DONE | Introduce injected trace/log sink and remove core file creation | Golden records captured from the file-writing implementation are reproduced byte for byte by an in-memory sink under both runtime profiles |
-| M1-005 | PLANNED | Remove core thread spawning and affinity; restore deterministic single-owner blitter | Frame/state digests match before/after on host fixtures |
+| M1-005 | DONE | Remove core thread spawning and affinity; restore deterministic single-owner blitter | Both runtime profiles reach a pinned fixture digest, and a host capture is byte-identical before and after |
 | M1-006 | PLANNED | Introduce emulated clock, host yield, and monotonic scheduling contracts | PAL/NTSC timing tests do not read host wall clock |
 | M1-007 | PLANNED | Version platform capabilities and typed error model | Unsupported and backpressure states are explicit and tested |
 | M1-008 | PLANNED | Add bounded video/audio/input/event queue contracts | Overflow policy and high-water marks have tests |
@@ -663,6 +663,39 @@ M1-004 verified evidence (2026-08-17):
   traceability record digest
   `3998e06035db8cebda232344be2e3928e131985d03cd55b449c456a6b9727b5c` were
   independently verified
+
+M1-005 implementation evidence (2026-08-18):
+
+- both profiles execute the blit in place through one implementation; no
+  `std::thread`, `JoinHandle`, or `core_affinity` remains in the core, and
+  `core_affinity` leaves the workspace because the desktop declared it unused
+- `start_blitter_execution` raises `INT_BLIT` where completion happens and updates
+  the readable interrupt shadow
+- three defects fell out with the thread, each now covered by a test that fails on
+  the previous implementation: the blitter interrupt was raised only by a later
+  synchronisation and therefore never under `no_std`; the guest-visible BBUSY bit
+  reported whether a host thread handle existed; and a state digest taken while the
+  worker held chip RAM digested an empty slice
+- the address bus loses its eager and lazy synchronisation branches, so every
+  memory access is shorter
+- blits take no emulated time, so BBUSY reads clear and a guest `WaitBlit()` loop
+  exits immediately. Cycle-accurate blitter timing is separate future work
+- a 64-bit FNV-1a state and frame digest was added in the same task, without a
+  dependency, so it works in the portable profile. It is explicitly not
+  cryptographic; its unit tests pin published FNV-1a vectors and assert that field
+  order and width both change the result
+- `cargo +1.97.1 test --locked -p rumiga-core --lib` passes 154 tests under both
+  explicit profiles, and `both_runtime_profiles_reach_the_pinned_state` pins the
+  fixture digest so the two paths cannot diverge silently
+- three consecutive 60-frame Kickstart 46.143 captures are byte-identical to each
+  other and to the same capture taken from the threaded implementation at revision
+  `1a5bee2`, digest `03a0b882b85474795554180cfa138110`
+- public API: `Emulator::sync_blitter` and `sync_blitter_lazy` are removed with the
+  `AmigaMemory` thread fields and their sync methods; the blit result is visible to
+  the next access
+- not measured: frame time. The thread presumably existed for throughput, so the
+  cost of removing it belongs to the M9 performance work rather than this task
+- hosted pull-request and final `main` evidence is pending promotion
 
 ### M1 functional commits
 
