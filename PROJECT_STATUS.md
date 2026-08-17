@@ -310,6 +310,14 @@ block. Secure Boot is reserved rather than enabled, because signed binaries
 require a private key that must stay out of the repository and the evidence
 bundle.
 
+Flash encryption is exercised in Development mode with virtual eFuses, so no board
+that boots this firmware is permanently altered. That is enforced rather than
+documented: the firmware gate rejects flash encryption or Secure Boot without
+virtual eFuses, release-mode flash encryption, and HMAC-based NVS encryption,
+because each burns an eFuse that cannot be cleared. With virtual eFuses the
+encryption is simulated, so no confidentiality claim follows; the manifest records
+this through the `encryption-not-enforced` exclusion.
+
 ## Critical Risks
 
 | ID | Severity | Risk | Required response |

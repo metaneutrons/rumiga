@@ -1,0 +1,77 @@
+{
+  "schema": "rumiga.change-record.v1",
+  "task_id": "M2-014",
+  "title": "Enable flash encryption in a reversible posture and enforce reversibility",
+  "status": "implemented",
+  "summary": "Exercise flash encryption in Development mode with virtual eFuses so no board is permanently altered, select the NVS key-protection scheme that uses the reserved nvs_keys partition instead of an eFuse key block, and make the evidence task reject every configuration that could burn an eFuse.",
+  "scope": [
+    "Flash encryption usage mode and virtual eFuses",
+    "NVS encryption key-protection scheme",
+    "Enforced reversibility invariant",
+    "Security posture evidence and negative claims",
+    "Measured bootloader window occupancy"
+  ],
+  "risk": {
+    "level": "high",
+    "failure_mode": "Removing virtual eFuses while flash encryption stays enabled would burn a key on the first boot of any board, which cannot be undone. Release-mode encryption would additionally remove plaintext recovery over cable.",
+    "rollback": "Revert the M2-014 commits to disable flash encryption again. No eFuse has been burned, because virtual eFuses were active for every build, so no device state depends on this change."
+  },
+  "compatibility": {
+    "status": "none",
+    "detail": "No partition moves. NVS encryption uses the nvs_keys partition that the product layout already reserved. The firmware manifest gains an additive reversibility section and two additional exclusions, which follows the established practice for additive manifest sections."
+  },
+  "security": {
+    "status": "affected",
+    "detail": "The configuration for flash encryption and NVS encryption is exercised for the first time, and the reversibility requirement becomes a machine-checked invariant instead of a comment: the gate rejects flash encryption or Secure Boot without virtual eFuses, release-mode flash encryption, and HMAC-based NVS encryption. This is not a confidentiality claim. With virtual eFuses the encryption is simulated, which the manifest states through the encryption-not-enforced exclusion. Secure Boot stays disabled because signed binaries require a private key that must not enter the repository or the evidence bundle."
+  },
+  "tests": [
+    {
+      "id": "reversibility-unit-coverage",
+      "command": "cargo +1.97.1 test --locked -p rumiga-xtask",
+      "proves": "The posture check accepts virtual eFuses and an absent posture, and rejects flash encryption or Secure Boot without virtual eFuses, release-mode encryption, and HMAC-based NVS encryption."
+    },
+    {
+      "id": "firmware-evidence-gate",
+      "command": "cargo +1.97.1 xtask ci --gate firmware",
+      "proves": "The configured posture is reversible, the bootloader fits its window with flash encryption enabled, and the manifest records the posture."
+    },
+    {
+      "id": "full-local-promotion",
+      "command": "cargo +1.97.1 xtask ci",
+      "proves": "Commit policy, lockfiles, governance, host checks, compatibility, supply chain, the portable RISC-V profile, and the ESP32-P4 firmware build all pass for the change."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "local-reversible-posture",
+      "kind": "command",
+      "location": "2026-08-17 local execution: the firmware gate reports flash_encryption development, secure_boot disabled, nvs_encryption flash-encryption-scheme, efuse_virtual true, burns_efuses false, with a 34,800-byte bootloader in a 57,344-byte window.",
+      "proves": "The posture is exercised and reversible, and the reservation from the product layout holds with flash encryption enabled."
+    },
+    {
+      "id": "local-bootloader-growth-measurement",
+      "kind": "command",
+      "location": "2026-08-17 local measurement: the bootloader is 24,096 bytes without flash encryption, 34,800 bytes with it, and 45,056 bytes with Secure Boot V2 additionally enabled and built with SECURE_BOOT_BUILD_SIGNED_BINARIES=n so that no signing key was required. The Secure Boot configuration was reverted rather than committed.",
+      "proves": "The 57,344-byte window is sufficient for flash encryption and for Secure Boot with its signature block, and the previous 24,576-byte window would not have held flash encryption alone."
+    },
+    {
+      "id": "hosted-promotion",
+      "kind": "ci-artifact",
+      "location": "Pending: hosted pull-request and final main promotion evidence is required before this record moves to verified.",
+      "proves": "Nothing yet."
+    }
+  ],
+  "documentation": [
+    "CI.md",
+    "IMPLEMENTATION_PLAN.md",
+    "PROJECT_STATUS.md",
+    "TOOLCHAIN.md",
+    "docs/adr/0008-reversible-security-posture.md",
+    "docs/adr/README.md",
+    "firmware/sdkconfig.defaults"
+  ],
+  "release_note": "docs/release-notes/unreleased/M2-014.md",
+  "architecture_decisions": [
+    "docs/adr/0008-reversible-security-posture.md"
+  ]
+}

@@ -233,6 +233,7 @@ unpadded merged image from the ESP-IDF bootloader, the product partition layout 
 `sdkconfig`, verifies that the merged image embeds the bootloader byte for byte,
 carries the declared layout entry by entry, keeps the bootloader inside its
 window, and leaves the application within its slot, and emits
+rejects any configuration that could burn an eFuse, and emits
 `rumiga.firmware.build.v1` evidence under
 `target/m0-008-firmware-evidence`. `SHA256SUMS` covers the ELF, final linker map,
 merged image, bootloader, partition table, resolved `sdkconfig`, flash arguments,
