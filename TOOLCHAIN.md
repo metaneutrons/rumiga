@@ -166,6 +166,12 @@ marked as such; CI rejects it.
 therefore applied when the flashable image is generated, and the table the
 ESP-IDF build emits is a build artifact rather than the shipped layout.
 
+The task also rejects any configuration that could permanently alter a board.
+Flash encryption runs in Development mode with `CONFIG_EFUSE_VIRTUAL`, so eFuse
+operations are simulated. Flash encryption or Secure Boot without virtual eFuses,
+release-mode flash encryption, and HMAC-based NVS encryption all fail the gate,
+because each would burn an eFuse that cannot be cleared.
+
 Generate and verify the M0-009 policy artifact with the exact host Rust, Node,
 npm, and Cargo scanner versions above:
 

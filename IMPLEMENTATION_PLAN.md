@@ -662,9 +662,10 @@ M1-004 verified evidence (2026-08-17):
 | M2-011 | PLANNED | Qualify USB host connector, role, VBUS, hub, keyboard, and mouse | Schematic note plus actual-board enumeration matrix |
 | M2-012 | PLANNED | Automate 20 cold boots and board service report | HIL job with zero unexplained resets |
 | M2-013 | DONE | Define the product flash partition layout with two OTA slots and a Secure Boot bootloader window | The flashable image carries the repository-owned layout, the bootloader fits its window, and the layout is contiguous, aligned, and fills the configured geometry |
+| M2-014 | DONE | Enable flash encryption in a reversible posture and reject any configuration that would burn an eFuse | The gate fails on flash encryption or Secure Boot without virtual eFuses, on release-mode encryption, and on HMAC-based NVS encryption; the manifest records the posture |
 
-M2-013 lands before M2-004 in execution order. It is listed last because task
-IDs are stable audit labels, not a sequence.
+M2-013 and M2-014 land before M2-004 in execution order. They are listed last
+because task IDs are stable audit labels, not a sequence.
 
 M2-013 evidence (2026-08-17):
 
@@ -700,6 +701,43 @@ M2-013 evidence (2026-08-17):
   offline signing belong to M10
 - local `cargo +1.97.1 xtask ci --gate firmware` passes and reports an
   application occupying 175,040 of 6,291,456 slot bytes
+
+M2-014 evidence (2026-08-17):
+
+- flash encryption is enabled in Development mode together with
+  `CONFIG_EFUSE_VIRTUAL`, so no board that boots this firmware is permanently
+  altered. Release mode is additionally unselectable while virtual eFuses are on,
+  because `SECURE_FLASH_ENCRYPTION_MODE_RELEASE` depends on `!EFUSE_VIRTUAL`
+- the evidence task rejects any configuration that could burn an eFuse: flash
+  encryption or Secure Boot without virtual eFuses, release-mode flash
+  encryption, and NVS encryption through the HMAC scheme, which would consume an
+  eFuse key block. The reversibility claim is therefore machine-checked on every
+  build rather than documented
+- the manifest records the posture as `flash_encryption: development`,
+  `secure_boot: disabled`, `nvs_encryption: flash-encryption-scheme`,
+  `efuse_virtual: true`, `burns_efuses: false`, and adds the `no-efuse-burn` and
+  `encryption-not-enforced` exclusions
+- flash encryption implies NVS encryption. ESP-IDF defaults to the HMAC scheme on
+  SoCs with an HMAC peripheral, whose eFuse key id defaults to `-1` and fails the
+  build with `NVS Encryption (HMAC): Configured eFuse block ... out of range`.
+  The flash-encryption scheme instead uses the reserved `nvs_keys` partition and
+  consumes no key block. The resolved configuration is AES-128, so one of six key
+  blocks would be used for flash encryption and five remain for Secure Boot
+- measured bootloader growth: 24,096 bytes without flash encryption, 34,800 bytes
+  with it, and 45,056 bytes with Secure Boot V2 additionally enabled and built
+  unsigned. The previous `0x8000` table offset gave a 24,576-byte window, so
+  flash encryption alone would not have fit; the M2-013 offset move was already
+  necessary rather than merely prudent. The 57,344-byte window leaves 22,544
+  bytes free today and roughly 8 KiB with Secure Boot and its 4 KiB signature
+  block
+- the Secure Boot measurement used `SECURE_BOOT_BUILD_SIGNED_BINARIES=n` so that
+  no signing key was required, and the configuration was reverted rather than
+  committed
+- `cargo +1.97.1 test --locked -p rumiga-xtask` covers the accepted posture, an
+  absent posture, and all four rejected configurations
+- Secure Boot remains disabled in the build. Signed binaries require a private
+  key that must not enter the repository or the evidence bundle, and enabling it
+  on hardware is irreversible; key lifecycle and offline signing belong to M10
 
 ### M2 functional commits
 
