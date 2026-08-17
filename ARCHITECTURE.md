@@ -64,9 +64,11 @@ Important current constraints:
   runtime profiles while file creation and buffering belong to the desktop
   adapter. This is the first core-to-contract dependency edge and matches the
   target architecture, where platform service contracts sit above the core.
-- Under `std`, the core can still spawn a blitter thread; the `no_std` profile
-  executes blits synchronously until M1-005 restores a deterministic single
-  owner.
+- The core no longer spawns threads or selects CPU affinity. Both runtime profiles
+  execute the blitter in place under one owner, and both reach an identical pinned
+  fixture digest. A blit takes no emulated time, so the guest-visible BBUSY bit
+  reads clear; cycle-accurate blitter timing is separate future work. See
+  [ADR-0010](docs/adr/0010-deterministic-blitter-ownership.md).
 - The desktop binary owns CLI, REST, static web serving, presentation,
   evidence, media persistence, and loop scheduling in one module.
 - Desktop REST media I/O is isolated in `desktop/src/storage.rs`, confined to a

@@ -10,9 +10,9 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-17 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M2-014: verified reversible flash-encryption posture |
-| Current implementation | M1-005: restore deterministic single-owner blitter execution |
-| Next task | M1-006: emulated clock, host yield, and monotonic scheduling contracts |
+| Latest completed task | M1-005: deterministic single-owner blitter, hosted evidence pending |
+| Current implementation | M1-006: emulated clock, host yield, and monotonic scheduling contracts |
+| Next task | M1-007: versioned platform capabilities and typed error model |
 | Development host | macOS, Apple Silicon |
 | Product target | Seeed reTerminal D1001, ESP32-P4 |
 | Product maturity | Desktop compatibility prototype |
@@ -176,6 +176,12 @@ No feature is called done merely because it compiled or booted once.
   reversibility invariant, but they prove nothing about hardware: no board has
   been flashed, no eFuse has been burned, and with virtual eFuses the encryption
   is simulated rather than enforced.
+- M1-005 removed the threaded blitter, so no `std::thread`, `JoinHandle`, or
+  `core_affinity` remains in the core and both runtime profiles reach an identical
+  pinned fixture digest. It also closed three defects that the thread had hidden:
+  the blitter interrupt was never raised under `no_std`, the guest-visible BBUSY bit
+  reported host thread state, and a state digest taken during a blit read an empty
+  chip RAM slice. Hosted promotion evidence is still outstanding.
 - M1-004 is verified by clean pull-request and final `main` promotion evidence.
   It removed core-owned trace files, so CPU tracing now runs through an injected
   sink in both runtime profiles, and a differential capture proves the desktop
@@ -328,7 +334,7 @@ this through the `encryption-not-enforced` exclusion.
 | ID | Severity | Risk | Required response |
 | --- | --- | --- | --- |
 | R-001 | Critical | Whole HDF images are resident in RAM | Introduce a bounded sector `BlockDevice` contract before A1200 device integration |
-| R-003 | Critical | The default core still owns host threads and CPU affinity even though tracing no longer creates files and the stock `no_std` graph reaches the canonical RISC-V target | Restore deterministic single-owner blitter execution in M1-005 |
+| R-003 | Medium | The core no longer owns host threads, files, or CPU affinity, but emulated time still reads the host clock in the desktop pacing path | Introduce emulated clock and host yield contracts in M1-006 |
 | R-004 | High | No D1001 firmware has booted | The pinned M0-008 build artifact is published; capture serial boot evidence in M2 |
 | R-005 | High | USB-C host wiring and VBUS behavior are not qualified | Verify schematic and actual board before promising direct USB-C peripherals; document required adapter/hub |
 | R-006 | High | Performance on ESP32-P4 is unknown | Add cycle, frame, PSRAM bandwidth, and memory benchmarks before compatibility expansion |
