@@ -38,8 +38,8 @@ their own licenses.
 | Embedded Rust | `nightly-2026-07-27` with `rust-src` | ESP-IDF `std` build for the tier-3 RISC-V target |
 | Rust target | `riscv32imafc-esp-espidf` | ESP32-P4 application target |
 | Portable Rust target | `riscv32imafc-unknown-none-elf` | Current genuine `no_std` package boundary |
-| Node.js | `24.19.0` | Web build LTS runtime |
-| npm | `11.17.0` | Locked web installer |
+| Node.js | `26.7.0` | Web build runtime, current line by decision |
+| npm | `11.19.0` | Locked web installer |
 | ESP-IDF | `6.0.0` at `662a3be354759d9487bf4b1a629fadb766cb1800` | Cross-built D1001 firmware baseline |
 | Seeed D1001 BSP | `5074d3b2f45626b261298e305aaf792036febc5a` | Hardware reference only |
 | `esp-idf-svc` | `0.52.1` plus pinned upstream IDF 6 revision | Safe ESP-IDF services |
@@ -58,6 +58,20 @@ its recursive clone without refreshing submodules. Native IDF tools are
 installed under the ignored workspace `.embuild`
 directory. Release and evidence builds must have `IDF_PATH` unset so a local
 clone cannot override the repository selection.
+
+Node `26.7.0` is a deliberate exception to the otherwise long-term-support
+selection, decided on 2026-08-17. At that date the Node release index lists 26 as
+`lts: false` with 24.19.0 as the current `Krypton` LTS, and Node 26 is expected to
+enter long-term support around October 2026. The pin moves ahead of that date to
+avoid stepping the pin twice.
+
+The exception is affordable because Node is a build-time tool only. It produces the
+static export under `web/out`, which is embedded into the desktop binary and later
+into the firmware; no Node runtime ships in the product. Nothing in the web stack
+forbids it either: `next@16.3.1` declares `node >=20.9.0` and `eslint@9.39.5`
+declares `^18.18.0 || ^20.9.0 || >=21.1.0`. The cost is that a current line
+receives breaking changes and shorter support than an LTS line, so pin refreshes
+may be needed more often until 26 becomes LTS.
 
 The [official D1001 specification](https://wiki.seeedstudio.com/getting_started_with_reterminal_d1001/)
 lists 32 MB QSPI flash and 32 MB PSRAM. The M0 build uses the conservative 16 MB

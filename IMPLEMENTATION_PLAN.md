@@ -80,6 +80,7 @@ milestone.
 | M0-012 | DONE | Add contribution, review, release-note, and architecture-decision templates | Hosted checksummed artifact validates the M0-012 task/test/evidence traceability example from a clean PR checkout |
 | M0-013 | DONE | Enforce one Rust-owned Conventional Commit policy in local hooks, pull requests, and `main` pushes | Local eight-gate baseline, hosted PR commits/title, final `main` range, both strict aggregates, and checksummed governance evidence pass |
 | M0-014 | DONE | Verify the merged firmware image against its own configuration evidence | The merged image embeds the ESP-IDF bootloader and partition table byte for byte, the application fits its declared partition, and the manifest records the decoded layout |
+| M0-015 | DONE | Move the Node/npm pin to the current 26 line and align the Node type definitions | Every pin site agrees, the cross-file pin test passes, and the web install, lint, and static export succeed on the new runtime |
 
 M0-002 evidence (2026-08-14):
 
@@ -402,6 +403,30 @@ M0-014 verified evidence (2026-08-17):
   passes all ten jobs for clean revision
   `7d162b7345e7a1d2d6ab48e9dc9bdbe7fc9685e1`
 
+M0-015 evidence (2026-08-17):
+
+- `toolchain/manifest.toml` moves Node from `24.19.0` to `26.7.0` and npm from
+  `11.17.0` to `11.19.0`, the pairing the Node release index records for that
+  release. `.node-version`, `web/package.json` engines, and `packageManager`
+  follow, and `firmware/tests/toolchain_manifest.rs` proves they agree
+- `@types/node` moves from `^22.20.1` to `^26.2.0`. The previous value was a major
+  behind the pinned runtime, so the type definitions did not describe the Node
+  version the web build actually ran on
+- this is a deliberate exception to the otherwise long-term-support selection. At
+  the decision date the Node release index lists 26 as `lts: false` with `24.19.0`
+  as the current `Krypton` LTS; Node 26 is expected to enter LTS around October
+  2026, and the pin moves ahead of that to avoid stepping it twice
+- the exception is affordable because Node is a build-time tool only. It produces
+  the static export under `web/out`, which is embedded into the desktop binary and
+  later the firmware; no Node runtime ships in the product
+- nothing in the web stack forbids it: `next@16.3.1` declares `node >=20.9.0` and
+  `eslint@9.39.5` declares `^18.18.0 || ^20.9.0 || >=21.1.0`
+- on Node `26.7.0` with npm `11.19.0`, `npm ci` installs 355 packages,
+  `npm run lint` is clean, and `npm run build` produces the five static routes
+- Dependabot pull request 2, which proposed `@types/node` 26 while the runtime was
+  still pinned to 24, is superseded by this change
+- hosted pull-request and final `main` evidence is pending promotion
+
 ### M0 functional commits
 
 1. `docs(project): establish embedded-first roadmap and status`
@@ -435,6 +460,7 @@ M0-014 verified evidence (2026-08-17):
 29. `docs(project): close M0-013 with hosted evidence`
 30. `fix(ci): make the merged firmware image match its configuration evidence`
 31. `docs(project): record the merged firmware image contract`
+32. `chore(toolchain): move the node pin to the current 26 line`
 
 ### M0 promotion command set
 

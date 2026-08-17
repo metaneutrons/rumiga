@@ -2,10 +2,10 @@
   "name": "rumiga-web",
   "version": "0.1.0",
   "private": true,
-  "packageManager": "npm@11.17.0",
+  "packageManager": "npm@11.19.0",
   "engines": {
-    "node": "24.19.0",
-    "npm": "11.17.0"
+    "node": "26.7.0",
+    "npm": "11.19.0"
   },
   "scripts": {
     "dev": "next dev",
@@ -21,7 +21,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
-    "@types/node": "^22.20.1",
+    "@types/node": "^26.2.0",
     "@types/react": "^19.2.18",
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.3.1",

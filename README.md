@@ -70,7 +70,7 @@ scripts/                    capture, parity, and report tools
 - Rust 1.97.1 for the pinned host toolchain and 1.85.0 for the declared MSRV
   check.
 - Git.
-- Node.js 24.19.0 and npm 11.17.0 for clean workspace builds; the desktop
+- Node.js 26.7.0 and npm 11.19.0 for clean workspace builds; the desktop
   binary embeds the generated web application.
 - User-provided Kickstart and disk images for boot evidence.
 
