@@ -2,7 +2,7 @@
   "schema": "rumiga.change-record.v1",
   "task_id": "M0-015",
   "title": "Move the Node pin to the current 26 line and align the type definitions",
-  "status": "implemented",
+  "status": "verified",
   "summary": "Pin Node to 26.7.0 and npm to 11.19.0 across the manifest, version file, and web package, move @types/node to the matching major so the definitions describe the runtime in use, and record the deliberate exception to the long-term-support rule.",
   "scope": [
     "Node and npm toolchain pins",
@@ -54,10 +54,16 @@
       "proves": "The LTS status, the npm pairing, and the absence of any dependency objection are taken from primary sources rather than assumed."
     },
     {
-      "id": "hosted-promotion",
+      "id": "hosted-pr-node-26",
       "kind": "ci-artifact",
-      "location": "Pending: hosted pull-request and final main promotion evidence is required before this record moves to verified.",
-      "proves": "Nothing yet."
+      "location": "GitHub Actions pull-request run 32070931258, artifact 9301688782 governance-690502a33b98c9fb901b09dfe5708eb22af9bb45, archive sha256:e9e60d858b18d0b946500cd52855630edacfff694e828b5df4fc598486bcd1b8.",
+      "proves": "All ten required quality jobs pass for the clean pull-request merge revision, including both host legs installing Node 26.7.0 and building the web export; the governance payload checksums and the M0-015 traceability record were independently verified."
+    },
+    {
+      "id": "hosted-main-node-26",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions final main run 32072021615, artifact 9302065297 governance-60443ca7b45499cb099f92f6bb1ecf1622ce18d8, archive sha256:eeaf3756244b1fcd6f1bc45d2b530efe9f910cdf0a1004e65fa32a58205f80c3.",
+      "proves": "All ten required quality jobs pass for clean main revision 60443ca7b45499cb099f92f6bb1ecf1622ce18d8; the governance payload checksums, the clean-source claim, and the M0-015 traceability record were independently verified."
     }
   ],
   "documentation": [
