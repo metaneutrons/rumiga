@@ -117,6 +117,7 @@ struct EvidenceManifest {
     profile: String,
     elf: ElfMetadata,
     board_configuration: BoardConfigurationEvidence,
+    reversibility: ReversibilityEvidence,
     merged_image: MergedImageEvidence,
     esp_idf: EspIdfEvidence,
     tools: ToolEvidence,
@@ -179,6 +180,20 @@ struct MergedImageEvidence {
     app_image_bytes: u64,
     app_partition_bytes: u32,
     partitions: Vec<PartitionEvidence>,
+}
+
+/// Evidence that the configuration cannot make a device permanently different.
+///
+/// Every eFuse-burning feature must be paired with virtual eFuses, and release
+/// mode is rejected outright, so no build produced from this repository can
+/// consume a board.
+#[derive(Debug, Serialize)]
+struct ReversibilityEvidence {
+    flash_encryption: String,
+    secure_boot: String,
+    nvs_encryption: String,
+    efuse_virtual: bool,
+    burns_efuses: bool,
 }
 
 /// One decoded partition-table entry.
@@ -288,6 +303,7 @@ fn build_firmware_evidence() -> Result<()> {
     verify_final_link_map(&outputs.map)?;
     let board_configuration =
         verify_board_configuration(&outputs.sdkconfig, &outputs.flasher_args, &manifest)?;
+    let reversibility = verify_reversible_security_posture(&read_sdkconfig(&outputs.sdkconfig)?)?;
 
     let (idf_evidence, gcc_version, size_tool) =
         verify_native_build_inputs(&outputs.cmake_cache, &manifest)?;
@@ -323,6 +339,7 @@ fn build_firmware_evidence() -> Result<()> {
         profile: manifest.build.profile,
         elf: elf_metadata,
         board_configuration,
+        reversibility,
         merged_image,
         esp_idf: idf_evidence,
         tools: tool_evidence,
@@ -341,6 +358,8 @@ fn build_firmware_evidence() -> Result<()> {
             "not-boot-tested".to_owned(),
             "no-peripheral-hil".to_owned(),
             "no-performance-claim".to_owned(),
+            "no-efuse-burn".to_owned(),
+            "encryption-not-enforced".to_owned(),
         ],
     };
     write_manifest_and_checksums(&evidence_root, &evidence)?;
@@ -1083,6 +1102,55 @@ fn decode_partition_table(table: &[u8]) -> Result<Vec<DecodedPartition>> {
     Ok(entries)
 }
 
+/// Reject any configuration that would permanently alter a device.
+///
+/// eFuse bits cannot be cleared, so enabling flash encryption or Secure Boot on a
+/// real board is a one-way step. Both features are allowed here only alongside
+/// virtual eFuses, and release-mode flash encryption is rejected outright because
+/// it also removes plaintext recovery over cable for good.
+fn verify_reversible_security_posture(
+    config: &BTreeMap<String, String>,
+) -> Result<ReversibilityEvidence> {
+    let enabled = |key: &str| config.get(key).is_some_and(|value| value == "y");
+
+    let flash_encryption = enabled("CONFIG_SECURE_FLASH_ENC_ENABLED");
+    let secure_boot = enabled("CONFIG_SECURE_BOOT");
+    let efuse_virtual = enabled("CONFIG_EFUSE_VIRTUAL");
+    ensure!(
+        !enabled("CONFIG_SECURE_FLASH_ENCRYPTION_MODE_RELEASE"),
+        "release-mode flash encryption is irreversible and must not be configured here"
+    );
+    ensure!(
+        !(flash_encryption || secure_boot) || efuse_virtual,
+        "flash encryption or Secure Boot without CONFIG_EFUSE_VIRTUAL would burn eFuses on the first boot"
+    );
+
+    let mode = if !flash_encryption {
+        "disabled"
+    } else if enabled("CONFIG_SECURE_FLASH_ENCRYPTION_MODE_DEVELOPMENT") {
+        "development"
+    } else {
+        bail!("flash encryption is enabled without a recognized usage mode");
+    };
+    let nvs_encryption = if enabled("CONFIG_NVS_ENCRYPTION") {
+        ensure!(
+            enabled("CONFIG_NVS_SEC_KEY_PROTECT_USING_FLASH_ENC"),
+            "NVS encryption must use the flash-encryption scheme so no eFuse key block is consumed"
+        );
+        "flash-encryption-scheme"
+    } else {
+        "disabled"
+    };
+
+    Ok(ReversibilityEvidence {
+        flash_encryption: mode.to_owned(),
+        secure_boot: if secure_boot { "virtual" } else { "disabled" }.to_owned(),
+        nvs_encryption: nvs_encryption.to_owned(),
+        efuse_virtual,
+        burns_efuses: false,
+    })
+}
+
 fn read_sdkconfig(path: &Path) -> Result<BTreeMap<String, String>> {
     let contents =
         fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
@@ -1358,7 +1426,7 @@ mod tests {
     use super::{
         decode_partition_table, espflash_flash_frequency, espflash_flash_mode, espflash_flash_size,
         image_region, inspect_elf_data, parse_partition_layout, read_partition_layout,
-        sha256_bytes,
+        sha256_bytes, verify_reversible_security_posture,
     };
 
     /// Build one 32-byte partition-table entry.
@@ -1423,6 +1491,77 @@ mod tests {
         assert!(espflash_flash_mode("sio").is_err());
         assert!(espflash_flash_size("16mb").is_err());
         assert!(espflash_flash_frequency("80mhz").is_err());
+    }
+
+    /// Build a resolved-config map from `key=value` lines.
+    fn config_from(lines: &[&str]) -> std::collections::BTreeMap<String, String> {
+        lines
+            .iter()
+            .filter_map(|line| line.split_once('='))
+            .map(|(key, value)| (key.to_owned(), value.to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn accepts_a_reversible_security_posture() {
+        let config = config_from(&[
+            "CONFIG_SECURE_FLASH_ENC_ENABLED=y",
+            "CONFIG_SECURE_FLASH_ENCRYPTION_MODE_DEVELOPMENT=y",
+            "CONFIG_EFUSE_VIRTUAL=y",
+            "CONFIG_NVS_ENCRYPTION=y",
+            "CONFIG_NVS_SEC_KEY_PROTECT_USING_FLASH_ENC=y",
+        ]);
+        let evidence =
+            verify_reversible_security_posture(&config).expect("virtual eFuses must be accepted");
+        assert_eq!(evidence.flash_encryption, "development");
+        assert_eq!(evidence.nvs_encryption, "flash-encryption-scheme");
+        assert!(evidence.efuse_virtual);
+        assert!(!evidence.burns_efuses);
+    }
+
+    #[test]
+    fn rejects_configurations_that_would_burn_efuses() {
+        // Flash encryption without virtual eFuses burns a key on the first boot.
+        assert!(
+            verify_reversible_security_posture(&config_from(&[
+                "CONFIG_SECURE_FLASH_ENC_ENABLED=y",
+                "CONFIG_SECURE_FLASH_ENCRYPTION_MODE_DEVELOPMENT=y",
+            ]))
+            .is_err()
+        );
+        // Secure Boot without virtual eFuses burns the key digest and enable bit.
+        assert!(
+            verify_reversible_security_posture(&config_from(&["CONFIG_SECURE_BOOT=y"])).is_err()
+        );
+        // Release mode also removes plaintext recovery over cable for good.
+        assert!(
+            verify_reversible_security_posture(&config_from(&[
+                "CONFIG_SECURE_FLASH_ENC_ENABLED=y",
+                "CONFIG_SECURE_FLASH_ENCRYPTION_MODE_RELEASE=y",
+                "CONFIG_EFUSE_VIRTUAL=y",
+            ]))
+            .is_err()
+        );
+        // NVS encryption via HMAC would consume an eFuse key block.
+        assert!(
+            verify_reversible_security_posture(&config_from(&[
+                "CONFIG_SECURE_FLASH_ENC_ENABLED=y",
+                "CONFIG_SECURE_FLASH_ENCRYPTION_MODE_DEVELOPMENT=y",
+                "CONFIG_EFUSE_VIRTUAL=y",
+                "CONFIG_NVS_ENCRYPTION=y",
+                "CONFIG_NVS_SEC_KEY_PROTECT_USING_HMAC=y",
+            ]))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn accepts_security_features_being_absent() {
+        let evidence = verify_reversible_security_posture(&config_from(&["CONFIG_IDF_TARGET=x"]))
+            .expect("a plain configuration must be accepted");
+        assert_eq!(evidence.flash_encryption, "disabled");
+        assert_eq!(evidence.secure_boot, "disabled");
+        assert_eq!(evidence.nvs_encryption, "disabled");
     }
 
     #[test]
