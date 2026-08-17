@@ -37,6 +37,7 @@ pub mod chipset;
 pub mod cia;
 pub mod copper;
 pub mod custom;
+pub mod digest;
 pub mod emulator;
 pub mod events;
 pub mod floppy;
