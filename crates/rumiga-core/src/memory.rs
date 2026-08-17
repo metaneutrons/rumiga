@@ -22,7 +22,6 @@ use core::cell::{Cell, RefCell};
 use m68k::AddressBus;
 
 use crate::a2065::A2065;
-use crate::blitter::BlitterState;
 use crate::cia::CiaPair;
 use crate::custom;
 use crate::ide::AtaController;
@@ -185,13 +184,6 @@ pub struct AmigaMemory {
     pub ide: RefCell<AtaController>,
     /// Optional A2065-compatible Zorro II Ethernet card.
     pub a2065: RefCell<A2065>,
-    /// Active blitter execution thread.
-    #[cfg(feature = "std")]
-    pub blit_thread: Option<std::thread::JoinHandle<(Vec<u8>, BlitterState)>>,
-    /// Set when the blitter thread finishes and RAM is restored.
-    pub blitter_completed: bool,
-    /// Final blitter register state returned by the completed blit thread.
-    pub completed_blitter: Option<BlitterState>,
 }
 
 impl AmigaMemory {
@@ -230,10 +222,6 @@ impl AmigaMemory {
             gayle_id_cnt: Cell::new(0),
             ide: RefCell::new(AtaController::new()),
             a2065: RefCell::new(A2065::new_disabled()),
-            #[cfg(feature = "std")]
-            blit_thread: None,
-            blitter_completed: false,
-            completed_blitter: None,
         }
     }
 
@@ -262,54 +250,6 @@ impl AmigaMemory {
         self.rom.copy_from_slice(data);
         self.rom_drive_step_patch_applied = false;
     }
-
-    /// Wait for the active background blit thread to complete and restore chip RAM.
-    #[cfg(feature = "std")]
-    pub fn sync_blitter(&mut self) {
-        if let Some(handle) = self.blit_thread.take() {
-            if let Ok((chip_ram, blitter)) = handle.join() {
-                self.chip_ram = chip_ram;
-                self.completed_blitter = Some(blitter);
-                self.blitter_completed = true;
-            }
-        }
-    }
-
-    /// Check if the active background blit thread is finished, and restore chip RAM if so.
-    #[cfg(feature = "std")]
-    pub fn sync_blitter_lazy(&mut self) {
-        let is_finished = if let Some(ref handle) = self.blit_thread {
-            handle.is_finished()
-        } else {
-            false
-        };
-        if is_finished {
-            self.sync_blitter();
-        }
-    }
-
-    /// Report whether a host blitter worker currently owns chip RAM.
-    #[must_use]
-    #[cfg(feature = "std")]
-    pub(crate) fn blitter_active(&self) -> bool {
-        self.blit_thread.is_some()
-    }
-
-    /// Report whether a host blitter worker currently owns chip RAM.
-    #[must_use]
-    #[cfg(not(feature = "std"))]
-    #[allow(clippy::unused_self, reason = "preserves the runtime-neutral core API")]
-    pub(crate) const fn blitter_active(&self) -> bool {
-        false
-    }
-
-    /// Synchronize with the host blitter worker; `no_std` blits are synchronous.
-    #[cfg(not(feature = "std"))]
-    pub fn sync_blitter(&mut self) {}
-
-    /// Poll the host blitter worker; `no_std` blits are synchronous.
-    #[cfg(not(feature = "std"))]
-    pub fn sync_blitter_lazy(&mut self) {}
 
     fn gayle_ide_register(addr: u32) -> Option<usize> {
         if !(GAYLE_IDE_START..GAYLE_IDE_END).contains(&addr) {
@@ -497,7 +437,6 @@ impl AmigaMemory {
 
     /// Returns a mutable reference to the chip RAM slice for DMA access.
     pub fn chip_ram_mut(&mut self) -> &mut [u8] {
-        self.sync_blitter();
         &mut self.chip_ram
     }
 
@@ -811,27 +750,11 @@ impl AmigaMemory {
 
 impl AddressBus for AmigaMemory {
     fn read_byte(&mut self, addr: u32) -> u8 {
-        if addr < self.config.chip_ram_size
-            || addr < 0x0020_0000
-            || (CUSTOM_BASE..CUSTOM_END).contains(&addr)
-        {
-            self.sync_blitter();
-        } else {
-            self.sync_blitter_lazy();
-        }
         self.read_byte_internal(addr)
     }
 
     fn read_word(&mut self, addr: u32) -> u16 {
         let masked = addr;
-        if masked < self.config.chip_ram_size
-            || masked < 0x0020_0000
-            || (CUSTOM_BASE..CUSTOM_END).contains(&masked)
-        {
-            self.sync_blitter();
-        } else {
-            self.sync_blitter_lazy();
-        }
         // IDE Data Register read: all Gayle data-port aliases map to register 0.
         if Self::gayle_ide_register(masked) == Some(IDE_DATA_REG) {
             return self.ide.borrow_mut().read_data_word();
@@ -871,27 +794,11 @@ impl AddressBus for AmigaMemory {
     }
 
     fn write_byte(&mut self, addr: u32, value: u8) {
-        if addr < self.config.chip_ram_size
-            || addr < 0x0020_0000
-            || (CUSTOM_BASE..CUSTOM_END).contains(&addr)
-        {
-            self.sync_blitter();
-        } else {
-            self.sync_blitter_lazy();
-        }
         self.write_byte_internal(addr, value);
     }
 
     fn write_word(&mut self, addr: u32, value: u16) {
         let masked = addr;
-        if masked < self.config.chip_ram_size
-            || masked < 0x0020_0000
-            || (CUSTOM_BASE..CUSTOM_END).contains(&masked)
-        {
-            self.sync_blitter();
-        } else {
-            self.sync_blitter_lazy();
-        }
         // IDE Data Register write: all Gayle data-port aliases map to register 0.
         if Self::gayle_ide_register(masked) == Some(IDE_DATA_REG) {
             self.ide.borrow_mut().write_data_word(value);

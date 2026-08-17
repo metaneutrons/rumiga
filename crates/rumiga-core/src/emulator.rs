@@ -17,6 +17,8 @@ use m68k::CpuCore;
 use m68k::{NoOpHleHandler, StepResult};
 use rumiga_platform::TraceSink;
 
+use crate::digest::StateDigest;
+
 use crate::audio::AudioState;
 use crate::blitter::BlitterState;
 use crate::chipset::CustomChipState;
@@ -283,42 +285,6 @@ impl Emulator {
         self.floppy.insert_disk(drive, data);
     }
 
-    /// Wait for the active background blit to complete, updating emulator status.
-    pub fn sync_blitter(&mut self) {
-        if self.memory.blitter_active() {
-            self.memory.sync_blitter();
-        }
-        if self.memory.blitter_completed {
-            self.memory.blitter_completed = false;
-            self.finish_completed_blitter();
-        }
-    }
-
-    /// Check if the active background blit is finished, updating emulator status if so.
-    pub fn sync_blitter_lazy(&mut self) {
-        if self.memory.blitter_active() {
-            self.memory.sync_blitter_lazy();
-        }
-        if self.memory.blitter_completed {
-            self.memory.blitter_completed = false;
-            self.finish_completed_blitter();
-        }
-    }
-
-    fn finish_completed_blitter(&mut self) {
-        if let Some(mut blitter) = self.memory.completed_blitter.take() {
-            blitter.busy = false;
-            blitter.done = true;
-            self.blitter = blitter;
-        } else {
-            self.blitter.busy = false;
-            self.blitter.done = true;
-        }
-
-        self.chipset.intreq |= custom::INT_BLIT;
-        self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
-    }
-
     /// Returns whether the specified floppy drive (0–3) has dirty data.
     #[must_use]
     pub fn floppy_dirty(&self, drive: usize) -> bool {
@@ -546,10 +512,6 @@ impl Emulator {
             self.chipset.vpos += 1;
         }
         let vpos = self.chipset.vpos;
-
-        // Copper/playfield/sprite DMA need a valid chip RAM slice. The threaded
-        // blitter temporarily owns chip RAM, so synchronize before video DMA.
-        self.sync_blitter();
 
         // Run copper for this scanline
         if self.copper.enabled {
@@ -912,24 +874,15 @@ impl Emulator {
 
     /// Sync live chipset state into the custom register shadow so CPU reads are correct.
     fn sync_readable_regs(&mut self) {
-        // Lazy check of background blitter done signal
-        if self.memory.blitter_active() {
-            self.sync_blitter_lazy();
-        }
-
-        let blit_busy = self.memory.blitter_active();
-
         let regs = &mut self.memory.custom_regs;
         // VPOSR: bit 15=LOF, bits 14-8=Agnus ID, bits 0-2=vpos high
         // OCS Agnus (A500): ID=$00, only bit 0 of vpos high visible
         regs[(custom::VPOSR / 2) as usize] = 0x8000 | ((self.chipset.vpos >> 8) & 1);
         regs[(custom::VHPOSR / 2) as usize] = (self.chipset.vpos << 8) | (self.chipset.hpos & 0xFF);
 
-        let mut dmacon = self.chipset.dmacon & 0x7FFF;
-        if blit_busy {
-            dmacon |= 0x4000; // Set BBUSY bit 14
-        }
-        regs[(custom::DMACONR / 2) as usize] = dmacon;
+        // BBUSY stays clear: a blit completes within the write that starts it,
+        // so no emulated time passes while the blitter is busy.
+        regs[(custom::DMACONR / 2) as usize] = self.chipset.dmacon & 0x7FFF;
         regs[(custom::INTENAR / 2) as usize] = self.chipset.intena & 0x7FFF;
         regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq & 0x7FFF;
         regs[(custom::BEAMCON0 / 2) as usize] = custom::BEAMCON0_PAL;
@@ -1091,9 +1044,6 @@ impl Emulator {
 
     /// Dispatch blitter register writes.
     fn dispatch_blitter_write(&mut self, offset: u16, value: u16) {
-        // Synchronize any background in-flight blits before updating blitter registers
-        self.sync_blitter();
-
         match offset {
             custom::BLTCON0 => self.blitter.bltcon0 = value,
             custom::BLTCON0L => {
@@ -1168,32 +1118,60 @@ impl Emulator {
         }
     }
 
-    #[cfg(feature = "std")]
-    fn start_blitter_execution(&mut self) {
-        let mut chip_ram = core::mem::take(&mut self.memory.chip_ram);
-        let mut blitter = self.blitter.clone();
-        let handle = std::thread::spawn(move || {
-            // Pin the blitter background task to the last available CPU core
-            if let Some(cores) = core_affinity::get_core_ids() {
-                if let Some(&last_core) = cores.last() {
-                    let _ = core_affinity::set_for_current(last_core);
-                }
-            }
-            blitter.execute_blit(&mut chip_ram);
-            (chip_ram, blitter)
-        });
-        self.memory.blit_thread = Some(handle);
-    }
-
-    #[cfg(not(feature = "std"))]
+    /// Execute a started blit to completion and signal it.
+    ///
+    /// The emulator owns its state for the whole operation, so the result is
+    /// visible to the next access and independent of host scheduling. A blit
+    /// therefore takes no emulated time, which is why the guest-visible BBUSY bit
+    /// never reads set; cycle-accurate blitter timing is separate work.
     fn start_blitter_execution(&mut self) {
         self.blitter.execute_blit(&mut self.memory.chip_ram);
+        self.chipset.intreq |= custom::INT_BLIT;
+        self.memory.custom_regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq;
     }
 
     /// Get the current framebuffer contents.
     #[must_use]
     pub fn framebuffer(&self) -> &[u16] {
         &self.framebuffer
+    }
+
+    /// Digest of the rendered frame.
+    ///
+    /// Not cryptographic; see [`crate::digest`]. Use it to compare two runs, not
+    /// to make an integrity claim.
+    #[must_use]
+    pub fn frame_digest(&self) -> u64 {
+        let mut digest = StateDigest::new();
+        digest.write_u16_slice(&self.framebuffer);
+        digest.finish()
+    }
+
+    /// Digest of the emulated machine state.
+    ///
+    /// Covers the CPU, elapsed cycles, custom register shadow, interrupt and DMA
+    /// state, and chip RAM, in a fixed order. Host-owned state such as trace
+    /// sinks and media paths is deliberately excluded, so the digest answers
+    /// whether the emulated machine reached the same place.
+    ///
+    /// Not cryptographic; see [`crate::digest`].
+    #[must_use]
+    pub fn state_digest(&self) -> u64 {
+        let mut digest = StateDigest::new();
+        digest.write_u32(self.cpu.pc);
+        digest.write_u16(self.cpu.get_sr());
+        for register in self.cpu.dar {
+            digest.write_u32(register);
+        }
+        digest.write_u64(self.total_cycles);
+        digest.write_u16_slice(&self.memory.custom_regs);
+        digest.write_u16(self.chipset.intreq);
+        digest.write_u16(self.chipset.intena);
+        digest.write_u16(self.chipset.dmacon);
+        digest.write_u16(self.chipset.vpos);
+        digest.write_u16(self.chipset.hpos);
+        digest.write_bytes(self.memory.chip_ram());
+        digest.finish()
     }
 
     /// Read GfxBase->copinit (the system copper list pointer).
@@ -1456,11 +1434,7 @@ mod tests {
         assert_eq!(val3, 0xCC);
         assert_eq!(val4, 0xDD);
 
-        // Sync the blitter status on the Emulator side to finalize its flags
-        emu.sync_blitter();
-
-        // No execution remains active after synchronization.
-        assert!(!emu.memory.blitter_active());
+        // The blit completed inside the write that started it.
         assert!(!emu.blitter.busy);
         assert!(emu.blitter.done);
         assert_eq!(emu.blitter.bltapt, 0x1004);
@@ -1485,10 +1459,8 @@ mod tests {
         emu.dispatch_register_write(custom::BLTDPTH, 0x0000);
         emu.dispatch_register_write(custom::BLTDPTL, 0x2000);
         emu.dispatch_register_write(custom::BLTSIZE, (1 << 6) | 2);
-        emu.sync_blitter();
 
         emu.dispatch_register_write(custom::BLTSIZE, (1 << 6) | 2);
-        emu.sync_blitter();
 
         assert_eq!(emu.memory.read_byte(0x2004), 0x12);
         assert_eq!(emu.memory.read_byte(0x2005), 0x34);
@@ -1526,13 +1498,137 @@ mod tests {
 
         emu.dispatch_register_write(custom::BLTSIZV, 1);
         emu.dispatch_register_write(custom::BLTSIZH, 2);
-        emu.sync_blitter();
 
         assert_eq!(emu.memory.read_byte(0x2000), 0x12);
         assert_eq!(emu.memory.read_byte(0x2001), 0x34);
         assert_eq!(emu.memory.read_byte(0x2002), 0x56);
         assert_eq!(emu.memory.read_byte(0x2003), 0x78);
         assert!(emu.blitter.done);
+    }
+
+    /// Drive one A-to-D area blit and return the resulting machine digest.
+    ///
+    /// The blit is large enough that a background worker could not reliably
+    /// finish before the caller observes the result, which is what made the
+    /// previous implementation's timing observable.
+    fn run_blit_fixture(rounds: u16, height: u16, width_words: u16) -> (u64, u64) {
+        let mut emu = Emulator::new(MemoryConfig::a500());
+        emu.memory.overlay = false;
+
+        for index in 0..usize::from(height) * usize::from(width_words) * 4 {
+            let value = (index as u16).wrapping_mul(0x9E37).rotate_left(3) ^ 0x5A5A;
+            emu.memory.chip_ram[0x1_0000 + index * 2] = (value >> 8) as u8;
+            emu.memory.chip_ram[0x1_0000 + index * 2 + 1] = value as u8;
+        }
+
+        for round in 0..rounds {
+            let destination = 0x3_0000 + u32::from(round) * 0x400;
+            emu.dispatch_register_write(custom::BLTCON0, 0x09F0);
+            emu.dispatch_register_write(custom::BLTCON1, 0);
+            emu.dispatch_register_write(custom::BLTAPTH, 0x0001);
+            emu.dispatch_register_write(custom::BLTAPTL, 0x0000);
+            emu.dispatch_register_write(custom::BLTDPTH, (destination >> 16) as u16);
+            emu.dispatch_register_write(custom::BLTDPTL, destination as u16);
+            emu.dispatch_register_write(custom::BLTAMOD, 0);
+            emu.dispatch_register_write(custom::BLTDMOD, 0);
+            emu.dispatch_register_write(custom::BLTSIZE, (height << 6) | width_words);
+
+            // Observe immediately. This is where host scheduling used to leak
+            // into the guest-visible BBUSY bit.
+            let _ = emu.memory.read_custom_reg(custom::DMACONR);
+        }
+
+        (emu.state_digest(), emu.frame_digest())
+    }
+
+    /// Pinned digest of the blit fixture.
+    ///
+    /// Both runtime profiles must reach this exact value, so the portable and
+    /// desktop blitter paths cannot diverge silently.
+    const BLIT_FIXTURE_DIGEST: (u64, u64) = (0xb366_f315_f002_3f2d, 0x42a5_a130_53f1_6d25);
+
+    #[test]
+    fn both_runtime_profiles_reach_the_pinned_state() {
+        assert_eq!(run_blit_fixture(16, 24, 12), BLIT_FIXTURE_DIGEST);
+    }
+
+    #[test]
+    fn repeated_blit_runs_reach_the_same_state() {
+        let expected = run_blit_fixture(16, 24, 12);
+        for round in 1..8 {
+            assert_eq!(
+                run_blit_fixture(16, 24, 12),
+                expected,
+                "run {round} diverged, so blitter execution is not deterministic"
+            );
+        }
+    }
+
+    #[test]
+    fn completed_blit_requests_the_blitter_interrupt() {
+        let mut emu = Emulator::new(MemoryConfig::a500());
+        emu.memory.overlay = false;
+        emu.memory.write_byte(0x1000, 0x5A);
+        emu.memory.write_byte(0x1001, 0xA5);
+
+        emu.dispatch_register_write(custom::BLTCON0, 0x09F0);
+        emu.dispatch_register_write(custom::BLTCON1, 0);
+        emu.dispatch_register_write(custom::BLTAPTH, 0x0000);
+        emu.dispatch_register_write(custom::BLTAPTL, 0x1000);
+        emu.dispatch_register_write(custom::BLTDPTH, 0x0000);
+        emu.dispatch_register_write(custom::BLTDPTL, 0x2000);
+        emu.dispatch_register_write(custom::BLTSIZE, (1 << 6) | 1);
+
+        assert!(
+            emu.chipset.intreq & custom::INT_BLIT != 0,
+            "a completed blit must request the blitter interrupt in both runtime profiles"
+        );
+        assert_eq!(
+            emu.memory.custom_regs[(custom::INTREQR / 2) as usize] & custom::INT_BLIT,
+            custom::INT_BLIT,
+            "the readable interrupt shadow must show the request"
+        );
+        assert!(!emu.blitter.busy);
+        assert!(emu.blitter.done);
+    }
+
+    #[test]
+    fn blitter_wait_bit_reads_clear_after_the_blit() {
+        let mut emu = Emulator::new(MemoryConfig::a500());
+        emu.memory.overlay = false;
+
+        emu.dispatch_register_write(custom::BLTCON0, 0x09F0);
+        emu.dispatch_register_write(custom::BLTAPTH, 0x0000);
+        emu.dispatch_register_write(custom::BLTAPTL, 0x1000);
+        emu.dispatch_register_write(custom::BLTDPTH, 0x0000);
+        emu.dispatch_register_write(custom::BLTDPTL, 0x2000);
+        emu.dispatch_register_write(custom::BLTSIZE, (32 << 6) | 16);
+
+        emu.sync_readable_regs();
+
+        // Blits are instantaneous in emulated time, so the guest wait idiom must
+        // observe BBUSY clear rather than a host scheduling artifact.
+        assert_eq!(
+            emu.memory.read_custom_reg(custom::DMACONR) & 0x4000,
+            0,
+            "BBUSY must read clear once the blit is complete"
+        );
+    }
+
+    #[test]
+    fn state_digest_separates_distinct_machine_states() {
+        let baseline = run_blit_fixture(1, 4, 4);
+        let more_work = run_blit_fixture(2, 4, 4);
+        let taller = run_blit_fixture(1, 8, 4);
+
+        assert_ne!(
+            baseline, more_work,
+            "a second blit must change the machine digest"
+        );
+        assert_ne!(
+            baseline, taller,
+            "a taller blit must change the machine digest"
+        );
     }
 
     #[test]
