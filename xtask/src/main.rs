@@ -22,6 +22,17 @@ mod supply_chain;
 const BUILD_DIRECTORY: &str = "m0-008-firmware-build";
 const EVIDENCE_DIRECTORY: &str = "m0-008-firmware-evidence";
 
+/// Merged-image flash offsets, pinned against `flasher_args.json` in
+/// [`verify_flash_layout`].
+const BOOTLOADER_OFFSET: usize = 0x2000;
+const PARTITION_TABLE_OFFSET: usize = 0x8000;
+
+/// Size of one partition-table entry in the binary layout.
+const PARTITION_ENTRY_BYTES: usize = 32;
+
+/// Magic prefix of a populated partition-table entry.
+const PARTITION_ENTRY_MAGIC: [u8; 2] = [0xAA, 0x50];
+
 #[derive(Debug, Deserialize)]
 struct ToolchainManifest {
     target: TargetConfiguration,
@@ -103,6 +114,7 @@ struct EvidenceManifest {
     profile: String,
     elf: ElfMetadata,
     board_configuration: BoardConfigurationEvidence,
+    merged_image: MergedImageEvidence,
     esp_idf: EspIdfEvidence,
     tools: ToolEvidence,
     inputs: InputEvidence,
@@ -144,6 +156,31 @@ struct BoardConfigurationEvidence {
     freertos_hz: u32,
     main_task_stack_bytes: u32,
     console: String,
+}
+
+/// Evidence that the merged flash image carries the ESP-IDF bootloader,
+/// partition table, and application rather than image-tool defaults.
+#[derive(Debug, Serialize)]
+struct MergedImageEvidence {
+    bytes: u64,
+    bootloader_offset: String,
+    bootloader_region_sha256: String,
+    partition_table_offset: String,
+    partition_table_region_sha256: String,
+    app_offset: String,
+    app_image_bytes: u64,
+    app_partition_bytes: u32,
+    partitions: Vec<PartitionEvidence>,
+}
+
+/// One decoded partition-table entry.
+#[derive(Debug, Serialize)]
+struct PartitionEvidence {
+    label: String,
+    kind: String,
+    subtype: String,
+    offset: String,
+    bytes: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -251,8 +288,17 @@ fn build_firmware_evidence() -> Result<()> {
         ..tool_evidence
     };
 
-    let mut artifacts = package_outputs(&root, &evidence_root, &outputs, &manifest, &size_tool)?;
+    let mut artifacts = package_outputs(
+        &root,
+        &evidence_root,
+        &outputs,
+        &manifest,
+        &size_tool,
+        &board_configuration,
+    )?;
     artifacts.sort_by(|left, right| left.name.cmp(&right.name));
+    let merged_image =
+        verify_merged_flash_image(&evidence_root.join("rumiga-firmware.flash.bin"), &outputs)?;
 
     let evidence = EvidenceManifest {
         schema: manifest.build.evidence_schema,
@@ -265,6 +311,7 @@ fn build_firmware_evidence() -> Result<()> {
         profile: manifest.build.profile,
         elf: elf_metadata,
         board_configuration,
+        merged_image,
         esp_idf: idf_evidence,
         tools: tool_evidence,
         inputs: InputEvidence {
@@ -736,6 +783,164 @@ fn verify_flash_layout(path: &Path, mode: &str, size: &str, frequency: &str) -> 
     Ok(())
 }
 
+/// Translate the ESP-IDF flash mode spelling to the espflash CLI value.
+fn espflash_flash_mode(value: &str) -> Result<&'static str> {
+    match value {
+        "dio" => Ok("dio"),
+        "dout" => Ok("dout"),
+        "qio" => Ok("qio"),
+        "qout" => Ok("qout"),
+        other => bail!("unsupported ESP-IDF flash mode {other}"),
+    }
+}
+
+/// Translate the ESP-IDF flash size spelling to the espflash CLI value.
+fn espflash_flash_size(value: &str) -> Result<&'static str> {
+    match value {
+        "2MB" => Ok("2mb"),
+        "4MB" => Ok("4mb"),
+        "8MB" => Ok("8mb"),
+        "16MB" => Ok("16mb"),
+        "32MB" => Ok("32mb"),
+        other => bail!("unsupported ESP-IDF flash size {other}"),
+    }
+}
+
+/// Translate the ESP-IDF flash frequency spelling to the espflash CLI value.
+fn espflash_flash_frequency(value: &str) -> Result<&'static str> {
+    match value {
+        "20m" => Ok("20mhz"),
+        "26m" => Ok("26mhz"),
+        "40m" => Ok("40mhz"),
+        "80m" => Ok("80mhz"),
+        other => bail!("unsupported ESP-IDF flash frequency {other}"),
+    }
+}
+
+/// Verify that the merged image embeds the ESP-IDF bootloader, partition table,
+/// and application, and that the application fits its declared partition.
+///
+/// Comparing the bootloader region byte for byte also pins the image header, so
+/// the merged image cannot silently carry a different flash geometry than the
+/// resolved `sdkconfig`.
+fn verify_merged_flash_image(
+    image_path: &Path,
+    outputs: &BuildOutputs,
+) -> Result<MergedImageEvidence> {
+    let image =
+        fs::read(image_path).with_context(|| format!("failed to read {}", image_path.display()))?;
+    let bootloader = fs::read(&outputs.bootloader)
+        .with_context(|| format!("failed to read {}", outputs.bootloader.display()))?;
+    let table = fs::read(&outputs.partition_table)
+        .with_context(|| format!("failed to read {}", outputs.partition_table.display()))?;
+
+    let bootloader_region = image_region(&image, BOOTLOADER_OFFSET, bootloader.len())?;
+    ensure!(
+        bootloader_region == bootloader.as_slice(),
+        "merged image does not embed the ESP-IDF bootloader"
+    );
+    let table_region = image_region(&image, PARTITION_TABLE_OFFSET, table.len())?;
+    ensure!(
+        table_region == table.as_slice(),
+        "merged image does not embed the ESP-IDF partition table"
+    );
+
+    let partitions = decode_partition_table(table_region)?;
+    let app = partitions
+        .iter()
+        .find(|entry| entry.kind == "app")
+        .context("partition table declares no application partition")?;
+    let app_offset = usize::try_from(app.raw_offset)?;
+    ensure!(
+        app_offset < image.len(),
+        "merged image ends before the application partition"
+    );
+    let app_image_bytes = image.len() - app_offset;
+    ensure!(
+        u64::from(app.bytes) >= app_image_bytes as u64,
+        "application image of {app_image_bytes} bytes exceeds its {} byte partition",
+        app.bytes
+    );
+
+    Ok(MergedImageEvidence {
+        bytes: image.len() as u64,
+        bootloader_offset: format!("{BOOTLOADER_OFFSET:#x}"),
+        bootloader_region_sha256: sha256_bytes(bootloader_region),
+        partition_table_offset: format!("{PARTITION_TABLE_OFFSET:#x}"),
+        partition_table_region_sha256: sha256_bytes(table_region),
+        app_offset: format!("{app_offset:#x}"),
+        app_image_bytes: app_image_bytes as u64,
+        app_partition_bytes: app.bytes,
+        partitions: partitions
+            .into_iter()
+            .map(DecodedPartition::into_evidence)
+            .collect(),
+    })
+}
+
+/// Borrow `length` bytes at `offset`, failing when the image is too short.
+fn image_region(image: &[u8], offset: usize, length: usize) -> Result<&[u8]> {
+    image
+        .get(offset..offset + length)
+        .with_context(|| format!("merged image is too short for the region at {offset:#x}"))
+}
+
+/// A partition-table entry with the raw offset retained for range checks.
+struct DecodedPartition {
+    label: String,
+    kind: String,
+    subtype: String,
+    raw_offset: u32,
+    bytes: u32,
+}
+
+impl DecodedPartition {
+    fn into_evidence(self) -> PartitionEvidence {
+        PartitionEvidence {
+            label: self.label,
+            kind: self.kind,
+            subtype: self.subtype,
+            offset: format!("{:#x}", self.raw_offset),
+            bytes: self.bytes,
+        }
+    }
+}
+
+/// Decode the binary partition table into its declared entries.
+fn decode_partition_table(table: &[u8]) -> Result<Vec<DecodedPartition>> {
+    let mut entries = Vec::new();
+    for chunk in table.chunks(PARTITION_ENTRY_BYTES) {
+        if chunk.len() < PARTITION_ENTRY_BYTES || chunk[..2] != PARTITION_ENTRY_MAGIC {
+            break;
+        }
+        let kind = match chunk[2] {
+            0 => "app",
+            1 => "data",
+            other => bail!("unsupported partition type {other}"),
+        };
+        let label = String::from_utf8(
+            chunk[12..28]
+                .iter()
+                .copied()
+                .take_while(|byte| *byte != 0)
+                .collect(),
+        )
+        .context("partition label is not valid UTF-8")?;
+        entries.push(DecodedPartition {
+            label,
+            kind: kind.to_owned(),
+            subtype: format!("{:#04x}", chunk[3]),
+            raw_offset: read_u32(chunk, 4)?,
+            bytes: read_u32(chunk, 8)?,
+        });
+    }
+    ensure!(
+        !entries.is_empty(),
+        "partition table declares no valid entries"
+    );
+    Ok(entries)
+}
+
 fn read_sdkconfig(path: &Path) -> Result<BTreeMap<String, String>> {
     let contents =
         fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
@@ -795,13 +1000,35 @@ fn package_outputs(
     outputs: &BuildOutputs,
     manifest: &ToolchainManifest,
     size_tool: &Path,
+    board: &BoardConfigurationEvidence,
 ) -> Result<Vec<ArtifactEvidence>> {
     let flash_image = evidence_root.join("rumiga-firmware.flash.bin");
+    // Without the explicit bootloader, partition table, and flash geometry,
+    // espflash substitutes its own defaults and rewrites the bootloader image
+    // header, so the merged image would contradict the resolved sdkconfig.
     let mut espflash = Command::new("espflash");
     espflash
         .current_dir(root)
         .args(["save-image", "--chip", &manifest.target.soc])
         .args(["--merge", "--skip-padding", "--skip-update-check"])
+        .arg("--bootloader")
+        .arg(&outputs.bootloader)
+        // espflash 4.5.0 documents a CSV here but also accepts the binary table
+        // that ESP-IDF generates. The pinned version keeps that behavior stable.
+        .arg("--partition-table")
+        .arg(&outputs.partition_table)
+        .args([
+            "--flash-mode",
+            espflash_flash_mode(&board.bootloader_flash_mode)?,
+        ])
+        .args([
+            "--flash-size",
+            espflash_flash_size(&board.configured_flash_geometry)?,
+        ])
+        .args([
+            "--flash-freq",
+            espflash_flash_frequency(&board.flash_frequency)?,
+        ])
         .arg(&outputs.elf)
         .arg(&flash_image)
         .stdin(Stdio::null());
@@ -970,7 +1197,74 @@ fn sha256_bytes(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{inspect_elf_data, sha256_bytes};
+    use super::{
+        decode_partition_table, espflash_flash_frequency, espflash_flash_mode, espflash_flash_size,
+        image_region, inspect_elf_data, sha256_bytes,
+    };
+
+    /// Build one 32-byte partition-table entry.
+    fn partition_entry(kind: u8, subtype: u8, offset: u32, size: u32, label: &str) -> Vec<u8> {
+        let mut entry = vec![0_u8; 32];
+        entry[..2].copy_from_slice(&[0xAA, 0x50]);
+        entry[2] = kind;
+        entry[3] = subtype;
+        entry[4..8].copy_from_slice(&offset.to_le_bytes());
+        entry[8..12].copy_from_slice(&size.to_le_bytes());
+        entry[12..12 + label.len()].copy_from_slice(label.as_bytes());
+        entry
+    }
+
+    #[test]
+    fn decodes_partition_entries_until_the_end_marker() {
+        let mut table = partition_entry(1, 0x02, 0x9000, 24576, "nvs");
+        table.extend(partition_entry(0, 0x00, 0x10000, 1_048_576, "factory"));
+        // The real table is followed by an MD5 entry and unwritten flash.
+        table.extend(vec![0xFF_u8; 64]);
+
+        let entries = decode_partition_table(&table).expect("table must decode");
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].label, "nvs");
+        assert_eq!(entries[0].kind, "data");
+        assert_eq!(entries[1].label, "factory");
+        assert_eq!(entries[1].kind, "app");
+        assert_eq!(entries[1].raw_offset, 0x10000);
+        assert_eq!(entries[1].bytes, 1_048_576);
+    }
+
+    #[test]
+    fn rejects_a_partition_table_without_entries() {
+        assert!(decode_partition_table(&[0xFF_u8; 32]).is_err());
+    }
+
+    #[test]
+    fn rejects_an_unsupported_partition_type() {
+        let table = partition_entry(7, 0x00, 0x10000, 1024, "odd");
+        assert!(decode_partition_table(&table).is_err());
+    }
+
+    #[test]
+    fn rejects_a_region_beyond_the_image() {
+        let image = [0_u8; 16];
+        assert!(image_region(&image, 8, 4).is_ok());
+        assert!(image_region(&image, 8, 16).is_err());
+    }
+
+    #[test]
+    fn translates_declared_flash_settings_for_espflash() {
+        assert_eq!(espflash_flash_mode("dio").expect("known mode"), "dio");
+        assert_eq!(espflash_flash_size("16MB").expect("known size"), "16mb");
+        assert_eq!(
+            espflash_flash_frequency("80m").expect("known frequency"),
+            "80mhz"
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_flash_settings() {
+        assert!(espflash_flash_mode("sio").is_err());
+        assert!(espflash_flash_size("16mb").is_err());
+        assert!(espflash_flash_frequency("80mhz").is_err());
+    }
 
     #[test]
     fn validates_static_riscv32_single_float_elf() {
