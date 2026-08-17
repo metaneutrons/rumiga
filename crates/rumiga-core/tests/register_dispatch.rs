@@ -228,8 +228,9 @@ mod register_dispatch_golden_vectors {
         let mut emu = make_emulator();
         // 1 row × 1 word = minimal blit
         emu.dispatch_register_write(custom::BLTSIZE, (1 << 6) | 1);
-        emu.sync_blitter();
+        // The blit completes inside the write that starts it, so no sync is needed.
         assert!(emu.blitter.done);
+        assert!(!emu.blitter.busy);
     }
 
     // ─── Floppy dispatch ────────────────────────────────────────────────────

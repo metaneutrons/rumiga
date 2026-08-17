@@ -13,13 +13,12 @@ publish = false
 
 [features]
 default = ["std"]
-std = ["dep:core_affinity", "m68k/std", "m68k/fpu"]
+std = ["m68k/std", "m68k/fpu"]
 no_std = ["m68k/no_std"]
 
 [dependencies]
 m68k = { workspace = true }
 rumiga-platform = { workspace = true }
-core_affinity = { workspace = true, optional = true }
 
 [dev-dependencies]
 m68000 = { workspace = true }

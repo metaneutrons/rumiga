@@ -40,7 +40,6 @@ missing_const_for_fn = "allow"
 suboptimal_flops = "allow"
 
 [workspace.dependencies]
-core_affinity = "0.8"
 embuild = "=0.33.3"
 esp-idf-svc = { version = "=0.52.1", default-features = false }
 m68000 = { path = "crates/m68000" }
