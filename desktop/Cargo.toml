@@ -14,7 +14,7 @@ publish = false
 [dependencies]
 minifb = { workspace = true }
 m68k = { workspace = true, features = ["std", "fpu"] }
-png = "0.17"
+png = "0.18"
 rumiga-core = { workspace = true }
 rumiga-platform = { workspace = true }
 rumiga-platform-desktop = { workspace = true }
