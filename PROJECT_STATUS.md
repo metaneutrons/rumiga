@@ -350,7 +350,7 @@ Detailed gates are in `ROADMAP.md`; task IDs are in `IMPLEMENTATION_PLAN.md`.
 | Milestone | Status | Promotion evidence |
 | --- | --- | --- |
 | BASE: Desktop evidence foundation | Verified | Six current host scenarios and versioned evidence tooling |
-| M0: Hermetic engineering baseline | Verified | All thirteen M0 tasks pass local, pull-request, and final `main` promotion evidence |
+| M0: Hermetic engineering baseline | Verified | All fourteen M0 tasks pass local, pull-request, and final `main` promotion evidence |
 | M1: Portable deterministic core | Active | M1-001 through M1-004 are verified; G1 remains open |
 | M2: D1001 board bring-up | Planned | Flashable firmware, serial manifest, memory/display smoke |
 | M3: Bounded media and memory | Planned | 2 GiB HDF boots through bounded sector cache |

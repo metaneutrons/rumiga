@@ -1,0 +1,72 @@
+{
+  "schema": "rumiga.change-record.v1",
+  "task_id": "M0-014",
+  "title": "Verify the merged firmware image against its own configuration evidence",
+  "status": "verified",
+  "summary": "Pass the ESP-IDF bootloader, partition table, and the flash mode, size, and frequency declared by the resolved sdkconfig to the image tool, verify that the merged image embeds exactly those bytes and that the application fits its declared partition, and record the decoded layout in the build manifest.",
+  "scope": [
+    "Merged flash image generation inputs",
+    "Merged image consistency verification",
+    "Decoded partition layout evidence",
+    "Firmware build manifest content",
+    "M0-008 evidence correction"
+  ],
+  "risk": {
+    "level": "low",
+    "failure_mode": "An image tool upgrade could stop accepting the binary partition table or change how it applies the declared geometry, which would fail the new assertions rather than publish an inconsistent image.",
+    "rollback": "Revert the M0-014 commits to restore the previous invocation; no persisted data format or on-disk state depends on the new assertions."
+  },
+  "compatibility": {
+    "status": "affected",
+    "detail": "Merged images from bundles published before this change must be discarded because they carried image-tool defaults instead of the pinned configuration. The standalone bootloader, partition table, and flasher arguments in those bundles were always correct. The rumiga.firmware.build.v1 manifest gains an additive merged_image section, which matches the established practice for rumiga.capture.v1."
+  },
+  "security": {
+    "status": "affected",
+    "detail": "A published merged image contained a bootloader that was not built from the pinned sdkconfig and whose appended digest was recomputed by the image tool. No credential, transport, authorization, unsafe-code, or FFI behavior changes, and the correction restores the intended provenance chain from the pinned configuration to the flashable artifact."
+  },
+  "tests": [
+    {
+      "id": "merged-image-unit-coverage",
+      "command": "cargo +1.97.1 test --locked -p rumiga-xtask",
+      "proves": "The partition-table decoder, the region bounds check, and the sdkconfig to image-tool value mapping reject malformed and unknown inputs."
+    },
+    {
+      "id": "firmware-evidence-gate",
+      "command": "cargo +1.97.1 xtask ci --gate firmware",
+      "proves": "The generated merged image embeds the ESP-IDF bootloader and partition table byte for byte and the application fits its declared partition."
+    },
+    {
+      "id": "full-local-promotion",
+      "command": "cargo +1.97.1 xtask ci",
+      "proves": "Commit policy, lockfiles, governance, host checks, compatibility, supply chain, the portable RISC-V profile, and the ESP32-P4 firmware build all pass for the change."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "local-merged-image-consistency",
+      "kind": "command",
+      "location": "2026-08-17 local execution: the firmware gate passes and the generated bundle reports identical bootloader and partition-table digests inside and outside the merged image, an image header of 16 MB at 80 MHz, and an application occupying 175,040 of 1,048,576 partition bytes. The complete eight-gate baseline passes in 81.474 s.",
+      "proves": "The corrected image generation and its assertions are locally valid before pull-request promotion."
+    },
+    {
+      "id": "hosted-pr-merged-image",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions pull-request run 32012799294, artifact 9282516472 firmware-esp32p4-d74790959953befeca4b9b68b55fc665901f4094.",
+      "proves": "All ten required quality jobs pass on a foreign runner. The bundle was downloaded and independently verified: all nine payload checksums pass, both embedded regions match the standalone artifacts, and the image header encodes the declared geometry."
+    },
+    {
+      "id": "hosted-main-merged-image",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions final main run 32013305043 for clean revision 7d162b7345e7a1d2d6ab48e9dc9bdbe7fc9685e1.",
+      "proves": "All ten required quality jobs pass for the promoted main revision."
+    }
+  ],
+  "documentation": [
+    "CI.md",
+    "IMPLEMENTATION_PLAN.md",
+    "PROJECT_STATUS.md",
+    "TOOLCHAIN.md"
+  ],
+  "release_note": "docs/release-notes/unreleased/M0-014.md",
+  "architecture_decisions": []
+}

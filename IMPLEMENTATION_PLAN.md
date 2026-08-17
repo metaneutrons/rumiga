@@ -20,7 +20,7 @@ an immutable artifact produced by that revision.
 The next engineering milestone is **M1: Portable Deterministic Core**. M0 now
 provides the reproducible host, target-build, policy, evidence, and governance
 baseline required to separate core-portability defects from local setup drift.
-M0-013 is a completed post-G0 governance hardening increment. Its local,
+M0-013 and M0-014 are completed post-G0 hardening increments. Their local,
 pull-request, and final `main` promotion paths are verified. M1-002 is also
 complete with local, pull-request, and final `main` target-build evidence.
 M1-003 is complete with local, pull-request, and final `main` portability
@@ -79,6 +79,7 @@ milestone.
 | M0-011 | DONE | Export current compatibility report and test counts as CI artifacts without private media | Hosted private-media-free artifact classifies all scenarios, inventories all tests, and passes independent checksum/privacy verification |
 | M0-012 | DONE | Add contribution, review, release-note, and architecture-decision templates | Hosted checksummed artifact validates the M0-012 task/test/evidence traceability example from a clean PR checkout |
 | M0-013 | DONE | Enforce one Rust-owned Conventional Commit policy in local hooks, pull requests, and `main` pushes | Local eight-gate baseline, hosted PR commits/title, final `main` range, both strict aggregates, and checksummed governance evidence pass |
+| M0-014 | DONE | Verify the merged firmware image against its own configuration evidence | The merged image embeds the ESP-IDF bootloader and partition table byte for byte, the application fits its declared partition, and the manifest records the decoded layout |
 
 M0-002 evidence (2026-08-14):
 
@@ -372,6 +373,35 @@ M0-013 implementation evidence (2026-08-16):
   its clean `f2505b3` source, report result, and all three payload checksums pass
   independent download verification
 
+M0-014 verified evidence (2026-08-17):
+
+- the firmware evidence task passes the ESP-IDF bootloader, the ESP-IDF
+  partition table, and the flash mode, size, and frequency derived from the
+  resolved `sdkconfig` to the image tool, then asserts that the merged image
+  embeds those bytes and that the application fits its declared partition
+- the manifest gains a `merged_image` section with both region offsets, their
+  digests, the application size against its partition size, and the decoded
+  partition table, so a layout change is visible in the manifest diff
+- passing the flash geometry is load bearing: without it the image tool rewrites
+  byte `0x2003` of the supplied bootloader and recomputes its appended digest,
+  so 66 bytes differ from the ESP-IDF build
+- six unit tests cover the partition-table decoder, the region bounds check, and
+  the `sdkconfig` to image-tool value mapping in both directions
+- the defect this task closes is recorded in the M0-008 evidence correction above
+- pull-request run
+  [`32012799294`](https://github.com/metaneutrons/rumiga/actions/runs/32012799294)
+  passes all ten jobs for branch head
+  `d74790959953befeca4b9b68b55fc665901f4094`
+- the hosted firmware bundle from that run was downloaded and independently
+  verified: all nine payload checksums pass, the merged image embeds a bootloader
+  and partition table identical to the standalone artifacts, its header encodes
+  16 MB at 80 MHz, and the application occupies 175,040 of 1,048,576 partition
+  bytes
+- final `main` run
+  [`32013305043`](https://github.com/metaneutrons/rumiga/actions/runs/32013305043)
+  passes all ten jobs for clean revision
+  `7d162b7345e7a1d2d6ab48e9dc9bdbe7fc9685e1`
+
 ### M0 functional commits
 
 1. `docs(project): establish embedded-first roadmap and status`
@@ -403,6 +433,8 @@ M0-013 implementation evidence (2026-08-16):
 27. `docs(governance): document conventional commit policy`
 28. `test(quality): cover commit range enforcement`
 29. `docs(project): close M0-013 with hosted evidence`
+30. `fix(ci): make the merged firmware image match its configuration evidence`
+31. `docs(project): record the merged firmware image contract`
 
 ### M0 promotion command set
 
