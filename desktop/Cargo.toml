@@ -28,7 +28,7 @@ serde_json = { workspace = true }
 core_affinity = { workspace = true }
 fs2 = "0.4.3"
 libslirp = { version = "4.3.2", default-features = false }
-mio = "0.6.23"
+mio = "1.2.1"
 
 [lints]
 workspace = true
