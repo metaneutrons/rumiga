@@ -131,7 +131,7 @@ branch settings match policy, or that host evidence proves D1001 behavior.
 ## Host Matrix Contract
 
 Both host legs use Rust `1.97.1`, the declared Rust `1.85.0` MSRV, Node.js
-`24.19.0`, and npm `11.17.0`. The workflow validates the installed versions
+`26.7.0`, and npm `11.19.0`. The workflow validates the installed versions
 against repository-owned files before building. Ubuntu installs `libglib2.0-dev`,
 `libslirp-dev`, and `pkg-config`; macOS installs the equivalent Homebrew
 `libslirp` and `pkg-config` formulae. Each leg executes the canonical host gate:

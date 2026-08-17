@@ -1,0 +1,76 @@
+{
+  "schema": "rumiga.change-record.v1",
+  "task_id": "M0-015",
+  "title": "Move the Node pin to the current 26 line and align the type definitions",
+  "status": "implemented",
+  "summary": "Pin Node to 26.7.0 and npm to 11.19.0 across the manifest, version file, and web package, move @types/node to the matching major so the definitions describe the runtime in use, and record the deliberate exception to the long-term-support rule.",
+  "scope": [
+    "Node and npm toolchain pins",
+    "Node type definition alignment",
+    "Web lockfile regeneration",
+    "Documented exception to the LTS pin rule"
+  ],
+  "risk": {
+    "level": "medium",
+    "failure_mode": "A current Node line receives breaking changes and shorter support than an LTS line, so a future patch release could break the web build. A partial pin update would leave the repository disagreeing with its own manifest.",
+    "rollback": "Revert the M0-015 commits to restore Node 24.19.0, npm 11.17.0, and the previous lockfile. Nothing outside the build depends on the pin, because no Node runtime ships in the product."
+  },
+  "compatibility": {
+    "status": "affected",
+    "detail": "Contributors must install Node 26.7.0 and npm 11.19.0; the host gate rejects a mismatch before building. @types/node moves from a major behind the runtime to the matching major, so code that relied on stale definitions may now see accurate types. No shipped artifact changes, because Node only produces the static export that is embedded into the desktop binary and later the firmware."
+  },
+  "security": {
+    "status": "affected",
+    "detail": "The build now runs on a Node line that is not under long-term support, which receives security fixes for a shorter window than an LTS line. The exposure is limited to the build host, since no Node runtime ships in the product, and the pin is exact so an update is always a reviewed decision rather than a silent drift."
+  },
+  "tests": [
+    {
+      "id": "cross-file-pin-agreement",
+      "command": "cargo +1.97.1 test --locked -p rumiga-firmware",
+      "proves": "toolchain/manifest.toml, .node-version, and web/package.json engines and packageManager all declare the same Node and npm versions."
+    },
+    {
+      "id": "web-install-lint-build",
+      "command": "cd web && npm ci --no-audit --no-fund && npm run lint && npm run build",
+      "proves": "The pinned runtime installs the locked dependency graph, lints clean, and produces the static export."
+    },
+    {
+      "id": "full-local-promotion",
+      "command": "cargo +1.97.1 xtask ci",
+      "proves": "Commit policy, lockfiles, governance, host checks, compatibility, supply chain, the portable RISC-V profile, and the ESP32-P4 firmware build all pass on the new runtime."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "local-node-26-web-pipeline",
+      "kind": "command",
+      "location": "2026-08-17 local execution on Node 26.7.0 with npm 11.19.0: npm ci installs 355 packages, npm run lint is clean, npm run build produces the five static routes, and the cross-file pin test passes.",
+      "proves": "The web pipeline works on the new pinned runtime and the pin sites agree."
+    },
+    {
+      "id": "local-release-index-lookup",
+      "kind": "command",
+      "location": "2026-08-17 read of the Node release index: v26 latest 26.7.0 released 2026-08-05 with lts false and npm 11.19.0; v24 latest 24.19.0 with lts Krypton. Declared engine ranges were read from the registry: next@16.3.1 node >=20.9.0, eslint@9.39.5 ^18.18.0 || ^20.9.0 || >=21.1.0.",
+      "proves": "The LTS status, the npm pairing, and the absence of any dependency objection are taken from primary sources rather than assumed."
+    },
+    {
+      "id": "hosted-promotion",
+      "kind": "ci-artifact",
+      "location": "Pending: hosted pull-request and final main promotion evidence is required before this record moves to verified.",
+      "proves": "Nothing yet."
+    }
+  ],
+  "documentation": [
+    "CI.md",
+    "IMPLEMENTATION_PLAN.md",
+    "PROJECT_STATUS.md",
+    "README.md",
+    "TOOLCHAIN.md",
+    "docs/adr/0009-node-current-line-pin.md",
+    "docs/adr/README.md"
+  ],
+  "release_note": "docs/release-notes/unreleased/M0-015.md",
+  "architecture_decisions": [
+    "docs/adr/0009-node-current-line-pin.md"
+  ]
+}
