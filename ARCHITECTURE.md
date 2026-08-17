@@ -72,6 +72,13 @@ Important current constraints:
 - Desktop REST media I/O is isolated in `desktop/src/storage.rs`, confined to a
   configured canonical root, streamed under a size limit, and published without
   overwriting existing files.
+- The D1001 flash layout is repository-owned in `firmware/partitions.csv`: two
+  6 MiB application slots at fixed offsets with the variable-size `storage`
+  partition last, so the layout serves both the configured 16 MB geometry and the
+  board's full 32 MB part without moving a slot. The partition table sits at
+  `0x10000` so the bootloader window can hold a signed bootloader. Secure Boot is
+  reserved rather than enabled; see
+  [ADR-0007](docs/adr/0007-product-flash-partition-layout.md).
 - Gayle/ATA owns a complete HDF `Vec<u8>`.
 - The desktop REST listener binds to `127.0.0.1:8080`.
 

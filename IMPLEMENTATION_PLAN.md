@@ -651,7 +651,7 @@ M1-004 verified evidence (2026-08-17):
 | --- | --- | --- | --- |
 | M2-001 | PLANNED | Record D1001 schematic revision, board revision, BSP SHA, and connector inventory | Reviewed hardware manifest under `docs/hardware` |
 | M2-002 | PLANNED | Create reproducible ESP-IDF/Rust firmware build using `riscv32imafc-esp-espidf` | CI produces ELF, binary, map, size report, and checksums |
-| M2-003 | PLANNED | Define partitions, PSRAM allocator, panic, watchdog, logging, and reset policy | Boot manifest reports all values and reset reason |
+| M2-003 | PLANNED | Define PSRAM allocator, panic, watchdog, logging, and reset policy | Boot manifest reports all values and reset reason |
 | M2-004 | PLANNED | Port proven Vellum D1001 services into Rust-first adapters and establish the safety/provenance contract | Exact source-transfer records, narrowly scoped unsafe code, host mocks, and third-party license audit pass |
 | M2-005 | PLANNED | Add serial command protocol for capabilities, self-test, metrics, and reset | Versioned protocol test and captured cold-boot log |
 | M2-006 | PLANNED | Bring up RGB565 display test pattern and framebuffer checksum | HIL screenshot/checksum artifact |
@@ -661,6 +661,45 @@ M1-004 verified evidence (2026-08-17):
 | M2-010 | PLANNED | Bring up ESP32-C6 SDIO link and local network smoke | Link/reconnect counters without guest emulation |
 | M2-011 | PLANNED | Qualify USB host connector, role, VBUS, hub, keyboard, and mouse | Schematic note plus actual-board enumeration matrix |
 | M2-012 | PLANNED | Automate 20 cold boots and board service report | HIL job with zero unexplained resets |
+| M2-013 | DONE | Define the product flash partition layout with two OTA slots and a Secure Boot bootloader window | The flashable image carries the repository-owned layout, the bootloader fits its window, and the layout is contiguous, aligned, and fills the configured geometry |
+
+M2-013 lands before M2-004 in execution order. It is listed last because task
+IDs are stable audit labels, not a sequence.
+
+M2-013 evidence (2026-08-17):
+
+- `firmware/partitions.csv` owns the product layout: 320 KiB `nvs`, 4 KiB
+  `nvs_keys`, 8 KiB `otadata`, 4 KiB `phy_init`, 108 KiB `coredump`, two 6 MiB
+  application slots at `0x80000` and `0x680000`, and `storage` last
+- `CONFIG_PARTITION_TABLE_OFFSET` moves from `0x8000` to `0x10000`. The stock
+  offset left the 24,096-byte bootloader 480 bytes of headroom, which cannot
+  hold a Secure Boot V2 signature block; the window is now 57,344 bytes
+- the variable-size data partition is last, so both application slots keep
+  identical offsets on the configured 16 MB geometry and on the full 32 MB part.
+  Qualifying the upper half only extends `storage` from 3.5 MiB to 19.5 MiB and
+  does not invalidate an already deployed OTA image
+- `esp-idf-sys` documents that a custom table in `sdkconfig.defaults` is ignored
+  by its generated CMake project, so the layout is applied when the flashable
+  image is generated and the table the ESP-IDF build emits is a build artifact.
+  `CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE` keeps that internal table larger
+  than the current application
+- the evidence task verifies that the merged image embeds the layout declared by
+  `firmware/partitions.csv` entry by entry, that the bootloader fits its window,
+  and that the application fits its slot; the manifest records the decoded layout
+- slot sizing rests on a measured forecast. A bare-metal RISC-V probe that forces
+  full instantiation of the emulator measures 540 KiB of code and read-only data
+  for `rumiga-core`, `m68k`, and `rumiga-platform`. With ESP-IDF, Wi-Fi, display,
+  audio, storage, USB, an HTTP stack, and the 195 KiB gzipped web bundle, a
+  feature-complete image is forecast between 1.8 MiB and 3.8 MiB, so a 6 MiB slot
+  leaves at least 2.2 MiB of headroom
+- `cargo +1.97.1 test --locked -p rumiga-xtask` asserts that the shipped layout
+  is contiguous, 4 KiB aligned with 64 KiB aligned application slots, fills the
+  configured geometry exactly, and declares two equal-sized OTA slots
+- Secure Boot is not enabled in the build. Signed binaries require a private key,
+  which must not enter the repository or the evidence bundle; key lifecycle and
+  offline signing belong to M10
+- local `cargo +1.97.1 xtask ci --gate firmware` passes and reports an
+  application occupying 175,040 of 6,291,456 slot bytes
 
 ### M2 functional commits
 

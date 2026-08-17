@@ -22,16 +22,19 @@ mod supply_chain;
 const BUILD_DIRECTORY: &str = "m0-008-firmware-build";
 const EVIDENCE_DIRECTORY: &str = "m0-008-firmware-evidence";
 
-/// Merged-image flash offsets, pinned against `flasher_args.json` in
-/// [`verify_flash_layout`].
+/// Bootloader flash offset, pinned against `flasher_args.json` in
+/// [`verify_flash_layout`]. The partition-table offset is configuration and is
+/// read from the resolved `sdkconfig`.
 const BOOTLOADER_OFFSET: usize = 0x2000;
-const PARTITION_TABLE_OFFSET: usize = 0x8000;
 
 /// Size of one partition-table entry in the binary layout.
 const PARTITION_ENTRY_BYTES: usize = 32;
 
 /// Magic prefix of a populated partition-table entry.
 const PARTITION_ENTRY_MAGIC: [u8; 2] = [0xAA, 0x50];
+
+/// Repository-owned product partition layout applied to the flashable image.
+const PARTITION_LAYOUT_PATH: &str = "firmware/partitions.csv";
 
 #[derive(Debug, Deserialize)]
 struct ToolchainManifest {
@@ -142,6 +145,7 @@ struct BoardConfigurationEvidence {
     declared_physical_flash: String,
     configured_flash_geometry: String,
     flash_frequency: String,
+    partition_table_offset: String,
     declared_physical_psram: String,
     psram_mode: String,
     psram_speed_mhz: u32,
@@ -158,15 +162,19 @@ struct BoardConfigurationEvidence {
     console: String,
 }
 
-/// Evidence that the merged flash image carries the ESP-IDF bootloader,
-/// partition table, and application rather than image-tool defaults.
+/// Evidence that the merged flash image carries the ESP-IDF bootloader and the
+/// repository-owned product partition layout rather than image-tool defaults.
 #[derive(Debug, Serialize)]
 struct MergedImageEvidence {
     bytes: u64,
     bootloader_offset: String,
+    bootloader_bytes: u64,
+    bootloader_window_bytes: u64,
     bootloader_region_sha256: String,
     partition_table_offset: String,
+    partition_table_source: String,
     partition_table_region_sha256: String,
+    app_partition: String,
     app_offset: String,
     app_image_bytes: u64,
     app_partition_bytes: u32,
@@ -297,8 +305,12 @@ fn build_firmware_evidence() -> Result<()> {
         &board_configuration,
     )?;
     artifacts.sort_by(|left, right| left.name.cmp(&right.name));
-    let merged_image =
-        verify_merged_flash_image(&evidence_root.join("rumiga-firmware.flash.bin"), &outputs)?;
+    let merged_image = verify_merged_flash_image(
+        &root,
+        &evidence_root.join("rumiga-firmware.flash.bin"),
+        &outputs,
+        parse_partition_number(&board_configuration.partition_table_offset)? as usize,
+    )?;
 
     let evidence = EvidenceManifest {
         schema: manifest.build.evidence_schema,
@@ -695,6 +707,11 @@ fn verify_board_configuration(
     let bootloader_flash_mode = config_string(&config, "CONFIG_ESPTOOLPY_FLASHMODE")?;
     let flash_size = config_string(&config, "CONFIG_ESPTOOLPY_FLASHSIZE")?;
     let flash_frequency = config_string(&config, "CONFIG_ESPTOOLPY_FLASHFREQ")?;
+    let partition_table_offset = config_offset(&config, "CONFIG_PARTITION_TABLE_OFFSET")?;
+    ensure!(
+        partition_table_offset > BOOTLOADER_OFFSET,
+        "partition table must follow the bootloader"
+    );
     ensure!(
         bootloader_flash_mode == "dio",
         "ESP-IDF must flash the QIO bootloader in DIO mode"
@@ -713,6 +730,7 @@ fn verify_board_configuration(
         &bootloader_flash_mode,
         &flash_size,
         &flash_frequency,
+        partition_table_offset,
     )?;
 
     ensure_config(&config, "CONFIG_SPIRAM_SPEED", "200")?;
@@ -734,6 +752,7 @@ fn verify_board_configuration(
         declared_physical_flash: manifest.target.physical_flash.clone(),
         configured_flash_geometry: flash_size,
         flash_frequency,
+        partition_table_offset: format!("{partition_table_offset:#x}"),
         declared_physical_psram: manifest.target.physical_psram.clone(),
         psram_mode: "hex".to_owned(),
         psram_speed_mhz: config_u32(&config, "CONFIG_SPIRAM_SPEED")?,
@@ -754,7 +773,13 @@ fn verify_board_configuration(
     })
 }
 
-fn verify_flash_layout(path: &Path, mode: &str, size: &str, frequency: &str) -> Result<()> {
+fn verify_flash_layout(
+    path: &Path,
+    mode: &str,
+    size: &str,
+    frequency: &str,
+    partition_table_offset: usize,
+) -> Result<()> {
     let contents =
         fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
     let layout: serde_json::Value = serde_json::from_str(&contents)
@@ -770,16 +795,31 @@ fn verify_flash_layout(path: &Path, mode: &str, size: &str, frequency: &str) -> 
         );
     }
     for (offset, expected_file) in [
-        ("0x2000", "bootloader/bootloader.bin"),
-        ("0x8000", "partition_table/partition-table.bin"),
-        ("0x10000", "libespidf.bin"),
+        (BOOTLOADER_OFFSET, "bootloader/bootloader.bin"),
+        (
+            partition_table_offset,
+            "partition_table/partition-table.bin",
+        ),
     ] {
-        let pointer = format!("/flash_files/{offset}");
+        let pointer = format!("/flash_files/{offset:#x}");
         ensure!(
             json_string(&layout, &pointer)? == expected_file,
-            "unexpected flash layout entry at {offset}"
+            "unexpected flash layout entry at {offset:#x}"
         );
     }
+    // The application offset belongs to the ESP-IDF build's own table, which is
+    // a build artifact; the shipped layout comes from PARTITION_LAYOUT_PATH.
+    let files = layout
+        .pointer("/flash_files")
+        .and_then(serde_json::Value::as_object)
+        .context("flash layout has no flash_files object")?;
+    ensure!(
+        files
+            .values()
+            .filter_map(serde_json::Value::as_str)
+            .any(|file| file == "libespidf.bin"),
+        "flash layout declares no application image"
+    );
     Ok(())
 }
 
@@ -824,32 +864,57 @@ fn espflash_flash_frequency(value: &str) -> Result<&'static str> {
 /// the merged image cannot silently carry a different flash geometry than the
 /// resolved `sdkconfig`.
 fn verify_merged_flash_image(
+    root: &Path,
     image_path: &Path,
     outputs: &BuildOutputs,
+    partition_table_offset: usize,
 ) -> Result<MergedImageEvidence> {
     let image =
         fs::read(image_path).with_context(|| format!("failed to read {}", image_path.display()))?;
     let bootloader = fs::read(&outputs.bootloader)
         .with_context(|| format!("failed to read {}", outputs.bootloader.display()))?;
-    let table = fs::read(&outputs.partition_table)
-        .with_context(|| format!("failed to read {}", outputs.partition_table.display()))?;
 
+    let window = partition_table_offset - BOOTLOADER_OFFSET;
+    ensure!(
+        bootloader.len() <= window,
+        "bootloader of {} bytes does not fit its {window} byte window; raise CONFIG_PARTITION_TABLE_OFFSET",
+        bootloader.len()
+    );
     let bootloader_region = image_region(&image, BOOTLOADER_OFFSET, bootloader.len())?;
     ensure!(
         bootloader_region == bootloader.as_slice(),
         "merged image does not embed the ESP-IDF bootloader"
     );
-    let table_region = image_region(&image, PARTITION_TABLE_OFFSET, table.len())?;
-    ensure!(
-        table_region == table.as_slice(),
-        "merged image does not embed the ESP-IDF partition table"
-    );
 
+    let expected = read_partition_layout(root)?;
+    let table_region = image_region(
+        &image,
+        partition_table_offset,
+        expected.len() * PARTITION_ENTRY_BYTES,
+    )?;
     let partitions = decode_partition_table(table_region)?;
+    ensure!(
+        partitions.len() == expected.len(),
+        "merged image declares {} partitions but {PARTITION_LAYOUT_PATH} declares {}",
+        partitions.len(),
+        expected.len()
+    );
+    for (actual, wanted) in partitions.iter().zip(&expected) {
+        ensure!(
+            actual.label == wanted.label
+                && actual.kind == wanted.kind
+                && actual.subtype == wanted.subtype
+                && actual.raw_offset == wanted.raw_offset
+                && actual.bytes == wanted.bytes,
+            "merged image partition {} does not match {PARTITION_LAYOUT_PATH}",
+            actual.label
+        );
+    }
+
     let app = partitions
         .iter()
         .find(|entry| entry.kind == "app")
-        .context("partition table declares no application partition")?;
+        .context("partition layout declares no application partition")?;
     let app_offset = usize::try_from(app.raw_offset)?;
     ensure!(
         app_offset < image.len(),
@@ -858,16 +923,20 @@ fn verify_merged_flash_image(
     let app_image_bytes = image.len() - app_offset;
     ensure!(
         u64::from(app.bytes) >= app_image_bytes as u64,
-        "application image of {app_image_bytes} bytes exceeds its {} byte partition",
+        "application image of {app_image_bytes} bytes exceeds its {} byte slot",
         app.bytes
     );
 
     Ok(MergedImageEvidence {
         bytes: image.len() as u64,
         bootloader_offset: format!("{BOOTLOADER_OFFSET:#x}"),
+        bootloader_bytes: bootloader.len() as u64,
+        bootloader_window_bytes: window as u64,
         bootloader_region_sha256: sha256_bytes(bootloader_region),
-        partition_table_offset: format!("{PARTITION_TABLE_OFFSET:#x}"),
+        partition_table_offset: format!("{partition_table_offset:#x}"),
+        partition_table_source: PARTITION_LAYOUT_PATH.to_owned(),
         partition_table_region_sha256: sha256_bytes(table_region),
+        app_partition: app.label.clone(),
         app_offset: format!("{app_offset:#x}"),
         app_image_bytes: app_image_bytes as u64,
         app_partition_bytes: app.bytes,
@@ -876,6 +945,79 @@ fn verify_merged_flash_image(
             .map(DecodedPartition::into_evidence)
             .collect(),
     })
+}
+
+/// Parse the repository-owned product partition layout.
+fn read_partition_layout(root: &Path) -> Result<Vec<DecodedPartition>> {
+    let path = root.join(PARTITION_LAYOUT_PATH);
+    let contents =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    parse_partition_layout(&contents)
+}
+
+/// Parse partition-layout CSV text.
+fn parse_partition_layout(contents: &str) -> Result<Vec<DecodedPartition>> {
+    let mut entries = Vec::new();
+    for line in contents.lines() {
+        let line = line.split('#').next().unwrap_or_default().trim();
+        if line.is_empty() {
+            continue;
+        }
+        let fields = line.split(',').map(str::trim).collect::<Vec<_>>();
+        ensure!(
+            fields.len() >= 5,
+            "{PARTITION_LAYOUT_PATH} row {line:?} needs name, type, subtype, offset, and size"
+        );
+        let kind = match fields[1] {
+            "app" | "data" => fields[1].to_owned(),
+            other => bail!("{PARTITION_LAYOUT_PATH} has unsupported partition type {other}"),
+        };
+        entries.push(DecodedPartition {
+            label: fields[0].to_owned(),
+            subtype: format!("{:#04x}", partition_subtype(&kind, fields[2])?),
+            kind,
+            raw_offset: parse_partition_number(fields[3])?,
+            bytes: parse_partition_number(fields[4])?,
+        });
+    }
+    ensure!(
+        !entries.is_empty(),
+        "{PARTITION_LAYOUT_PATH} declares no partitions"
+    );
+    Ok(entries)
+}
+
+/// Map an ESP-IDF partition subtype name to its binary encoding.
+fn partition_subtype(kind: &str, name: &str) -> Result<u8> {
+    let subtype = match kind {
+        "app" => match name {
+            "factory" => 0x00,
+            "ota_0" => 0x10,
+            "ota_1" => 0x11,
+            _ => bail!("unsupported app partition subtype {name}"),
+        },
+        "data" => match name {
+            "ota" => 0x00,
+            "phy" => 0x01,
+            "nvs" => 0x02,
+            "coredump" => 0x03,
+            "nvs_keys" => 0x04,
+            "fat" => 0x81,
+            "spiffs" => 0x82,
+            _ => bail!("unsupported data partition subtype {name}"),
+        },
+        _ => bail!("unsupported partition type {kind}"),
+    };
+    Ok(subtype)
+}
+
+/// Parse a hexadecimal or decimal partition field.
+fn parse_partition_number(value: &str) -> Result<u32> {
+    let parsed = value.strip_prefix("0x").map_or_else(
+        || value.parse::<u32>().ok(),
+        |hex| u32::from_str_radix(hex, 16).ok(),
+    );
+    parsed.with_context(|| format!("{PARTITION_LAYOUT_PATH} has invalid numeric field {value:?}"))
 }
 
 /// Borrow `length` bytes at `offset`, failing when the image is too short.
@@ -979,6 +1121,16 @@ fn config_string(config: &BTreeMap<String, String>, key: &str) -> Result<String>
         .with_context(|| format!("{key} is not a quoted string"))
 }
 
+/// Read a hexadecimal `sdkconfig` offset such as `CONFIG_PARTITION_TABLE_OFFSET`.
+fn config_offset(config: &BTreeMap<String, String>, key: &str) -> Result<usize> {
+    let value = config
+        .get(key)
+        .with_context(|| format!("sdkconfig does not define {key}"))?;
+    let parsed = parse_partition_number(value)
+        .with_context(|| format!("{key} is not a valid offset: {value}"))?;
+    Ok(parsed as usize)
+}
+
 fn config_u32(config: &BTreeMap<String, String>, key: &str) -> Result<u32> {
     config
         .get(key)
@@ -1016,7 +1168,11 @@ fn package_outputs(
         // espflash 4.5.0 documents a CSV here but also accepts the binary table
         // that ESP-IDF generates. The pinned version keeps that behavior stable.
         .arg("--partition-table")
-        .arg(&outputs.partition_table)
+        .arg(root.join(PARTITION_LAYOUT_PATH))
+        .args([
+            "--partition-table-offset",
+            &board.partition_table_offset.clone(),
+        ])
         .args([
             "--flash-mode",
             espflash_flash_mode(&board.bootloader_flash_mode)?,
@@ -1197,9 +1353,12 @@ fn sha256_bytes(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::{
         decode_partition_table, espflash_flash_frequency, espflash_flash_mode, espflash_flash_size,
-        image_region, inspect_elf_data, sha256_bytes,
+        image_region, inspect_elf_data, parse_partition_layout, read_partition_layout,
+        sha256_bytes,
     };
 
     /// Build one 32-byte partition-table entry.
@@ -1264,6 +1423,76 @@ mod tests {
         assert!(espflash_flash_mode("sio").is_err());
         assert!(espflash_flash_size("16mb").is_err());
         assert!(espflash_flash_frequency("80mhz").is_err());
+    }
+
+    #[test]
+    fn parses_the_partition_layout_ignoring_comments() {
+        let csv = "# header comment\n\
+                   nvs,      data, nvs,   0x11000, 0x50000,\n\
+                   \n\
+                   ota_0,    app,  ota_0, 0x80000, 0x600000, # trailing\n";
+        let entries = parse_partition_layout(csv).expect("layout must parse");
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].label, "nvs");
+        assert_eq!(entries[0].kind, "data");
+        assert_eq!(entries[0].subtype, "0x02");
+        assert_eq!(entries[0].raw_offset, 0x11000);
+        assert_eq!(entries[0].bytes, 0x50000);
+        assert_eq!(entries[1].kind, "app");
+        assert_eq!(entries[1].subtype, "0x10");
+    }
+
+    #[test]
+    fn rejects_malformed_partition_layouts() {
+        assert!(parse_partition_layout("# only a comment\n").is_err());
+        assert!(parse_partition_layout("nvs, data, nvs, 0x1000\n").is_err());
+        assert!(parse_partition_layout("nvs, blob, nvs, 0x1000, 0x1000,\n").is_err());
+        assert!(parse_partition_layout("nvs, data, magic, 0x1000, 0x1000,\n").is_err());
+        assert!(parse_partition_layout("nvs, data, nvs, 0xzz, 0x1000,\n").is_err());
+    }
+
+    #[test]
+    fn repository_partition_layout_is_contiguous_and_aligned() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("xtask is a workspace child")
+            .to_path_buf();
+        let entries = read_partition_layout(&root).expect("shipped layout must parse");
+        let mut cursor = entries[0].raw_offset;
+        for entry in &entries {
+            assert_eq!(
+                entry.raw_offset, cursor,
+                "partition {} leaves an unallocated gap",
+                entry.label
+            );
+            if entry.kind == "app" {
+                assert_eq!(
+                    entry.raw_offset % 0x10000,
+                    0,
+                    "app partition {} must be 64 KiB aligned",
+                    entry.label
+                );
+            }
+            assert_eq!(
+                entry.raw_offset % 0x1000,
+                0,
+                "partition {} must be 4 KiB aligned",
+                entry.label
+            );
+            cursor = entry.raw_offset + entry.bytes;
+        }
+        assert_eq!(
+            u64::from(cursor),
+            16 * 1024 * 1024,
+            "the layout must fill the configured 16 MB geometry exactly"
+        );
+        let slots = entries
+            .iter()
+            .filter(|entry| entry.kind == "app")
+            .map(|entry| entry.bytes)
+            .collect::<Vec<_>>();
+        assert_eq!(slots.len(), 2, "the product layout needs two OTA slots");
+        assert_eq!(slots[0], slots[1], "OTA slots must be the same size");
     }
 
     #[test]
