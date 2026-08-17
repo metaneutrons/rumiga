@@ -100,6 +100,24 @@ absent posture, and each rejected configuration. The Secure Boot measurement use
 `SECURE_BOOT_BUILD_SIGNED_BINARIES=n` so that no key was required, and was
 reverted rather than committed.
 
+Clean pull-request run
+[`32049854368`](https://github.com/metaneutrons/rumiga/actions/runs/32049854368)
+produced governance artifact `9294271555` with archive SHA-256
+`db92e6e0a918d78368cde2a78f7cd48da2ba19e3f7276a4fb6a63325e04ccff5`. Final `main`
+run
+[`32065256994`](https://github.com/metaneutrons/rumiga/actions/runs/32065256994)
+produced governance artifact `9299639002` with archive SHA-256
+`1c5afd8dc30fc599a041bbc7ffa089506c8c89772294003c7b83ae9f2db41acc`. Both were
+independently downloaded and verified.
+
+The hosted firmware bundle was also checked directly. Its manifest reports
+`efuse_virtual: true` and `burns_efuses: false`, and its resolved `sdkconfig`
+confirms `CONFIG_EFUSE_VIRTUAL`, AES-128, the flash-encryption NVS scheme, and the
+absence of `CONFIG_SECURE_BOOT`. ESP-IDF additionally resolved
+`SECURE_FLASH_UART_BOOTLOADER_ALLOW_ENC`, which is the mechanism that keeps
+plaintext flashing over cable available and is precisely why this mode is
+reversible and why upstream labels it insecure.
+
 ## Supersession
 
 None. This narrows the reservation recorded in ADR-0007 into an enforced

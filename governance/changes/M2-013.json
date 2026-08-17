@@ -2,7 +2,7 @@
   "schema": "rumiga.change-record.v1",
   "task_id": "M2-013",
   "title": "Define the product flash partition layout",
-  "status": "implemented",
+  "status": "verified",
   "summary": "Own the D1001 flash layout in firmware/partitions.csv with two 6 MiB OTA slots, crash-dump and storage partitions, and room for NVS encryption, move the partition table to 0x10000 so the bootloader window can hold a signed bootloader, apply the layout when the flashable image is generated, and verify the shipped image against it.",
   "scope": [
     "Repository-owned product partition layout",
@@ -55,10 +55,16 @@
       "proves": "The 6 MiB slot size rests on measured component sizes plus labelled estimates for the ESP-IDF components that are not yet integrated, rather than on a guess."
     },
     {
-      "id": "hosted-promotion",
+      "id": "hosted-pr-m2-013",
       "kind": "ci-artifact",
-      "location": "Pending: hosted pull-request and final main promotion evidence is required before this record moves to verified.",
-      "proves": "Nothing yet."
+      "location": "GitHub Actions pull-request run 32046813352, artifact 9293179791 governance-0c2ee6c50dfeccbce32168747eefc3fe09c9297d, archive sha256:24145f2b11d6c3dcc7845f8a4e558b1fe303e4f1004e47788a794da1b7f9e0f4.",
+      "proves": "All ten required quality jobs pass for the clean pull-request merge revision; the governance payload checksums and the traceability record were independently verified. Its firmware artifact 9293319559 was downloaded and independently verified: all nine payload checksums pass and the eight partitions decoded from the flashable image match firmware/partitions.csv entry by entry."
+    },
+    {
+      "id": "hosted-main-m2-013",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions final main run 32047348837, artifact 9293361473 governance-b6579467386d4123773c002157b74fa5d4eeba9f, archive sha256:ba3800552435675429ea659c25856a9dc4423f6bc64b13d88464fec663d0f049.",
+      "proves": "All ten required quality jobs pass for clean main revision b6579467386d4123773c002157b74fa5d4eeba9f; the governance payload checksums, the clean-source claim, and the traceability record were independently verified."
     }
   ],
   "documentation": [

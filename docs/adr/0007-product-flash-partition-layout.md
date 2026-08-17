@@ -125,6 +125,22 @@ reports an application occupying 175,040 of 6,291,456 slot bytes with a
 rumiga-xtask` covers the layout parser, the subtype mapping, and the shipped
 layout invariants.
 
+Clean pull-request run
+[`32046813352`](https://github.com/metaneutrons/rumiga/actions/runs/32046813352)
+produced governance artifact `9293179791` with archive SHA-256
+`24145f2b11d6c3dcc7845f8a4e558b1fe303e4f1004e47788a794da1b7f9e0f4`. Final `main`
+run
+[`32047348837`](https://github.com/metaneutrons/rumiga/actions/runs/32047348837)
+produced governance artifact `9293361473` with archive SHA-256
+`ba3800552435675429ea659c25856a9dc4423f6bc64b13d88464fec663d0f049`. Both were
+independently downloaded and verified, and the eight partitions decoded straight
+out of the hosted flashable image match this layout entry by entry.
+
+The window reservation was subsequently measured rather than assumed. M2-014
+records that the bootloader grows to 34,800 bytes with flash encryption, which the
+former `0x8000` offset could not have held, so the offset move recorded here was
+already necessary.
+
 ## Supersession
 
 None. This replaces the stock ESP-IDF table that ADR-0001's M0-008 evidence

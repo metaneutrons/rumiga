@@ -667,7 +667,7 @@ M1-004 verified evidence (2026-08-17):
 M2-013 and M2-014 land before M2-004 in execution order. They are listed last
 because task IDs are stable audit labels, not a sequence.
 
-M2-013 evidence (2026-08-17):
+M2-013 verified evidence (2026-08-17):
 
 - `firmware/partitions.csv` owns the product layout: 320 KiB `nvs`, 4 KiB
   `nvs_keys`, 8 KiB `otadata`, 4 KiB `phy_init`, 108 KiB `coredump`, two 6 MiB
@@ -701,8 +701,28 @@ M2-013 evidence (2026-08-17):
   offline signing belong to M10
 - local `cargo +1.97.1 xtask ci --gate firmware` passes and reports an
   application occupying 175,040 of 6,291,456 slot bytes
+- pull-request run
+  [`32046813352`](https://github.com/metaneutrons/rumiga/actions/runs/32046813352)
+  passes all ten jobs; Linux job `95436522068`, macOS job `95436522095`, firmware
+  job `95436522087`, and aggregate job `95437948183` pass
+- its firmware artifact `9293319559` was downloaded and independently verified:
+  all nine payload checksums pass, and the eight partitions decoded straight out
+  of the flashable image match `firmware/partitions.csv` entry by entry
+- pull-request governance artifact `9293179791`, produced from clean merge
+  revision `0c2ee6c50dfeccbce32168747eefc3fe09c9297d`, has archive SHA-256
+  `24145f2b11d6c3dcc7845f8a4e558b1fe303e4f1004e47788a794da1b7f9e0f4`; all payload
+  checksums and the M2-013 traceability record were independently verified
+- final `main` run
+  [`32047348837`](https://github.com/metaneutrons/rumiga/actions/runs/32047348837)
+  passes all ten jobs for clean revision
+  `b6579467386d4123773c002157b74fa5d4eeba9f`; Linux job `95438191321`, macOS job
+  `95438191377`, firmware job `95438191423`, and aggregate job `95439634504` pass
+- final governance artifact `9293361473` has archive SHA-256
+  `ba3800552435675429ea659c25856a9dc4423f6bc64b13d88464fec663d0f049`; all payload
+  checksums, the clean-source claim, and the M2-013 traceability record were
+  independently verified
 
-M2-014 evidence (2026-08-17):
+M2-014 verified evidence (2026-08-17):
 
 - flash encryption is enabled in Development mode together with
   `CONFIG_EFUSE_VIRTUAL`, so no board that boots this firmware is permanently
@@ -738,6 +758,32 @@ M2-014 evidence (2026-08-17):
 - Secure Boot remains disabled in the build. Signed binaries require a private
   key that must not enter the repository or the evidence bundle, and enabling it
   on hardware is irreversible; key lifecycle and offline signing belong to M10
+- pull-request run
+  [`32049854368`](https://github.com/metaneutrons/rumiga/actions/runs/32049854368)
+  passes all ten jobs; Linux job `95446351688`, macOS job `95446351502`, firmware
+  job `95446351401`, and aggregate job `95447703666` pass
+- its firmware artifact `9294405573` was downloaded and independently verified:
+  all payload checksums pass, the manifest reports `efuse_virtual: true` and
+  `burns_efuses: false`, and the resolved `sdkconfig` in the bundle confirms
+  `CONFIG_EFUSE_VIRTUAL=y`, AES-128, the flash-encryption NVS scheme, and no
+  `CONFIG_SECURE_BOOT`
+- pull-request governance artifact `9294271555`, produced from clean merge
+  revision `0502d8601132cbd483f2b3ee84a4ec5d0895aa80`, has archive SHA-256
+  `db92e6e0a918d78368cde2a78f7cd48da2ba19e3f7276a4fb6a63325e04ccff5`; all payload
+  checksums and the M2-014 traceability record were independently verified
+- final `main` run
+  [`32065256994`](https://github.com/metaneutrons/rumiga/actions/runs/32065256994)
+  passes all ten jobs for clean revision
+  `d4e51779e40d0376f3bd713e328c747c582fae5a`; Linux job `95495707594`, macOS job
+  `95495707672`, firmware job `95495707546`, and aggregate job `95497399760` pass
+- final governance artifact `9299639002` has archive SHA-256
+  `1c5afd8dc30fc599a041bbc7ffa089506c8c89772294003c7b83ae9f2db41acc`; all payload
+  checksums, the clean-source claim, and the M2-014 traceability record were
+  independently verified
+- the pull request for M2-014 had to be created through the REST endpoint because
+  GitHub's GraphQL API returned repeated 503 responses during that window; the
+  artifact download needed one retry for the same reason. No quality job was
+  affected
 
 ### M2 functional commits
 
