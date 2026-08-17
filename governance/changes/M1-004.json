@@ -2,7 +2,7 @@
   "schema": "rumiga.change-record.v1",
   "task_id": "M1-004",
   "title": "Inject the diagnostic trace sink and remove core file creation",
-  "status": "implemented",
+  "status": "verified",
   "summary": "Define a platform trace-sink contract, move host file creation and buffering for CPU tracing from rumiga-core into the desktop adapter, keep record formatting and bounds in the core, and make tracing available in both runtime profiles without changing the recorded bytes.",
   "scope": [
     "Platform diagnostic transport contract",
@@ -74,6 +74,18 @@
       "kind": "command",
       "location": "2026-08-17 local execution of cargo +1.97.1 xtask ci: commits, lockfiles, governance, host, compatibility, supply-chain, portable, and firmware gates pass; aggregate 90.732 s.",
       "proves": "The change passes the canonical local promotion baseline before pull-request promotion."
+    },
+    {
+      "id": "hosted-pr-trace-sink",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions pull-request run 31998824989, artifact 9277710435 governance-e700c4fdf58e328dfcd905a33df6310056b8821d, archive sha256:034fd3df10f7be6ca0e1e6b0733ee7160ad0a489df46266df36bbfb6341f2115.",
+      "proves": "All ten required quality jobs pass for the clean pull-request merge revision; the governance payload checksums and M1-004 traceability record were independently verified."
+    },
+    {
+      "id": "hosted-main-trace-sink",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions final main run 31999223974, artifact 9277831470 governance-4b958f88fe18af897e0c4a5328cec801bb5a6a7c, archive sha256:9de663eceb3284882630e29c1bb8b251839b08b6e4d5b97b24319edc49dc6d45.",
+      "proves": "All ten required quality jobs pass for clean main revision 4b958f88fe18af897e0c4a5328cec801bb5a6a7c; the governance payload checksums, the clean-source claim, and the M1-004 traceability record were independently verified."
     }
   ],
   "documentation": [
@@ -81,6 +93,7 @@
     "IMPLEMENTATION_PLAN.md",
     "PROJECT_STATUS.md",
     "README.md",
+    "ROADMAP.md",
     "crates/rumiga-core/src/lib.rs",
     "crates/rumiga-platform/src/lib.rs",
     "docs/adr/0006-injected-trace-sink.md",

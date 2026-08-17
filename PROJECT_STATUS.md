@@ -10,7 +10,7 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-17 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M1-004: injected trace sink with core file creation removed |
+| Latest completed task | M1-004: verified injected trace sink with no core file creation |
 | Current implementation | M1-005: restore deterministic single-owner blitter execution |
 | Next task | M1-006: emulated clock, host yield, and monotonic scheduling contracts |
 | Development host | macOS, Apple Silicon |
@@ -171,10 +171,12 @@ No feature is called done merely because it compiled or booted once.
   it does not prove D1001 allocator integration, target execution, or
   performance. Those remain gated by later M1 instrumentation and M2 HIL work.
 - M1-003 is verified by clean pull-request and final `main` promotion evidence.
-- M1-004 removed core-owned trace files, so CPU tracing now runs through an
-  injected sink in both runtime profiles. `std::thread`, `JoinHandle`, and
-  `core_affinity` still exist in the default core profile; M1-005 must replace
-  them with deterministic single-owner execution.
+- M1-004 is verified by clean pull-request and final `main` promotion evidence.
+  It removed core-owned trace files, so CPU tracing now runs through an injected
+  sink in both runtime profiles, and a differential capture proves the desktop
+  trace bytes are unchanged. `std::thread`, `JoinHandle`, and `core_affinity`
+  still exist in the default core profile; M1-005 must replace them with
+  deterministic single-owner execution.
 - `rumiga-platform-esp` and `firmware` are host-checkable workspace members, but
   every ESP platform module and the firmware entry point remain stubs. Their
   toolchain and SDK inputs now cross-build, but there is no flash, boot,
