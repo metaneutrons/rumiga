@@ -2,7 +2,7 @@
   "schema": "rumiga.change-record.v1",
   "task_id": "M2-014",
   "title": "Enable flash encryption in a reversible posture and enforce reversibility",
-  "status": "implemented",
+  "status": "verified",
   "summary": "Exercise flash encryption in Development mode with virtual eFuses so no board is permanently altered, select the NVS key-protection scheme that uses the reserved nvs_keys partition instead of an eFuse key block, and make the evidence task reject every configuration that could burn an eFuse.",
   "scope": [
     "Flash encryption usage mode and virtual eFuses",
@@ -55,10 +55,16 @@
       "proves": "The 57,344-byte window is sufficient for flash encryption and for Secure Boot with its signature block, and the previous 24,576-byte window would not have held flash encryption alone."
     },
     {
-      "id": "hosted-promotion",
+      "id": "hosted-pr-m2-014",
       "kind": "ci-artifact",
-      "location": "Pending: hosted pull-request and final main promotion evidence is required before this record moves to verified.",
-      "proves": "Nothing yet."
+      "location": "GitHub Actions pull-request run 32049854368, artifact 9294271555 governance-0502d8601132cbd483f2b3ee84a4ec5d0895aa80, archive sha256:db92e6e0a918d78368cde2a78f7cd48da2ba19e3f7276a4fb6a63325e04ccff5.",
+      "proves": "All ten required quality jobs pass for the clean pull-request merge revision; the governance payload checksums and the traceability record were independently verified. Its firmware artifact 9294405573 was downloaded and independently verified: all payload checksums pass, the manifest reports efuse_virtual true and burns_efuses false, and the resolved sdkconfig confirms CONFIG_EFUSE_VIRTUAL, AES-128, the flash-encryption NVS scheme, and no CONFIG_SECURE_BOOT."
+    },
+    {
+      "id": "hosted-main-m2-014",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions final main run 32065256994, artifact 9299639002 governance-d4e51779e40d0376f3bd713e328c747c582fae5a, archive sha256:1c5afd8dc30fc599a041bbc7ffa089506c8c89772294003c7b83ae9f2db41acc.",
+      "proves": "All ten required quality jobs pass for clean main revision d4e51779e40d0376f3bd713e328c747c582fae5a; the governance payload checksums, the clean-source claim, and the traceability record were independently verified."
     }
   ],
   "documentation": [

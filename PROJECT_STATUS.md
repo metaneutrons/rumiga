@@ -10,7 +10,7 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-17 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M1-004: verified injected trace sink with no core file creation |
+| Latest completed task | M2-014: verified reversible flash-encryption posture |
 | Current implementation | M1-005: restore deterministic single-owner blitter execution |
 | Next task | M1-006: emulated clock, host yield, and monotonic scheduling contracts |
 | Development host | macOS, Apple Silicon |
@@ -171,6 +171,11 @@ No feature is called done merely because it compiled or booted once.
   it does not prove D1001 allocator integration, target execution, or
   performance. Those remain gated by later M1 instrumentation and M2 HIL work.
 - M1-003 is verified by clean pull-request and final `main` promotion evidence.
+- M2-013 and M2-014 are verified by clean pull-request and final `main` promotion
+  evidence. They give the device a product flash layout and an enforced
+  reversibility invariant, but they prove nothing about hardware: no board has
+  been flashed, no eFuse has been burned, and with virtual eFuses the encryption
+  is simulated rather than enforced.
 - M1-004 is verified by clean pull-request and final `main` promotion evidence.
   It removed core-owned trace files, so CPU tracing now runs through an injected
   sink in both runtime profiles, and a differential capture proves the desktop
@@ -371,7 +376,7 @@ Detailed gates are in `ROADMAP.md`; task IDs are in `IMPLEMENTATION_PLAN.md`.
 | BASE: Desktop evidence foundation | Verified | Six current host scenarios and versioned evidence tooling |
 | M0: Hermetic engineering baseline | Verified | All fourteen M0 tasks pass local, pull-request, and final `main` promotion evidence |
 | M1: Portable deterministic core | Active | M1-001 through M1-004 are verified; G1 remains open |
-| M2: D1001 board bring-up | Planned | Flashable firmware, serial manifest, memory/display smoke |
+| M2: D1001 board bring-up | Active | M2-013 and M2-014 are verified; flashable firmware, serial manifest, and memory/display smoke remain |
 | M3: Bounded media and memory | Planned | 2 GiB HDF boots through bounded sector cache |
 | M4: D1001 display pipeline | Planned | Correct 50/60 Hz presentation and device framebuffer captures |
 | M5: Touch, USB, and audio | Planned | HIL input hotplug and zero-underrun audio evidence |
