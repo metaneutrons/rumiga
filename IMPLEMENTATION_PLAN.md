@@ -229,8 +229,8 @@ merged image, an image header of 16 MB at 80 MHz, and an application occupying
 
 This correction does not change the partition layout itself. The bundle still
 uses the stock ESP-IDF single-application table with no OTA slots and no data
-partition beyond `nvs` and `phy_init`; defining the product layout remains
-M2-003.
+partition beyond `nvs` and `phy_init`. Defining the product layout was M2-013. This
+paragraph named M2-003 until M2-003 corrected it.
 - conversion of `rumiga-core` and `m68k` to `no_std + alloc` remains M1, while
   flash, boot, peripherals, and performance remain M2+
 
@@ -1331,6 +1331,7 @@ M1-012 implementation evidence (2026-08-18):
 27. `test(core): enforce byte order and pointer-width boundaries`
 28. `ci(core): close the portable core dependency graph`
 29. `build(firmware): pin the build stamp to the commit`
+30. `feat(firmware): declare the boot policy`
 
 M2-001 implementation evidence (2026-08-18):
 
@@ -1459,13 +1460,85 @@ M2-002 implementation evidence (2026-08-18):
   `IDF_PATH` for a `.git`; that it resolves to this repository rather than to the ESP-IDF
   checkout was observed locally and is now enforced in CI as well
 
+M2-003 implementation evidence (2026-08-18):
+
+- before this task the policy was entirely ESP-IDF defaults. `firmware/sdkconfig.defaults`
+  set three PSRAM keys and said nothing about panic, watchdogs, logging, or core dumps, so
+  nothing could detect a wrong value
+- reading the resolved configuration against the flash layout found three live problems,
+  none of which the task description named
+- **the reserved core-dump partition was never written.** M2-013 reserved 108 KiB at
+  `0x65000` and `CONFIG_ESP_COREDUMP_ENABLE_TO_NONE=y` was set, so a field panic would have
+  left nothing to diagnose while the layout spent the flash permanently
+- **the task watchdog did not reset.** `CONFIG_ESP_TASK_WDT_PANIC` defaults off, so a hung
+  task logged a warning and the device stayed hung
+- **the layout comparison ignored the `encrypted` flag.** `parse_partition_layout` required
+  five CSV fields and built its entry from indices 0 through 4; `decode_partition_table`
+  read bytes 2, 3, 4..8, 8..12 and 12..28, never 28..32. So the check that claims
+  entry-by-entry equality skipped the field `nvs_keys` depends on, and the flag was correct
+  only by luck of `espflash`'s behaviour
+- the policy is now declared in `toolchain/manifest.toml` `[boot_policy]` and checked from
+  both sides: the firmware gate compares it against the resolved `sdkconfig`, and
+  `rumiga-platform-esp` mirrors it with a host test pinning the mirror
+- the mirror is a necessity, not a convenience. The `esp-idf-sys` build script emits 979
+  `esp_idf_*` cfgs, covering boolean and choice options only. No cfg matches
+  `esp_task_wdt_timeout_s` or `spiram_malloc_alwaysinternal`, and the generated bindings
+  define no `CONFIG_` constants, so the firmware cannot read the integer values from the
+  build it belongs to
+- core dumps go to flash, and the partition is marked `encrypted`. ESP-IDF writes an
+  unflagged data partition in plain text when flash encryption is on and only logs a
+  warning, and a dump holds task stacks
+- whole-DRAM capture stays off because the partition cannot hold it. ESP-IDF documents at
+  least 128 KiB and the partition is 108 KiB; the gate encodes the figure so a future edit
+  fails there rather than overflowing on a device. Enlarging it would move the application
+  slots, which an OTA image cannot survive on a device already flashed
+- the task watchdog now panics, and therefore reboots, with both idle tasks still
+  subscribed. That carries an obligation: the emulator frame loop will run hot, and a task
+  that monopolizes a core without yielding starves that core's idle task and trips a
+  watchdog that now reboots. The loop must yield or subscribe itself and feed the watchdog,
+  and must not be given a pass by unsubscribing an idle task
+- DEBUG logging is compiled in with the default at INFO, so field diagnosis can be raised
+  at runtime without a new image. VERBOSE stays out
+- the reset reason is read through `esp_idf_svc::hal::reset::ResetReason::get`, a safe
+  wrapper around the FFI call, which matters because the workspace forbids unsafe code. No
+  dependency was added; `esp-idf-svc` re-exports the crate through `pub mod hal`
+- the boot manifest reports the policy and the observations separately. A device whose
+  observed PSRAM disagrees with the configured budget is the case worth seeing, and echoing
+  configuration back would hide it
+- four probes made the new checks fail before they were trusted. Removing `encrypted`
+  produced the plaintext message; declaring `captures_dram` produced "needs at least 131072
+  bytes reserved and the coredump partition is 110592 bytes"; a declared 9 second watchdog
+  period against a build configured for 5 was rejected; a mirrored constant changed to 7
+  failed the pinning test with `left: 5, right: 7`. All four reverted, each reversion
+  verified by search
+- the first probe did not trip the layout comparison, correctly. The declaration and the
+  image agreed with each other; the cross-check is what catches a declaration that is wrong
+  for the security posture
+- the application grew from 182,512 to 204,400 bytes, 21,888 bytes for the core-dump
+  component and the DEBUG call sites, 0.35 percentage points of a 6 MiB slot
+- the mirror is checked per value kind and, separately, for coverage: a value added to the
+  declaration without a mirrored constant and a table row fails the coverage test, which is
+  the direction that would otherwise fail silently
+- the bundle claims `declared-boot-policy-verified` and excludes `boot-manifest-not-emitted`.
+  The two are kept apart because a build can show that the image runs the declared policy and
+  cannot show the policy running
+- not delivered: anything running. `firmware/src/main.rs` is still a stub, so nothing emits
+  the manifest, and the reset reason is recorded as `null` rather than measured. The boot
+  manifest is a type with a rendering and a reader, compiled by the firmware and portable
+  gates and never executed
+- not enforced: the watchdog obligation. There is no frame loop yet, so there is nothing to
+  check; M2-004 and the loop that follows inherit it
+- one stale pointer was corrected in passing. The M0-014 evidence above said the product
+  layout remained M2-003; it was M2-013
+- hosted pull-request and final `main` evidence is pending promotion
+
 ## M2 Backlog: D1001 Board Bring-Up
 
 | Task | Status | Deliverable | Acceptance evidence |
 | --- | --- | --- | --- |
 | M2-001 | DONE | Record D1001 schematic revision, board revision, BSP SHA, and connector inventory | Reviewed hardware manifest under `docs/hardware` |
 | M2-002 | DONE | Create reproducible ESP-IDF/Rust firmware build using `riscv32imafc-esp-espidf` | CI produces ELF, binary, map, size report, and checksums, and rejects a build stamp that is not the commit's |
-| M2-003 | PLANNED | Define PSRAM allocator, panic, watchdog, logging, and reset policy | Boot manifest reports all values and reset reason |
+| M2-003 | DONE | Define PSRAM allocator, panic, watchdog, logging, and reset policy | The policy is declared once and checked against the built image from both sides; the boot manifest reports every value and the reset reason, and its emission awaits hardware |
 | M2-004 | PLANNED | Port proven Vellum D1001 services into Rust-first adapters and establish the safety/provenance contract | Exact source-transfer records, narrowly scoped unsafe code, host mocks, and third-party license audit pass |
 | M2-005 | PLANNED | Add serial command protocol for capabilities, self-test, metrics, and reset | Versioned protocol test and captured cold-boot log |
 | M2-006 | PLANNED | Bring up RGB565 display test pattern and framebuffer checksum | HIL screenshot/checksum artifact |

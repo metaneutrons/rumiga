@@ -124,6 +124,61 @@ idf_path_policy = "must-be-unset"
 idf_reference_policy = "tag-with-verified-commit"
 profile = "release"
 
+# The boot policy the device runs under. Every value is checked twice and declared once.
+# The firmware gate compares this table against the resolved `sdkconfig`, which catches a
+# `sdkconfig.defaults` edit that fails to take effect, and `rumiga-platform-esp` mirrors it
+# for the boot manifest with a host test pinning the mirror against this table. Integer
+# `sdkconfig` values do not reach Rust as cfgs at all, so the mirror is unavoidable; what is
+# avoidable is letting it drift silently.
+
+# Allocations at or below the always-internal threshold come from internal RAM, which keeps
+# small, hot objects off the slower external bus. The reserve keeps internal RAM available
+# to callers that require it once PSRAM is in the general heap. The emulator's 2 MiB chip
+# RAM is far above the threshold and therefore lands in PSRAM.
+[boot_policy.psram]
+allocator = "malloc"
+always_internal_bytes = 8192
+reserve_internal_bytes = 65536
+
+# A panic prints and reboots without delay, because an appliance that stops at a prompt
+# nobody reads is indistinguishable from a dead one. Diagnosis comes from the core dump.
+[boot_policy.panic]
+action = "print-reboot"
+reboot_delay_seconds = 0
+
+# M2-013 reserved a 108 KiB `coredump` partition and nothing wrote to it, because ESP-IDF
+# defaults core dumps off. Writing to flash makes the reserved space earn its place and
+# makes a field panic diagnosable.
+#
+# DRAM capture stays off. ESP-IDF states that enabling it needs at least 128 KiB reserved,
+# and the partition is 108 KiB. The layout is effectively permanent once devices ship, so
+# this is a constraint rather than a preference; task stacks fit.
+[boot_policy.core_dump]
+target = "flash"
+captures_dram = false
+checked_on_boot = true
+max_tasks = 64
+
+# The task watchdog panics, and therefore reboots, on timeout: a hung device that recovers
+# itself beats one that stays hung. This carries an obligation recorded in ADR-0021. Both
+# idle tasks stay subscribed, so any task that monopolizes a core without yielding will
+# trip this. The emulator frame loop must yield or subscribe itself and feed the watchdog;
+# it must not be given a pass by unsubscribing an idle task.
+[boot_policy.watchdog]
+task_timeout_seconds = 5
+task_panics = true
+task_checks_idle_cpu0 = true
+task_checks_idle_cpu1 = true
+interrupt_timeout_millis = 300
+bootloader_timeout_millis = 9000
+
+# The default level is INFO and DEBUG is compiled in, so field diagnosis can be raised at
+# runtime without a new image. VERBOSE stays out: it is compiled per call site and the gain
+# over DEBUG does not justify the size on a device that cannot be reflashed casually.
+[boot_policy.logging]
+default_level = 3
+maximum_level = 4
+
 [audit]
 checked_on = "2026-08-15"
 esp_idf_template_commit = "08115a069d167a5ee37363e84f168a565f17bbca"
