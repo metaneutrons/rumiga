@@ -147,6 +147,12 @@ produced "CONFIG_ESP_TASK_WDT_TIMEOUT_S must be 9, got 5".
 Changing the mirrored `TASK_WATCHDOG_TIMEOUT_SECONDS` to 7 failed the pinning test with
 `left: 5, right: 7`. All four probes were reverted and each reversion verified by search.
 
+Hosted promotion is complete. Pull-request run `32197129943` and final `main` run `32198201909`
+pass every required job, and the hosted firmware manifest carries the `boot_policy` section
+with `partition_encrypted` true and `reset_reason` null. The cross-file checks therefore run
+in CI rather than only on the development host, which matters because the constraint they
+encode is about a flash layout that cannot change once devices ship.
+
 ## Supersession
 
 None. This extends the M0-008 firmware evidence bundle with an additive `boot_policy`

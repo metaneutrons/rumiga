@@ -1530,7 +1530,21 @@ M2-003 implementation evidence (2026-08-18):
   check; M2-004 and the loop that follows inherit it
 - one stale pointer was corrected in passing. The M0-014 evidence above said the product
   layout remained M2-003; it was M2-013
-- hosted pull-request and final `main` evidence is pending promotion
+- verified by hosted evidence. Pull-request run [`32197129943`](https://github.com/metaneutrons/rumiga/actions/runs/32197129943)
+  and final `main` run [`32198201909`](https://github.com/metaneutrons/rumiga/actions/runs/32198201909)
+  pass every required job. Both governance artifacts were checksum verified with two
+  independent implementations against the artifact's own `SHA256SUMS`, both record `dirty`
+  false, and all 78 document digests match the git tree at the promoted revision
+- the hosted firmware manifest carries the `boot_policy` section with `partition_encrypted`
+  true and `reset_reason` null, and the table decoded from inside the merged image shows both
+  `coredump` and `nvs_keys` carrying the flag. So the cross-file checks run in CI, not only on
+  the development host
+- a static-analysis check, Codacy, was added to this repository during the task and initially
+  failed with three findings, all functions above its 50-line limit that Clippy's 100-line
+  limit had passed. The findings were fair. A first attempt at the mirror test came out longer
+  than the original and was abandoned; splitting the tables then exposed a gap they had, which
+  is where the coverage test came from. Two of the three suggestions were addressed with a
+  deliberate deviation, each recorded on its review thread
 
 ## M2 Backlog: D1001 Board Bring-Up
 
