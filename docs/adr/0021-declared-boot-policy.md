@@ -86,7 +86,10 @@ documented 128 KiB minimum, and application slot offsets are effectively permane
 devices ship.
 
 The reset reason is absent from the firmware evidence bundle, recorded as `null` rather than
-a placeholder. It is a runtime value and no board has booted this image.
+a placeholder. It is a runtime value and no board has booted this image. The bundle claims
+`declared-boot-policy-verified`, which says the image runs the declared policy, and excludes
+`boot-manifest-not-emitted`, which is the half that awaits hardware. Keeping those apart is
+the point: a single claim covering both would overstate what a build can show.
 
 The boot manifest's text form is not emitted by anything yet. `firmware/src/main.rs` is
 still a stub, so the manifest is a type with a rendering and a reader, compiled but never

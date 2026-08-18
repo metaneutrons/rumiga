@@ -1516,6 +1516,9 @@ M2-003 implementation evidence (2026-08-18):
   for the security posture
 - the application grew from 182,512 to 204,400 bytes, 21,888 bytes for the core-dump
   component and the DEBUG call sites, 0.35 percentage points of a 6 MiB slot
+- the bundle claims `declared-boot-policy-verified` and excludes `boot-manifest-not-emitted`.
+  The two are kept apart because a build can show that the image runs the declared policy and
+  cannot show the policy running
 - not delivered: anything running. `firmware/src/main.rs` is still a stub, so nothing emits
   the manifest, and the reset reason is recorded as `null` rather than measured. The boot
   manifest is a type with a rendering and a reader, compiled by the firmware and portable

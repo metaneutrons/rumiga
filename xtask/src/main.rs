@@ -1569,11 +1569,16 @@ fn verify_build_determinism(
 ///
 /// `rebuild-byte-identical` appears only when a second build was actually compared, so a
 /// bundle cannot read as proving reproducibility when it merely pinned the build stamp.
+///
+/// `declared-boot-policy-verified` says the built image runs the declared policy. It does
+/// not say the policy was observed running, which is why `boot-manifest-not-emitted` sits in
+/// the exclusions.
 fn evidence_claims(verify_rebuild: bool) -> Vec<String> {
     vec![
         "compile-and-link".to_owned(),
         "esp32p4-image-generation".to_owned(),
         "pinned-idf-source".to_owned(),
+        "declared-boot-policy-verified".to_owned(),
         "commit-derived-build-stamp".to_owned(),
         if verify_rebuild {
             "rebuild-byte-identical".to_owned()
@@ -1587,6 +1592,7 @@ fn evidence_claims(verify_rebuild: bool) -> Vec<String> {
 fn evidence_exclusions() -> Vec<String> {
     vec![
         "linker-map-carries-a-random-link-path".to_owned(),
+        "boot-manifest-not-emitted".to_owned(),
         "not-flashed".to_owned(),
         "not-boot-tested".to_owned(),
         "no-peripheral-hil".to_owned(),

@@ -253,9 +253,10 @@ partition smaller than the 128 KiB ESP-IDF documents. The partition comparison n
 the `encrypted` flag in both directions and rejects an unrecognized flag rather than
 dropping it.
 
-The bundle's `boot_policy` section reports the values the built image runs. Its
-`reset_reason` is `null`: that value exists only at runtime, and no board has booted this
-image.
+The bundle's `boot_policy` section reports the values the built image runs, and the bundle
+claims `declared-boot-policy-verified`. Its `reset_reason` is `null`, because that value
+exists only at runtime and no board has booted this image, which is why the bundle also
+excludes `boot-manifest-not-emitted`.
 
 The gate does not rebuild. Building the same revision twice would roughly double
 this job to re-derive a property whose one known input the stamp check already pins.

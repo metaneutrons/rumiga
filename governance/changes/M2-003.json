@@ -19,7 +19,7 @@
   },
   "compatibility": {
     "status": "affected",
-    "detail": "firmware/partitions.csv marks coredump as encrypted. Offsets and sizes are unchanged and no application slot moves, but the partition table binary differs, so a device flashed with the previous table would need the new one. rumiga.firmware.build.v1 gains an additive boot_policy section following the practice M0-014 set for merged_image. The partition-layout comparison now includes the encrypted flag and rejects an unrecognized flag, so a layout that relied on a misspelled flag being ignored now fails. rumiga-platform-esp gains a boot module and a toml dev-dependency. The application grew from 182,512 to 204,400 bytes."
+    "detail": "firmware/partitions.csv marks coredump as encrypted. Offsets and sizes are unchanged and no application slot moves, but the partition table binary differs, so a device flashed with the previous table would need the new one. rumiga.firmware.build.v1 gains an additive boot_policy section following the practice M0-014 set for merged_image, plus the claim declared-boot-policy-verified and the exclusion boot-manifest-not-emitted. The partition-layout comparison now includes the encrypted flag and rejects an unrecognized flag, so a layout that relied on a misspelled flag being ignored now fails. rumiga-platform-esp gains a boot module and a toml dev-dependency. The application grew from 182,512 to 204,400 bytes."
   },
   "security": {
     "status": "affected",
