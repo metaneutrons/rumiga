@@ -991,7 +991,35 @@ M1-008 implementation evidence (2026-08-18):
   distinguish a burst an hour ago from one happening now
 - rendered output is unchanged: a 1200-frame A1200 capture keeps digest
   `b190d54b1bbf1e6a9bba3f36d34b74c95ab8fc6fe7796f2f6c694b70165ea1aa`
-- hosted pull-request and final `main` evidence is pending promotion
+- pull-request run
+  [`32137756215`](https://github.com/metaneutrons/rumiga/actions/runs/32137756215)
+  passes all ten jobs for the rebased head; Linux job `95712953387`, macOS job
+  `95712953256`, portable job `95712953359`, and aggregate job `95714560217` pass
+- pull-request governance artifact `9324647028`, produced from clean merge revision
+  `9dd6d183c42742ead28dcee843eb3db221f8d207`, has archive SHA-256
+  `ac66e1850c1cc554d69f37a6f760b65fc4986256829642377486c1b7e4aece93` as reported by
+  the Actions API. Its manifest records 14 architecture decisions, 15 release notes,
+  and 15 change records, so ADR-0014 and the M1-008 record are inside the validated set
+- final `main` run
+  [`32138307307`](https://github.com/metaneutrons/rumiga/actions/runs/32138307307)
+  passes all ten jobs for clean revision
+  `2e20bef4c5473d63d40e809e97c6d63ba0b865c2`; Linux job `95714712460`, macOS job
+  `95714712490`, portable job `95714712533`, and aggregate job `95716753364` pass
+- final governance artifact `9324852852` has archive SHA-256
+  `02eaf91a82789f98bc60e527dbb87b6a59f6fe9f4131d10c5d2ecbf546d53f29` as reported by
+  the Actions API. The payload checksums were recomputed with two independent
+  implementations and match the artifact's own `SHA256SUMS`, the manifest records
+  `dirty: false`, and its recorded input digests match the git tree at that revision
+  for the change record, ADR-0014, the release note, `ARCHITECTURE.md`, the plan, the
+  status document, and `crates/rumiga-platform/src/lib.rs`
+- the hosted coverage differs by crate and is recorded as such. The `rumiga-platform`
+  queue tests appear once per host leg, while the three `rumiga-core` keyboard queue
+  tests appear twice per leg, once per explicit runtime profile, because the host gate's
+  `std` and `no_std` matrix covers `rumiga-core` and not `rumiga-platform`. For the
+  contract type itself the bare-metal claim is compilation rather than execution
+- the archive SHA-256 values above are GitHub's reported artifact digests. The
+  independent verification covers the payload, not the archive container, because the
+  API does not serve the archive bytes to a plain token fetch
 
 ### M1 functional commits
 

@@ -2,7 +2,7 @@
   "schema": "rumiga.change-record.v1",
   "task_id": "M1-008",
   "title": "Add bounded queue contracts with named overflow policy and saturation counters",
-  "status": "implemented",
+  "status": "verified",
   "summary": "Introduce a bounded queue with a fixed capacity, an overflow policy named per queue, an admission result that shows what the policy did with each item, and counters that record the deepest the queue ever got and how much it lost; adopt it for the guest keyboard queue whose sixteen-event bound previously dropped events with nothing recorded, and record the bound, the policy, and the counters in capture manifests.",
   "scope": [
     "Bounded queue contract with capacity, policy, and admission result",
@@ -81,10 +81,22 @@
       "proves": "Naming the policy and counting its effect changed no emulated behaviour, and the bound is now visible in recorded evidence."
     },
     {
-      "id": "hosted-promotion",
+      "id": "hosted-pr-m1-008",
       "kind": "ci-artifact",
-      "location": "Pending: hosted pull-request and final main promotion evidence is required before this record moves to verified.",
-      "proves": "Nothing yet."
+      "location": "GitHub Actions pull-request run 32137756215 for the rebased head, artifact 9324647028 governance-9dd6d183c42742ead28dcee843eb3db221f8d207, archive sha256:ac66e1850c1cc554d69f37a6f760b65fc4986256829642377486c1b7e4aece93 as reported by the Actions API.",
+      "proves": "All ten required quality jobs pass for the clean pull-request merge revision after the branch was rebased onto the M1-007 closure. The manifest records dirty false and a bundle of 14 architecture decisions, 15 release notes, and 15 change records, so ADR-0014 and the M1-008 record are inside the validated set."
+    },
+    {
+      "id": "hosted-main-m1-008",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions final main run 32138307307, artifact 9324852852 governance-2e20bef4c5473d63d40e809e97c6d63ba0b865c2, archive sha256:02eaf91a82789f98bc60e527dbb87b6a59f6fe9f4131d10c5d2ecbf546d53f29 as reported by the Actions API.",
+      "proves": "All ten required quality jobs pass for clean main revision 2e20bef4c5473d63d40e809e97c6d63ba0b865c2. The payload checksums were recomputed with two independent implementations and match the artifact's own SHA256SUMS, the manifest records dirty false, and its recorded input digests match the git tree at that revision for the change record, ADR-0014, the release note, ARCHITECTURE.md, the plan, the status document, and the platform contract source."
+    },
+    {
+      "id": "hosted-coverage-differs-by-crate",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions final main run 32138307307, Linux job 95714712460 and macOS job 95714712490: the rumiga-platform queue tests appear once per leg, while the three rumiga-core keyboard queue tests appear twice per leg, once per explicit runtime profile. The portable job 95714712533 checks rumiga-platform for riscv32imafc-unknown-none-elf.",
+      "proves": "The overflow policies and counters hold on Linux x86_64 and macOS arm64, and the real consumer holds in both runtime profiles because rumiga-core is in the host gate's std and no_std matrix while rumiga-platform is not. For the contract type itself the bare-metal claim is compilation rather than execution."
     }
   ],
   "documentation": [

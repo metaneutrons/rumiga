@@ -109,6 +109,13 @@ full drain. All of it holds in both runtime profiles.
 The rendered output is unchanged. A 1200-frame A1200 capture keeps the digest recorded for
 M1-013 and M1-007.
 
+Hosted promotion confirms both halves of the claim. Pull-request run `32137756215` and
+final `main` run `32138307307` passed all ten required jobs. The queue tests passed on
+Linux x86_64 and macOS arm64, and the three keyboard queue tests passed twice on each leg,
+once per explicit runtime profile, because `rumiga-core` is in the host gate's matrix while
+`rumiga-platform` is not. For the contract type the bare-metal evidence is that the
+portable job compiles it for `riscv32imafc-unknown-none-elf`, not that its tests run there.
+
 ## Supersession
 
 None. This closes the queue-contract entry in the platform contract table. Enforcing the
