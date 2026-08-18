@@ -1,7 +1,7 @@
 {
   "schema": "rumiga.change-record.v1",
   "task_id": "M1-009",
-  "status": "implemented",
+  "status": "verified",
   "title": "Add deterministic input replay and widen the machine-state digest",
   "summary": "Stamp input events with the emulated frame the machine counts, record them inside the three input entry points so a recording is complete by construction, apply them inside run_frame so ordering is a property of the machine rather than of a shell, define a reviewable text format that rejects out-of-order files, and widen the state digest to cover the frame counter, pending input, CIA state, slow and fast RAM, and drive metadata while moving expensive media contents into a separate digest.",
   "scope": [
@@ -93,10 +93,22 @@
       "proves": "Recording, replay, and the digest widening changed no rendered output."
     },
     {
-      "id": "hosted-promotion",
+      "id": "hosted-pr-m1-009",
       "kind": "ci-artifact",
-      "location": "Pending: hosted pull-request and final main promotion evidence is required before this record moves to verified.",
-      "proves": "Nothing yet."
+      "location": "GitHub Actions pull-request run 32141958096, artifact 9326236047 governance-dc92de4ca0964a662bbcc1efad0b32cb06d037c8, archive sha256:1a4712e02eed556ae3d1b9212339b1e99db67a1347b645a50bf0aa1ba6d74b6a as reported by the Actions API.",
+      "proves": "All ten required quality jobs pass for the clean pull-request merge revision. The manifest records dirty false and a bundle of 15 architecture decisions, 16 release notes, and 16 change records, so ADR-0015 and the M1-009 record are inside the validated set."
+    },
+    {
+      "id": "hosted-main-m1-009",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions final main run 32146258140, artifact 9327891821 governance-bb60a24e8b27fd4a49191736383368768b8c5cb5, archive sha256:42a8071589c930d880e2d27970b5d8e684f5bbd154bbf65c8d4972484a93ffd0 as reported by the Actions API.",
+      "proves": "All ten required quality jobs pass for clean main revision bb60a24e8b27fd4a49191736383368768b8c5cb5. The payload checksums were recomputed with two independent implementations and match the artifact's own SHA256SUMS, the manifest records dirty false, and its recorded input digests match the git tree at that revision for the change record, ADR-0015, the release note, ARCHITECTURE.md, the plan, and the status document."
+    },
+    {
+      "id": "hosted-replay-tests-in-both-profiles",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions final main run 32146258140, Linux job 95740616196 and macOS job 95740616159: all ten replay-module tests and all ten emulator-level replay and digest tests appear twice per leg, once per explicit runtime profile.",
+      "proves": "Recording, replay, the text format with its rejection cases, and the widened digest hold on Linux x86_64 and macOS arm64 in both the std and no_std profiles. Unlike M1-007 and M1-008, no crate-boundary caveat applies here: every test in question lives in rumiga-core, which the host gate's profile matrix covers."
     }
   ],
   "documentation": [
