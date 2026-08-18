@@ -10,8 +10,8 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-18 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M1-012: published portability contract, hosted evidence pending |
-| Current implementation | M2-001: D1001 hardware manifest, once M1 is promoted |
+| Latest completed task | M1-012: published portability contract, hosted evidence verified. M1 complete |
+| Current implementation | M2-001: D1001 hardware manifest |
 | Next task | M2-002: reproducible ESP-IDF/Rust firmware build |
 | Development host | macOS, Apple Silicon |
 | Product target | Seeed reTerminal D1001, ESP32-P4 |
@@ -181,9 +181,11 @@ No feature is called done merely because it compiled or booted once.
   and `rumiga-platform`, compared in both directions by the portable gate and pinned by the
   manifest test. That is stricter than the acceptance criterion's allowlist wording, because
   "approved `no_std`" is not stable across versions. Both comparison directions are
-  probe-verified, and the lockfile gate was shown to be only a partial defence. Hosted
-  evidence is pending. The contract covers `rumiga-core` and what it pulls in; the shell and
-  the ESP platform crate are outside it by design.
+  probe-verified, and the lockfile gate was shown to be only a partial defence. It is verified
+  by clean pull-request and final `main` evidence, with the portable job executing the graph
+  comparison in CI and both host legs pinning the declaration. The contract covers
+  `rumiga-core` and what it pulls in; the shell and the ESP platform crate are outside it by
+  design.
 - M1-011 enforced the two assumptions that separate the 64-bit hosts from the 32-bit
   device: guest values must be converted with an explicit byte order, banned in the core
   through Clippy, and `usize` must hold a guest address, asserted at compile time. Both

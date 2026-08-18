@@ -1,7 +1,7 @@
 {
   "schema": "rumiga.change-record.v1",
   "task_id": "M1-012",
-  "status": "implemented",
+  "status": "verified",
   "title": "Publish the portability contract and close the core dependency graph",
   "summary": "Publish every portability rule in one table that names the gate, lint, or assertion enforcing it, and enforce the acceptance criterion that nothing checked before by declaring the portable core graph as a closed set of three workspace crates and comparing the resolved graph against it in the portable gate, in both directions.",
   "scope": [
@@ -72,10 +72,22 @@
       "proves": "Every row names an enforcement that exists, so the table is a contract rather than a summary. Two rows state their own weakness: the pointer-width rules are compile-time assertions rather than execution at a 32-bit usize, and the allocation rule is enforced over a 64-frame fixture with the one-minute figure measured locally."
     },
     {
-      "id": "hosted-promotion",
+      "id": "hosted-pr-m1-012",
       "kind": "ci-artifact",
-      "location": "Pending: hosted pull-request and final main promotion evidence is required before this record moves to verified.",
-      "proves": "Nothing yet."
+      "location": "GitHub Actions pull-request run 32178866587 for the rebased head, artifact 9340030504 governance-d2e2ad4fe5edfc18942e27cb0f16acbd0813216a, archive sha256:a584a05a9267dd62a79b406677c8839b445e66314c7a6daf1b7fd0ddf08188fc as reported by the Actions API.",
+      "proves": "All ten required quality jobs pass for the clean pull-request merge revision after the branch was rebased onto the M1-010 and M1-011 closure. The manifest records dirty false and a bundle of 18 architecture decisions, 19 release notes, and 19 change records, so ADR-0018 and the M1-012 record are inside the validated set."
+    },
+    {
+      "id": "hosted-main-m1-012",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions final main run 32179481741, artifact 9340243763 governance-aab34af87fb0f7a7f8c2f44e03833d78507d84bf, archive sha256:363cc760b8e0cbe44fdf8d0c525bf42e20b1070c62066a1f70236b8373f18f92 as reported by the Actions API.",
+      "proves": "All ten required quality jobs pass for clean main revision aab34af87fb0f7a7f8c2f44e03833d78507d84bf. The payload checksums were recomputed with two independent implementations and match the artifact's own SHA256SUMS, the manifest records dirty false, and its recorded input digests match the git tree at that revision for the change record, ADR-0018, the release note, ARCHITECTURE.md, the plan, and the status document."
+    },
+    {
+      "id": "hosted-graph-check-runs-in-ci",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions final main run 32179481741: portable job 95848904975 executes the core graph comparison, and host jobs 95848904724 and 95848904723 run pins_match_their_consuming_manifests, the test whose assert_target_baseline helper pins the declared profile, root, and crate list.",
+      "proves": "The closed set resolves the same way in CI as locally, so the check constrains the hosted build rather than only the development host, and the declaration is pinned on both host legs. The two mechanisms are independent: the gate compares the resolved graph, the test pins what the manifest claims."
     }
   ],
   "documentation": [
