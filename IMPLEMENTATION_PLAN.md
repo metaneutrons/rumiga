@@ -1138,7 +1138,27 @@ M1-010 implementation evidence (2026-08-18):
 - not measured: the desktop shell's own per-frame allocations in presentation and
   screenshot paths, which are not the loop a device runs; and peak resident memory, since
   this counts allocation calls rather than footprint
-- hosted pull-request and final `main` evidence is pending promotion
+- pull-request run
+  [`32170645437`](https://github.com/metaneutrons/rumiga/actions/runs/32170645437)
+  passes all ten jobs for the rebased head. The Supply Chain Policy job is the material
+  one here, because this task adds the `stats_alloc` dev-dependency
+- pull-request governance artifact `9337123534`, produced from clean merge revision
+  `565f62d45b8fed97a6dbd52faf406356ca096c00`, has archive SHA-256
+  `32974092ad0dc9978eb7d506e512ce7feda1d91245a7082d1e48bdb05cdb77e6` as reported by the
+  Actions API
+- final `main` run
+  [`32171339632`](https://github.com/metaneutrons/rumiga/actions/runs/32171339632)
+  passes all ten jobs for clean revision
+  `2276344dd5abbf4391d470aca9e0c65ff5a8f70a`
+- final governance artifact `9337376831` has archive SHA-256
+  `6e8c84fb976d445ded0e3b5266a82cf5461a72da3b545ca639d2f5530a199f30` as reported by the
+  Actions API. The payload checksums were recomputed with two independent implementations
+  and match the artifact's own `SHA256SUMS`, the manifest records `dirty: false`, and its
+  recorded input digests match the git tree at that revision for the change record,
+  ADR-0016, the release note, `ARCHITECTURE.md`, the plan, and the status document
+- the allocation assertion appears twice per host leg, once per explicit runtime profile.
+  The one-minute figure stays a local measurement because ROMs are not committed; the
+  enforced claim is the 64-frame test
 
 M1-011 implementation evidence (2026-08-18):
 
@@ -1188,7 +1208,29 @@ M1-011 implementation evidence (2026-08-18):
 - an assertion about the host's own byte order was considered and rejected. A big-endian
   host would be equally correct and would only make host tests less discriminating;
   failing a build over that would be hostile for no gain
-- hosted pull-request and final `main` evidence is pending promotion
+- pull-request run
+  [`32172280478`](https://github.com/metaneutrons/rumiga/actions/runs/32172280478)
+  passes all ten jobs; governance artifact `9337705867` from clean merge revision
+  `065ca28bb1ebe3446c42510deed696e6d449d4e7` has archive SHA-256
+  `53de71adb68d03b71316bbe8f37e3d36ba6bb73d1c24334f06b2d35469a8e6bf`
+- final `main` run
+  [`32174822015`](https://github.com/metaneutrons/rumiga/actions/runs/32174822015)
+  passes all ten jobs for clean revision
+  `1b85cd490ad98381e736a748fa5bdeea225e6f97`; Linux job `95834173990`, macOS job
+  `95834174064`, portable job `95834174094`, and aggregate job `95836306608` pass
+- final governance artifact `9338616328` has archive SHA-256
+  `56a53971709da61c6df435650bd3c6d7d77b221e19691379a1b3fc0be7565755` as reported by the
+  Actions API. The payload checksums were recomputed with two independent implementations
+  and match the artifact's own `SHA256SUMS`, the manifest records `dirty: false`, and its
+  recorded input digests match the git tree at that revision for the change record,
+  ADR-0017, the release note, the plan, the status document, and the core crate root that
+  carries the assertions
+- all seven fixtures appear twice per host leg, once per explicit runtime profile, and the
+  portable job compiles the core for `riscv32imafc-unknown-none-elf`, so the compile-time
+  pointer-width assertions are evaluated for the 32-bit target itself rather than only for
+  the 64-bit hosts. Execution with a 32-bit `usize` is still not claimed
+- the archive SHA-256 values above are GitHub's reported artifact digests; the independent
+  verification covers the payload rather than the archive container
 
 ### M1 functional commits
 

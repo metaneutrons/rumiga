@@ -10,7 +10,7 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-18 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M1-011: portability boundaries, hosted evidence pending |
+| Latest completed task | M1-011: portability boundaries, hosted evidence verified |
 | Current implementation | M1-012: portability contract published in the architecture docs |
 | Next task | M1 complete; M2 board bring-up begins with M2-001 |
 | Development host | macOS, Apple Silicon |
@@ -182,14 +182,19 @@ No feature is called done merely because it compiled or booted once.
   were probe-verified. Miri was answered rather than adopted, because the workspace forbids
   unsafe code and neither truncation nor a wrong byte order is undefined behaviour. The
   cast audit found no production defect. Hosted evidence is pending. Execution with a
-  32-bit `usize` is not claimed, and alignment is not separately instrumented.
+  32-bit `usize` is not claimed, and alignment is not separately instrumented. It is verified
+  by clean pull-request and final `main` evidence, with all seven fixtures passing in both
+  runtime profiles on both host operating systems and the assertions evaluated for the 32-bit
+  target by the portable job.
 - M1-010 made the core's frame loop allocation-free in steady state, measured rather than
   asserted. One minute of a real Kickstart boot allocated 978,521 times and now allocates
   nothing. The first fix was insufficient and the synthetic test passed anyway, so the
   fixture was strengthened until reverting the fix fails on the allocation count itself.
-  Behaviour is unchanged, with an identical state digest and capture digest. Hosted evidence
-  is pending. The one-minute figure is local because ROMs are not committed; the desktop
-  shell's own per-frame allocations and peak resident memory are out of scope.
+  Behaviour is unchanged, with an identical state digest and capture digest. It is verified by
+  clean pull-request and final `main` evidence, with the assertion passing in both runtime
+  profiles on both host operating systems. The one-minute figure is local because ROMs are not
+  committed; the desktop shell's own per-frame allocations and peak resident memory are out of
+  scope.
 - M1-009 made input recordable and replayable against emulated frames, and widened the
   state digest to cover what replay can reach. Three replays of one recording reach the
   same state digest while a run with no input reaches a different one; all four share the

@@ -95,6 +95,13 @@ seven boundary properties. `cargo +1.97.1 clippy` under both explicit runtime pr
 enforces the native-endian ban, and `cargo +1.97.1 build` enforces the pointer-width
 assertions. Both invariants were probe-verified as described above.
 
+Hosted promotion confirms both instruments. Pull-request run `32172280478` and final `main`
+run `32174822015` passed all ten required jobs, all seven fixtures appear twice per host leg,
+once per explicit runtime profile, and the portable job compiles the core for
+`riscv32imafc-unknown-none-elf`. That last point matters here specifically: the compile-time
+pointer-width assertions are evaluated for the 32-bit target itself, not only for the 64-bit
+hosts. Execution with a 32-bit `usize` remains unclaimed.
+
 ## Supersession
 
 None. This closes the 32-bit assumption, alignment, and endianness measurement entry.

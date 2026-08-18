@@ -1,7 +1,7 @@
 {
   "schema": "rumiga.change-record.v1",
   "task_id": "M1-011",
-  "status": "implemented",
+  "status": "verified",
   "title": "Enforce guest byte order and pointer-width assumptions at the portability boundaries",
   "summary": "Ban native-endian conversions in the core through Clippy disallowed_methods, assert at compile time that usize is wide enough for a guest address and that a chip RAM length fits in u32, and cover the conversion boundaries with property fixtures; Miri is answered rather than adopted, because the workspace forbids unsafe code and neither silent truncation nor a wrong byte order is undefined behaviour.",
   "scope": [
@@ -81,10 +81,22 @@
       "proves": "There is no production defect in this class, and the allow sites were the right audit list: 26 marked sites rather than the 166 `as usize` occurrences a naive search returns, of which the u32-to-usize majority is lossless at every supported width."
     },
     {
-      "id": "hosted-promotion",
+      "id": "hosted-pr-m1-011",
       "kind": "ci-artifact",
-      "location": "Pending: hosted pull-request and final main promotion evidence is required before this record moves to verified.",
-      "proves": "Nothing yet."
+      "location": "GitHub Actions pull-request run 32172280478, artifact 9337705867 governance-065ca28bb1ebe3446c42510deed696e6d449d4e7, archive sha256:53de71adb68d03b71316bbe8f37e3d36ba6bb73d1c24334f06b2d35469a8e6bf as reported by the Actions API.",
+      "proves": "All ten required quality jobs pass for the clean pull-request merge revision. The manifest records dirty false and a bundle of 17 architecture decisions, 18 release notes, and 18 change records, so ADR-0017 and the M1-011 record are inside the validated set."
+    },
+    {
+      "id": "hosted-main-m1-011",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions final main run 32174822015, artifact 9338616328 governance-1b85cd490ad98381e736a748fa5bdeea225e6f97, archive sha256:56a53971709da61c6df435650bd3c6d7d77b221e19691379a1b3fc0be7565755 as reported by the Actions API.",
+      "proves": "All ten required quality jobs pass for clean main revision 1b85cd490ad98381e736a748fa5bdeea225e6f97. The payload checksums were recomputed with two independent implementations and match the artifact's own SHA256SUMS, the manifest records dirty false, and its recorded input digests match the git tree at that revision for the change record, ADR-0017, the release note, the plan, the status document, and the core crate root that carries the assertions."
+    },
+    {
+      "id": "hosted-boundaries-in-both-profiles-and-on-the-target-width",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions final main run 32174822015, Linux job 95834173990 and macOS job 95834174064: all seven portability fixtures appear twice per leg, once per explicit runtime profile. Portable job 95834174094 compiles rumiga-core for riscv32imafc-unknown-none-elf.",
+      "proves": "The byte-order and index-bound properties hold on Linux x86_64 and macOS arm64 in both profiles, and the compile-time pointer-width assertions are evaluated for the 32-bit target itself rather than only for the 64-bit hosts. Execution with a 32-bit usize is still not claimed."
     }
   ],
   "documentation": [
