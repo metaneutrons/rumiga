@@ -1,7 +1,7 @@
 {
   "schema": "rumiga.change-record.v1",
   "task_id": "M2-001",
-  "status": "implemented",
+  "status": "verified",
   "title": "Record the reTerminal D1001 hardware manifest with sourced provenance",
   "summary": "Establish docs/hardware and record the target board's revision identity, BSP commit, silicon inventory, and complete connector inventory, tagging every value with its source, separating what the schematic shows from what the product page asserts, and recording the discrepancies as open questions rather than resolving them by inference.",
   "scope": [
@@ -69,10 +69,16 @@
       "proves": "A commit SHA is the only stable reference the repository offers, so the manifest pins one rather than a branch name that would move."
     },
     {
-      "id": "hosted-promotion",
+      "id": "hosted-pr-m2-001",
       "kind": "ci-artifact",
-      "location": "Pending: hosted pull-request and final main promotion evidence is required before this record moves to verified.",
-      "proves": "Nothing yet."
+      "location": "GitHub Actions pull-request run 32182892039 for merge revision 6abfb978c1eff69a374ccc71938833a13921da80, artifact 9341397930 governance-6abfb978c1eff69a374ccc71938833a13921da80, archive sha256:5d4c398d3b68150bf6a9fdf2cc7ea59dcf6be2114946ac0b74e63b3b24d50756 as reported by the Actions API.",
+      "proves": "All ten required quality jobs pass for the clean pull-request merge revision. The payload checksums were recomputed with two independent implementations and match the artifact's own SHA256SUMS, the manifest records dirty false, and the bundle covers 19 architecture decisions, 20 release notes, and 20 change records, so ADR-0019 and this record are inside the validated set rather than beside it."
+    },
+    {
+      "id": "hosted-main-m2-001",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions final main run 32183737238, artifact 9341686232 governance-77fefa7992ddfb9bb706a4006aed41d1fda2c05b, archive sha256:46f8131e05ce277964dd93318b1bf19dde88a45e4525065c4b38fe335593f8ac as reported by the Actions API. The Linux host leg and the compatibility gate hung in their apt-get step on the first attempt and were re-run; those two results come from the second attempt, and the other eight from the first.",
+      "proves": "All ten required quality jobs pass for clean main revision 77fefa7992ddfb9bb706a4006aed41d1fda2c05b. The payload checksums were recomputed with two independent implementations and match the artifact's own SHA256SUMS, the manifest records dirty false, and all 72 document digests the governance report records match the git tree at that revision, including this change record, ADR-0019, the release note, the hardware manifest, the plan, and the status document."
     }
   ],
   "documentation": [

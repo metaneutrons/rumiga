@@ -10,7 +10,7 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-18 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M2-001: D1001 hardware manifest, hosted evidence pending. M1 complete |
+| Latest completed task | M2-001: D1001 hardware manifest, verified by hosted evidence. M1 complete |
 | Current implementation | M2-002: reproducible ESP-IDF/Rust firmware build |
 | Next task | M2-003: PSRAM allocator, panic, watchdog, logging, and reset policy |
 | Development host | macOS, Apple Silicon |
@@ -183,8 +183,10 @@ No feature is called done merely because it compiled or booted once.
   contradicted the vendor overview twice: the advertised GPIO expansion interfaces are not a
   connector in this revision, and an unmentioned LoRa module is. Both are left open on
   purpose. One existing claim turned out weaker than it read: the 32 MiB PSRAM figure the
-  memory budget rests on is a vendor claim, not a schematic fact. Hosted evidence is pending,
-  and nothing is verified against a physical board.
+  memory budget rests on is a vendor claim, not a schematic fact. M2-001 is verified by clean
+  pull-request and final `main` evidence, which establishes that the manifest sits inside the
+  governed, checksummed document set and nothing more. No gate reads a schematic, and nothing
+  in the manifest is verified against a physical board.
 - M1-012 published the portability contract and enforced the one rule that nothing
   checked: the core dependency graph is now a closed set of exactly `m68k`, `rumiga-core`,
   and `rumiga-platform`, compared in both directions by the portable gate and pinned by the

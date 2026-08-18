@@ -98,6 +98,13 @@ Each entry carries a source tag.
 The schematic was read with `pdftotext -layout` over the downloaded PDF, whose SHA-256 is
 recorded in the manifest. The BSP commit was read through the GitHub API.
 
+Hosted promotion is complete. Pull-request run `32182892039` and final `main` run
+`32183737238` pass all ten required jobs, and the governance gate validates that this
+decision record, the M2-001 change record, and the release note resolve against each
+other and are listed in the ADR index. That is the whole of what CI can prove here. The
+document set is internally consistent and checksummed, and no gate reads a schematic, so
+the provenance tags rest on the reading recorded above rather than on an automated check.
+
 ## Supersession
 
 None. This establishes the manifest format for the boards this project targets.
