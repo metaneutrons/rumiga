@@ -1374,7 +1374,17 @@ M2-001 implementation evidence (2026-08-18):
   connector probed, which the manifest states plainly
 - not read: the SCH and PCB source archive, the SoC and peripheral datasheets, and the 3D
   model that would answer the dimensions question
-- hosted pull-request and final `main` evidence is pending promotion
+- verified by hosted evidence. Pull-request run [`32182892039`](https://github.com/metaneutrons/rumiga/actions/runs/32182892039)
+  passes all ten required jobs for merge revision `6abfb978c1ef`,
+  and final `main` run [`32183737238`](https://github.com/metaneutrons/rumiga/actions/runs/32183737238)
+  passes all ten for `77fefa7992dd`. Both governance artifacts were
+  checksum verified with two independent implementations against the artifact's own
+  `SHA256SUMS`, both record `dirty` false, and all 72 document digests the governance
+  report records match the git tree at the promoted revision
+- the `main` run needed a second attempt for two jobs. The Linux host leg and the
+  compatibility gate hung in their `apt-get` step for thirty minutes with no output; both
+  passed on re-run. Nothing in the change is implicated, and the eight other jobs are from
+  the first attempt
 
 ## M2 Backlog: D1001 Board Bring-Up
 
