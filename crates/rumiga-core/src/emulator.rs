@@ -20,34 +20,25 @@ use rumiga_platform::TraceSink;
 use core::time::Duration;
 
 use crate::digest::StateDigest;
-use crate::events;
 
 use crate::audio::AudioState;
 use crate::blitter::BlitterState;
 use crate::chipset::CustomChipState;
 use crate::copper::{CopperAction, CopperState};
 use crate::custom;
-use crate::events::{EventScheduler, EventType, SCANLINES_PAL};
+use crate::events::{EventScheduler, EventType};
 use crate::floppy::FloppyController;
 use crate::memory::{AmigaMemory, MemoryConfig};
 use crate::network::MacAddress;
 use crate::playfield::{self, PlayfieldState};
 use crate::sprites::SpriteEngine;
+use crate::video::VideoStandard;
 
 /// CPU cycles per scanline (227 color clocks × 2).
 const CYCLES_PER_LINE: usize = 227 * 2;
 
 /// Display width in pixels.
 const DISPLAY_WIDTH: usize = playfield::DISPLAY_WIDTH as usize;
-
-/// Display height in pixels (as u16 for beam comparison).
-///
-/// Derived from [`playfield::DISPLAY_HEIGHT`]; compile-time assertion guarantees no truncation.
-#[allow(clippy::cast_possible_truncation)]
-const VISIBLE_LINES: u16 = {
-    assert!(playfield::DISPLAY_HEIGHT <= u16::MAX as u32);
-    playfield::DISPLAY_HEIGHT as u16
-};
 
 /// Framebuffer size in pixels.
 const FRAMEBUFFER_SIZE: usize = DISPLAY_WIDTH * playfield::DISPLAY_HEIGHT as usize;
@@ -151,8 +142,13 @@ pub struct Emulator {
     pub audio: AudioState,
     /// Sprite engine.
     pub sprites: SpriteEngine,
-    /// RGB565 framebuffer (high-res PAL width × visible PAL height).
+    /// RGB565 framebuffer, sized for the taller of the two video standards.
+    ///
+    /// PAL is taller than NTSC, so this buffer holds either. Under NTSC the
+    /// lines beyond the active height are never written.
     pub framebuffer: Vec<u16>,
+    /// Video standard the chipset runs at.
+    video_standard: VideoStandard,
     /// Optional injected sink for instruction tracing.
     trace_sink: Option<Box<dyn TraceSink + Send>>,
     /// Optional trace limit (number of instructions).
@@ -228,6 +224,7 @@ impl Emulator {
         events.schedule(EventType::HSync, 227);
 
         let cpu_type = config.cpu_type;
+        let video_standard = config.video_standard;
         let mut memory = AmigaMemory::new(config);
         let mut cpu = CpuCore::new();
         cpu.set_cpu_type(cpu_type);
@@ -236,7 +233,7 @@ impl Emulator {
         Self {
             cpu,
             memory,
-            chipset: CustomChipState::new(),
+            chipset: CustomChipState::new(video_standard),
             events,
             copper: CopperState::new(),
             playfield: PlayfieldState::new(),
@@ -245,6 +242,7 @@ impl Emulator {
             audio: AudioState::new(),
             sprites: SpriteEngine::new(),
             framebuffer: vec![0; FRAMEBUFFER_SIZE],
+            video_standard,
             trace_sink: None,
             trace_limit: None,
             trace_count: 0,
@@ -356,12 +354,14 @@ impl Emulator {
         self.memory.mouse_left = left;
     }
 
-    /// Run one full PAL frame (312 scanlines).
+    /// Run one full frame of the selected video standard.
+    ///
+    /// 312 scanlines under PAL, 262 under NTSC.
     pub fn run_frame(&mut self) {
         self.frame_ready = false;
         self.first_video_scanline = None;
         self.early_video_scanlines.clear();
-        for _ in 0..SCANLINES_PAL {
+        for _ in 0..self.video_standard.scanlines() {
             self.run_scanline();
         }
     }
@@ -509,7 +509,7 @@ impl Emulator {
 
         // Advance chipset beam by one full scanline
         self.chipset.hpos = 0;
-        if self.chipset.vpos >= 311 {
+        if self.chipset.vpos >= self.video_standard.last_line() {
             self.chipset.vpos = 0;
         } else {
             self.chipset.vpos += 1;
@@ -559,9 +559,10 @@ impl Emulator {
 
         // Render this scanline AFTER copper sets up registers for this line.
         let (_, _, vstart, vstop) = self.playfield.display_window();
+        let active_height = self.video_standard.active_height();
         let framebuffer_line = vpos
             .checked_sub(vstart)
-            .filter(|line| *line < VISIBLE_LINES);
+            .filter(|line| *line < active_height);
         if let Some(framebuffer_line) = framebuffer_line {
             let bitplane_dma = self.chipset.dmaen(custom::DMA_BITPLANE);
             let saved_bplcon0 = self.playfield.bplcon0;
@@ -878,9 +879,7 @@ impl Emulator {
     /// Sync live chipset state into the custom register shadow so CPU reads are correct.
     fn sync_readable_regs(&mut self) {
         let regs = &mut self.memory.custom_regs;
-        // VPOSR: bit 15=LOF, bits 14-8=Agnus ID, bits 0-2=vpos high
-        // OCS Agnus (A500): ID=$00, only bit 0 of vpos high visible
-        regs[(custom::VPOSR / 2) as usize] = 0x8000 | ((self.chipset.vpos >> 8) & 1);
+        regs[(custom::VPOSR / 2) as usize] = self.chipset.vposr();
         regs[(custom::VHPOSR / 2) as usize] = (self.chipset.vpos << 8) | (self.chipset.hpos & 0xFF);
 
         // BBUSY stays clear: a blit completes within the write that starts it,
@@ -888,7 +887,7 @@ impl Emulator {
         regs[(custom::DMACONR / 2) as usize] = self.chipset.dmacon & 0x7FFF;
         regs[(custom::INTENAR / 2) as usize] = self.chipset.intena & 0x7FFF;
         regs[(custom::INTREQR / 2) as usize] = self.chipset.intreq & 0x7FFF;
-        regs[(custom::BEAMCON0 / 2) as usize] = custom::BEAMCON0_PAL;
+        regs[(custom::BEAMCON0 / 2) as usize] = self.video_standard.beamcon0();
         // SERDATR ($018): TBE (bit 13) + TSRE (bit 12) = transmit buffer empty
         regs[(0x018 / 2) as usize] = 0x3000;
         // POTGOR ($016): active-high button state (bits 8-15 = all buttons released)
@@ -1139,18 +1138,31 @@ impl Emulator {
         &self.framebuffer
     }
 
-    /// Duration of one emulated frame.
+    /// Duration of one emulated frame under the selected video standard.
     ///
     /// Derived from the colour clock and the scanline count rather than from a
-    /// rounded frame rate, so a PAL frame is 19.968 ms. This is emulated time, not
-    /// host time: the core never reads a host clock. A product shell paces against
-    /// this value, so pacing follows automatically when the video standard becomes
-    /// selectable.
+    /// rounded frame rate, so a PAL frame is 19.968 ms and an NTSC frame 16.615 ms.
+    /// This is emulated time, not host time: the core never reads a host clock. A
+    /// shell that paces against this value follows the standard automatically.
     #[must_use]
     pub const fn frame_period(&self) -> Duration {
-        let cycles = events::CYCLES_PER_SCANLINE * SCANLINES_PAL;
-        let nanos = cycles * 1_000_000_000 / events::COLOUR_CLOCK_PAL_HZ;
-        Duration::from_nanos(nanos)
+        Duration::from_nanos(self.video_standard.frame_period_nanos())
+    }
+
+    /// Video standard the chipset runs at.
+    #[must_use]
+    pub const fn video_standard(&self) -> VideoStandard {
+        self.video_standard
+    }
+
+    /// Active picture height in framebuffer lines under the selected standard.
+    ///
+    /// The framebuffer itself is always PAL-sized. A presenter must use this
+    /// height rather than the buffer height, or an NTSC frame gains 45 lines of
+    /// never-written padding at the bottom.
+    #[must_use]
+    pub const fn active_height(&self) -> u16 {
+        self.video_standard.active_height()
     }
 
     /// Digest of the rendered frame.
@@ -1187,6 +1199,7 @@ impl Emulator {
         digest.write_u16(self.chipset.dmacon);
         digest.write_u16(self.chipset.vpos);
         digest.write_u16(self.chipset.hpos);
+        digest.write_u16(self.video_standard.digest_tag());
         digest.write_bytes(self.memory.chip_ram());
         digest.finish()
     }
@@ -1558,11 +1571,15 @@ mod tests {
         (emu.state_digest(), emu.frame_digest())
     }
 
-    /// Pinned digest of the blit fixture.
+    /// Pinned digest of the blit fixture on a PAL machine.
     ///
     /// Both runtime profiles must reach this exact value, so the portable and
     /// desktop blitter paths cannot diverge silently.
-    const BLIT_FIXTURE_DIGEST: (u64, u64) = (0xb366_f315_f002_3f2d, 0x42a5_a130_53f1_6d25);
+    ///
+    /// The state digest changed when M1-013 added the video standard to the
+    /// digested fields. The frame digest did not, because the fixture renders no
+    /// frame and the two standards therefore produce identical pixels here.
+    const BLIT_FIXTURE_DIGEST: (u64, u64) = (0x08e6_ace7_2721_e3cd, 0x42a5_a130_53f1_6d25);
 
     #[test]
     fn both_runtime_profiles_reach_the_pinned_state() {
@@ -1645,6 +1662,109 @@ mod tests {
         // The implied rate is PAL's 50.08 Hz rather than a flat 50.
         let rate = 1.0 / period.as_secs_f64();
         assert!((rate - 50.08).abs() < 0.01, "implied rate was {rate}");
+    }
+
+    /// Machine configuration for the given standard, otherwise unchanged.
+    fn config_with(standard: VideoStandard) -> MemoryConfig {
+        MemoryConfig {
+            video_standard: standard,
+            ..MemoryConfig::a500()
+        }
+    }
+
+    #[test]
+    fn frame_period_follows_the_selected_standard() {
+        let pal = Emulator::new(config_with(VideoStandard::Pal));
+        let ntsc = Emulator::new(config_with(VideoStandard::Ntsc));
+
+        assert_eq!(pal.frame_period().as_nanos(), 19_967_887);
+        assert_eq!(ntsc.frame_period().as_nanos(), 16_614_960);
+
+        // 60.19 Hz, not the 60 Hz the option is usually labelled with.
+        let rate = 1.0 / ntsc.frame_period().as_secs_f64();
+        assert!((rate - 60.19).abs() < 0.01, "implied rate was {rate}");
+    }
+
+    #[test]
+    fn the_beam_wrap_agrees_with_the_frame_length() {
+        // This is the assertion that fails if only the frame length follows the
+        // standard and the beam wrap stays at PAL's line 311: after one NTSC frame
+        // the beam would sit at line 262 instead of back at the top, and it would
+        // drift by 50 lines every frame from then on.
+        for standard in [VideoStandard::Pal, VideoStandard::Ntsc] {
+            let mut emu = Emulator::new(config_with(standard));
+            emu.memory.overlay = false;
+            assert_eq!(emu.chipset.vpos, 0);
+            emu.run_frame();
+            assert_eq!(
+                emu.chipset.vpos, 0,
+                "{standard:?} left the beam at line {} after a full frame",
+                emu.chipset.vpos
+            );
+        }
+    }
+
+    #[test]
+    fn an_ntsc_frame_costs_fewer_cycles_than_a_pal_frame() {
+        let mut pal = Emulator::new(config_with(VideoStandard::Pal));
+        let mut ntsc = Emulator::new(config_with(VideoStandard::Ntsc));
+        pal.memory.overlay = false;
+        ntsc.memory.overlay = false;
+
+        pal.run_frame();
+        ntsc.run_frame();
+
+        // A scanline costs the same in both standards, so a frame's cost follows
+        // its line count: 262 lines against 312.
+        assert!(
+            ntsc.total_cycles < pal.total_cycles,
+            "an NTSC frame ran {} cycles, not fewer than PAL's {}",
+            ntsc.total_cycles,
+            pal.total_cycles
+        );
+    }
+
+    #[test]
+    fn active_height_follows_the_selected_standard() {
+        let pal = Emulator::new(config_with(VideoStandard::Pal));
+        let ntsc = Emulator::new(config_with(VideoStandard::Ntsc));
+
+        assert_eq!(pal.active_height(), 288);
+        assert_eq!(ntsc.active_height(), 243);
+
+        // The framebuffer is PAL-sized in both cases, so a presenter that used the
+        // buffer height would pad an NTSC frame with 45 never-written lines.
+        assert_eq!(pal.framebuffer().len(), FRAMEBUFFER_SIZE);
+        assert_eq!(ntsc.framebuffer().len(), FRAMEBUFFER_SIZE);
+        assert!(usize::from(ntsc.active_height()) * DISPLAY_WIDTH < FRAMEBUFFER_SIZE);
+    }
+
+    #[test]
+    fn vposr_and_beamcon0_report_the_selected_standard() {
+        let mut pal = Emulator::new(config_with(VideoStandard::Pal));
+        let mut ntsc = Emulator::new(config_with(VideoStandard::Ntsc));
+        pal.sync_readable_regs();
+        ntsc.sync_readable_regs();
+
+        let pal_vposr = pal.memory.custom_regs[(custom::VPOSR / 2) as usize];
+        let ntsc_vposr = ntsc.memory.custom_regs[(custom::VPOSR / 2) as usize];
+        assert_eq!(pal_vposr & 0x1000, 0, "PAL must not set the NTSC bit");
+        assert_eq!(ntsc_vposr & 0x1000, 0x1000, "NTSC must set bit 12");
+
+        let pal_beam = pal.memory.custom_regs[(custom::BEAMCON0 / 2) as usize];
+        let ntsc_beam = ntsc.memory.custom_regs[(custom::BEAMCON0 / 2) as usize];
+        assert_eq!(pal_beam, custom::BEAMCON0_PAL);
+        assert_eq!(ntsc_beam & custom::BEAMCON0_PAL, 0);
+    }
+
+    #[test]
+    fn state_digest_separates_the_two_standards() {
+        let pal = Emulator::new(config_with(VideoStandard::Pal));
+        let ntsc = Emulator::new(config_with(VideoStandard::Ntsc));
+
+        // The two machines differ in nothing else, so a digest that ignored the
+        // standard would call them identical.
+        assert_ne!(pal.state_digest(), ntsc.state_digest());
     }
 
     #[test]

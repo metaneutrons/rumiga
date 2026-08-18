@@ -9,6 +9,7 @@
 use rumiga_core::custom;
 use rumiga_core::emulator::Emulator;
 use rumiga_core::memory::MemoryConfig;
+use rumiga_core::video::VideoStandard;
 
 /// Helper: create a fresh A500 emulator for register dispatch testing.
 fn make_emulator() -> Emulator {
@@ -193,11 +194,42 @@ mod register_dispatch_golden_vectors {
 
     #[test]
     fn test_vposr_read_returns_current_vertical_position() {
-        // WinUAE: VPOSR ($DFF004) returns the MSB of the vertical beam position
-        // (bit 0 = V8 for long-frame identification on PAL).
+        // WinUAE: VPOSR ($DFF004) returns LOF in bit 15, the Agnus
+        // identification in bits 14-8, of which bit 12 reports NTSC, and V8 in
+        // bit 0. This machine is PAL, so the identification field contributes
+        // nothing and only LOF and V8 are set.
+        //
+        // The expected value gained bit 15 in M1-013. Before that, this direct
+        // read had its own VPOSR implementation that omitted LOF while the
+        // register shadow the guest actually reads included it, so the two
+        // disagreed. There is now one implementation and this vector matches what
+        // a guest sees.
         let mut emu = make_emulator();
         emu.chipset.vpos = 0x0100; // V8 set (line 256)
-        assert_eq!(emu.chipset.read_register(custom::VPOSR), 0x0001);
+        assert_eq!(emu.chipset.read_register(custom::VPOSR), 0x8001);
+    }
+
+    #[test]
+    fn test_vposr_reports_the_video_standard() {
+        // NTSC sets bit 12 of the identification field; PAL leaves it clear.
+        let mut pal = Emulator::new(MemoryConfig {
+            video_standard: VideoStandard::Pal,
+            ..MemoryConfig::a500()
+        });
+        let mut ntsc = Emulator::new(MemoryConfig {
+            video_standard: VideoStandard::Ntsc,
+            ..MemoryConfig::a500()
+        });
+        pal.chipset.vpos = 0;
+        ntsc.chipset.vpos = 0;
+
+        assert_eq!(pal.chipset.read_register(custom::VPOSR), 0x8000);
+        assert_eq!(ntsc.chipset.read_register(custom::VPOSR), 0x9000);
+        assert_eq!(
+            pal.chipset.read_register(custom::BEAMCON0),
+            custom::BEAMCON0_PAL
+        );
+        assert_eq!(ntsc.chipset.read_register(custom::BEAMCON0), 0x0000);
     }
 
     #[test]

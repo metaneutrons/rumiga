@@ -7,15 +7,13 @@
 //! logic, and beam position tracking.
 
 use crate::custom;
+use crate::video::VideoStandard;
 
 /// Number of color palette entries (OCS).
 const PALETTE_SIZE: usize = 32;
 
 /// Maximum horizontal position (color clocks per line, 0-indexed).
 const HPOS_MAX: u16 = 226;
-
-/// Maximum vertical position for PAL (scanlines, 0-indexed).
-const VPOS_MAX_PAL: u16 = 311;
 
 /// Custom chip register state.
 #[derive(Clone, Debug)]
@@ -26,24 +24,30 @@ pub struct CustomChipState {
     pub intena: u16,
     /// Interrupt request register (active value, without set/clear bit).
     pub intreq: u16,
-    /// Vertical beam position (0–311 PAL).
+    /// Vertical beam position (0–311 PAL, 0–261 NTSC).
     pub vpos: u16,
     /// Horizontal beam position (0–226 color clocks).
     pub hpos: u16,
     /// Color palette registers.
     pub color: [u16; PALETTE_SIZE],
+    /// Video standard that fixes the beam geometry.
+    video_standard: VideoStandard,
 }
 
 impl Default for CustomChipState {
     fn default() -> Self {
-        Self::new()
+        Self::new(VideoStandard::Pal)
     }
 }
 
 impl CustomChipState {
     /// Create a new chip state with all registers zeroed.
+    ///
+    /// The video standard fixes where the beam wraps and what `VPOSR` and
+    /// `BEAMCON0` report, so it belongs to the chip state rather than to the
+    /// caller of each read.
     #[must_use]
-    pub const fn new() -> Self {
+    pub const fn new(video_standard: VideoStandard) -> Self {
         Self {
             dmacon: 0,
             intena: 0,
@@ -51,7 +55,28 @@ impl CustomChipState {
             vpos: 0,
             hpos: 0,
             color: [0; PALETTE_SIZE],
+            video_standard,
         }
+    }
+
+    /// Video standard that fixes the beam geometry.
+    #[must_use]
+    pub const fn video_standard(&self) -> VideoStandard {
+        self.video_standard
+    }
+
+    /// Value the chipset reports in `VPOSR`.
+    ///
+    /// Bit 15 is `LOF`, bits 14–8 carry the Agnus identification, of which bit 12
+    /// reports NTSC, and the low bits carry the high bits of the beam position.
+    /// On OCS Agnus only bit 0 of the beam high bits is visible, and the Agnus
+    /// revision itself is not yet modelled.
+    ///
+    /// One implementation serves both the register shadow the guest reads and the
+    /// direct register read, so the two cannot disagree.
+    #[must_use]
+    pub const fn vposr(&self) -> u16 {
+        0x8000 | self.video_standard.vposr_standard_bits() | ((self.vpos >> 8) & 1)
     }
 
     /// Check if a DMA channel is enabled (master enable + channel bit).
@@ -97,7 +122,7 @@ impl CustomChipState {
     pub fn advance_beam(&mut self) -> bool {
         if self.hpos >= HPOS_MAX {
             self.hpos = 0;
-            if self.vpos >= VPOS_MAX_PAL {
+            if self.vpos >= self.video_standard.last_line() {
                 self.vpos = 0;
                 return true;
             }
@@ -113,9 +138,9 @@ impl CustomChipState {
     pub fn read_register(&self, offset: u16) -> u16 {
         match offset {
             custom::DMACONR => self.dmacon,
-            custom::VPOSR => self.vpos >> 8,
+            custom::VPOSR => self.vposr(),
             custom::VHPOSR => (self.vpos << 8) | (self.hpos & 0xFF),
-            custom::BEAMCON0 => custom::BEAMCON0_PAL,
+            custom::BEAMCON0 => self.video_standard.beamcon0(),
             custom::INTENAR => self.intena,
             custom::INTREQR => self.intreq,
             o if (custom::COLOR00..=custom::COLOR31).contains(&o) => {
@@ -158,7 +183,7 @@ mod tests {
 
     #[test]
     fn dmacon_enable_disable() {
-        let mut state = CustomChipState::new();
+        let mut state = CustomChipState::new(VideoStandard::Pal);
         // Set master + bitplane DMA
         state.write_register(
             custom::DMACON,
@@ -174,7 +199,7 @@ mod tests {
 
     #[test]
     fn intreq_intena_interrupt_level() {
-        let mut state = CustomChipState::new();
+        let mut state = CustomChipState::new(VideoStandard::Pal);
         // Enable VERTB interrupt
         state.write_register(custom::INTENA, 0x8000 | custom::INT_VERTB);
         // Request VERTB
@@ -193,13 +218,13 @@ mod tests {
 
     #[test]
     fn no_pending_interrupts_returns_zero() {
-        let state = CustomChipState::new();
+        let state = CustomChipState::new(VideoStandard::Pal);
         assert_eq!(state.interrupt_level(), 0);
     }
 
     #[test]
     fn beam_position_wraps() {
-        let mut state = CustomChipState::new();
+        let mut state = CustomChipState::new(VideoStandard::Pal);
         state.hpos = HPOS_MAX;
         state.vpos = 100;
         let vblank = state.advance_beam();
@@ -210,9 +235,9 @@ mod tests {
 
     #[test]
     fn beam_position_vertical_wrap() {
-        let mut state = CustomChipState::new();
+        let mut state = CustomChipState::new(VideoStandard::Pal);
         state.hpos = HPOS_MAX;
-        state.vpos = VPOS_MAX_PAL;
+        state.vpos = VideoStandard::Pal.last_line();
         let vblank = state.advance_beam();
         assert!(vblank);
         assert_eq!(state.hpos, 0);
@@ -221,7 +246,7 @@ mod tests {
 
     #[test]
     fn color_register_write_read() {
-        let mut state = CustomChipState::new();
+        let mut state = CustomChipState::new(VideoStandard::Pal);
         state.write_register(custom::COLOR00, 0x0F00);
         assert_eq!(state.read_register(custom::COLOR00), 0x0F00);
         state.write_register(custom::COLOR31, 0x0ABC);
@@ -230,7 +255,7 @@ mod tests {
 
     #[test]
     fn beamcon0_reports_pal_timing() {
-        let state = CustomChipState::new();
+        let state = CustomChipState::new(VideoStandard::Pal);
         assert_eq!(state.read_register(custom::BEAMCON0), custom::BEAMCON0_PAL);
     }
 }

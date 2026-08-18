@@ -48,6 +48,7 @@ pub mod memory;
 pub mod network;
 pub mod playfield;
 pub mod sprites;
+pub mod video;
 
 /// Diagnostic record transport contract implemented by platform adapters.
 pub use rumiga_platform::TraceSink;
