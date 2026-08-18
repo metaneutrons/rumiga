@@ -29,6 +29,7 @@ use rumiga_core::floppy::{
 };
 use rumiga_core::memory::MemoryConfig;
 use rumiga_core::playfield::{DISPLAY_HEIGHT, DISPLAY_LEFT_HPOS, DISPLAY_WIDTH, PlayfieldState};
+use rumiga_core::video::VideoStandard;
 use rumiga_platform::Clock;
 use rumiga_platform::VideoOutput;
 use rumiga_platform_desktop::{DesktopClock, DesktopVideo, FileTraceSink};
@@ -1176,12 +1177,17 @@ struct ViewportRect {
 }
 
 impl ViewportRect {
-    const fn full_frame() -> Self {
+    /// Whole active picture of the running video standard.
+    ///
+    /// `active_height` is the standard's active height, not the framebuffer
+    /// height. They differ under NTSC, where the PAL-sized buffer keeps 45 lines
+    /// the chipset never writes.
+    const fn full_frame(active_height: usize) -> Self {
         Self {
             x: 0,
             y: 0,
             width: WIDTH,
-            height: HEIGHT,
+            height: active_height,
         }
     }
 
@@ -1270,6 +1276,11 @@ fn main() {
     if let Some(fast_ram_override) = launch_args.fast_ram {
         config.fast_ram_size = fast_ram_override;
     }
+    if launch_args.ntsc {
+        config.video_standard = VideoStandard::Ntsc;
+    } else if launch_args.pal {
+        config.video_standard = VideoStandard::Pal;
+    }
     let config_summary = config.clone();
 
     // Print hardware configuration summary
@@ -1294,17 +1305,16 @@ fn main() {
     if let Some(ref pcap_path) = launch_args.network_pcap_path {
         eprintln!("  Network PCAP:   {pcap_path}");
     }
-    let video_std = if launch_args.ntsc {
-        "NTSC (60Hz)"
-    } else {
-        "PAL (50Hz)"
-    };
-    eprintln!("  Video Standard: {video_std}");
-    if launch_args.ntsc {
-        eprintln!(
-            "  [WARNING] The core graphics timing is currently optimized for PAL; NTSC overrides may not be fully supported."
-        );
-    }
+    let standard = config.video_standard;
+    let frame_rate =
+        1.0 / std::time::Duration::from_nanos(standard.frame_period_nanos()).as_secs_f64();
+    eprintln!(
+        "  Video Standard: {} ({} lines, {:.2} Hz, {} active lines)",
+        standard.as_str().to_uppercase(),
+        standard.scanlines(),
+        frame_rate,
+        standard.active_height()
+    );
     if let Some(ref trace_path) = launch_args.trace_cpu {
         eprintln!("  CPU Tracing:    Enabled -> {trace_path}");
         if let Some(limit) = launch_args.trace_limit {
@@ -1432,7 +1442,8 @@ fn main() {
         media_store.upload_limit_bytes()
     );
 
-    let initial_rect = resolve_viewport_rect(&display_config, None);
+    let active_height = usize::from(emulator.active_height());
+    let initial_rect = resolve_viewport_rect(&display_config, None, active_height);
     let initial_height = presented_height(initial_rect, display_config.viewport.vertical_stretch);
     let initial_network_status = network_status_from_emulator(&launch_args.network, &emulator);
 
@@ -1702,6 +1713,7 @@ fn main() {
                 framebuffer,
                 &display_config,
                 Some(&emulator.playfield),
+                active_height,
             ) {
                 Ok(frame) => frame,
                 Err(e) => {
@@ -1724,7 +1736,7 @@ fn main() {
                 s.screenshot_height = u32::try_from(frame.height).unwrap_or(u32::MAX);
                 copy_rgb565_to_argb(&frame.pixels, &mut s.screenshot);
                 s.native_screenshot_width = u32::try_from(WIDTH).unwrap_or(u32::MAX);
-                s.native_screenshot_height = u32::try_from(HEIGHT).unwrap_or(u32::MAX);
+                s.native_screenshot_height = u32::try_from(active_height).unwrap_or(u32::MAX);
                 copy_rgb565_to_argb(framebuffer, &mut s.native_screenshot);
                 s.network_status = network_status;
             }
@@ -2581,8 +2593,8 @@ Options:
       --chip-ram <size>   Override Chip RAM size: e.g. 512K, 1M, 2M
       --slow-ram <size>   Override Slow RAM size: e.g. 512K, 1M
       --fast-ram <size>   Override Fast RAM size: e.g. 1M, 2M, 4M, 8M
-      --pal               Force PAL video timing
-      --ntsc              Force NTSC video timing
+      --pal               PAL timing: 312 lines, 50.08 Hz (default)
+      --ntsc              NTSC timing: 262 lines, 60.19 Hz
       --df0 <file.adf>    Explicitly mount floppy in DF0
       --df1 <file.adf>    Explicitly mount floppy in DF1
       --df2 <file.adf>    Explicitly mount floppy in DF2
@@ -2613,11 +2625,13 @@ fn capture_evidence(
     emulator.flush_trace();
 
     let hdf_snapshot = write_hdf_snapshot_if_requested(emulator, context.args)?;
+    let active_height = usize::from(emulator.active_height());
     let frame = prepare_capture_frame_for_kind(
         emulator.framebuffer(),
         context.display,
         Some(&emulator.playfield),
         &context.args.capture_kind,
+        active_height,
     )?;
     let image_path = Path::new(context.capture_path);
     write_rgb565_png(image_path, &frame.pixels, frame.width, frame.height)?;
@@ -2658,8 +2672,9 @@ fn prepare_capture_frame(
     framebuffer: &[u16],
     display: &rumiga_api::DisplayConfig,
     playfield: Option<&PlayfieldState>,
+    active_height: usize,
 ) -> Result<CaptureFrame, String> {
-    let rect = resolve_viewport_rect(display, playfield);
+    let rect = resolve_viewport_rect(display, playfield, active_height);
     let output_height = presented_height(rect, display.viewport.vertical_stretch);
     let output_len = rect
         .width
@@ -2686,16 +2701,26 @@ fn prepare_capture_frame_for_kind(
     display: &rumiga_api::DisplayConfig,
     playfield: Option<&PlayfieldState>,
     kind: &rumiga_api::ScreenshotKind,
+    active_height: usize,
 ) -> Result<CaptureFrame, String> {
     match kind {
-        rumiga_api::ScreenshotKind::NativeFramebuffer => prepare_native_capture_frame(framebuffer),
+        rumiga_api::ScreenshotKind::NativeFramebuffer => {
+            prepare_native_capture_frame(framebuffer, active_height)
+        }
         rumiga_api::ScreenshotKind::ViewportPresentation => {
-            prepare_capture_frame(framebuffer, display, playfield)
+            prepare_capture_frame(framebuffer, display, playfield, active_height)
         }
     }
 }
 
-fn prepare_native_capture_frame(framebuffer: &[u16]) -> Result<CaptureFrame, String> {
+/// Native framebuffer capture, cropped to the active height of the standard.
+///
+/// The buffer is always PAL-sized. Emitting all of it under NTSC would append 45
+/// never-written lines to the image, so the capture ends at the active height.
+fn prepare_native_capture_frame(
+    framebuffer: &[u16],
+    active_height: usize,
+) -> Result<CaptureFrame, String> {
     let expected_len = WIDTH
         .checked_mul(HEIGHT)
         .ok_or_else(|| "Native framebuffer dimensions overflow".to_owned())?;
@@ -2705,15 +2730,23 @@ fn prepare_native_capture_frame(framebuffer: &[u16]) -> Result<CaptureFrame, Str
             framebuffer.len()
         ));
     }
+    if active_height > HEIGHT {
+        return Err(format!(
+            "Active height {active_height} exceeds the framebuffer height {HEIGHT}"
+        ));
+    }
+    let active_len = WIDTH
+        .checked_mul(active_height)
+        .ok_or_else(|| "Native framebuffer dimensions overflow".to_owned())?;
 
     Ok(CaptureFrame {
-        pixels: framebuffer.to_vec(),
+        pixels: framebuffer[..active_len].to_vec(),
         width: WIDTH,
-        height: HEIGHT,
+        height: active_height,
         source_x_start: 0,
         source_x_end: WIDTH,
         source_y_start: 0,
-        source_y_end: HEIGHT,
+        source_y_end: active_height,
     })
 }
 
@@ -2775,10 +2808,21 @@ fn write_capture_manifest(path: &Path, context: &CaptureManifestContext<'_>) -> 
         "  \"cpu\": {},",
         json_string(&format!("{:?}", context.config.cpu_type))
     );
+    // `video_standard` stays a plain string because the compatibility report
+    // renders it as a scalar. The derived timing goes in its own object.
+    let standard = context.emulator.video_standard();
     let _ = writeln!(
         json,
         "  \"video_standard\": {},",
-        json_string(if context.args.ntsc { "ntsc" } else { "pal" })
+        json_string(standard.as_str())
+    );
+    let _ = writeln!(
+        json,
+        "  \"video_timing\": {{ \"scanlines\": {}, \"colour_clock_hz\": {}, \"frame_period_ns\": {}, \"active_height\": {} }},",
+        standard.scanlines(),
+        standard.colour_clock_hz(),
+        standard.frame_period_nanos(),
+        standard.active_height()
     );
     let _ = writeln!(
         json,
@@ -2800,7 +2844,7 @@ fn write_capture_manifest(path: &Path, context: &CaptureManifestContext<'_>) -> 
     );
     push_viewport_json(&mut json, context);
     push_presentation_json(&mut json, context);
-    push_native_framebuffer_json(&mut json);
+    push_native_framebuffer_json(&mut json, context.emulator);
     push_boot_workarounds_json(&mut json, context.emulator);
     push_cia_state_json(&mut json, context.emulator);
     let _ = writeln!(
@@ -2899,13 +2943,16 @@ fn push_manifest_producer_json(json: &mut String) {
     );
 }
 
-fn push_native_framebuffer_json(json: &mut String) {
+fn push_native_framebuffer_json(json: &mut String, emulator: &Emulator) {
+    // The buffer is PAL-sized in both standards; `active_height` says how much of
+    // it the running standard fills.
     let _ = writeln!(
         json,
-        "  \"native_framebuffer\": {{ \"pixel_format\": {}, \"width\": {}, \"height\": {} }},",
+        "  \"native_framebuffer\": {{ \"pixel_format\": {}, \"width\": {}, \"height\": {}, \"active_height\": {} }},",
         json_string("rgb565"),
         WIDTH,
-        HEIGHT
+        HEIGHT,
+        emulator.active_height()
     );
 }
 
@@ -3876,34 +3923,41 @@ const fn presented_height(rect: ViewportRect, vertical_stretch: bool) -> usize {
 fn resolve_viewport_rect(
     display: &rumiga_api::DisplayConfig,
     playfield: Option<&PlayfieldState>,
+    active_height: usize,
 ) -> ViewportRect {
     match &display.viewport.mode {
-        rumiga_api::ViewportMode::Raw => ViewportRect::full_frame(),
-        rumiga_api::ViewportMode::Auto => automatic_viewport_rect(&display.viewport, playfield),
-        rumiga_api::ViewportMode::Manual => manual_viewport_rect(&display.viewport),
+        rumiga_api::ViewportMode::Raw => ViewportRect::full_frame(active_height),
+        rumiga_api::ViewportMode::Auto => {
+            automatic_viewport_rect(&display.viewport, playfield, active_height)
+        }
+        rumiga_api::ViewportMode::Manual => manual_viewport_rect(&display.viewport, active_height),
     }
 }
 
 fn automatic_viewport_rect(
     viewport: &rumiga_api::ViewportConfig,
     playfield: Option<&PlayfieldState>,
+    active_height: usize,
 ) -> ViewportRect {
     match viewport.preset {
         rumiga_api::ViewportPreset::NativeFullBorder | rumiga_api::ViewportPreset::Overscan => {
-            ViewportRect::full_frame()
+            ViewportRect::full_frame(active_height)
         }
         rumiga_api::ViewportPreset::VisibleArea => playfield
-            .and_then(visible_area_viewport_rect)
-            .unwrap_or_else(ViewportRect::full_frame),
+            .and_then(|playfield| visible_area_viewport_rect(playfield, active_height))
+            .unwrap_or_else(|| ViewportRect::full_frame(active_height)),
         rumiga_api::ViewportPreset::AutoCenter => playfield
-            .and_then(chipset_display_window_rect)
-            .unwrap_or_else(ViewportRect::full_frame),
+            .and_then(|playfield| chipset_display_window_rect(playfield, active_height))
+            .unwrap_or_else(|| ViewportRect::full_frame(active_height)),
     }
 }
 
-fn chipset_display_window_rect(playfield: &PlayfieldState) -> Option<ViewportRect> {
+fn chipset_display_window_rect(
+    playfield: &PlayfieldState,
+    active_height: usize,
+) -> Option<ViewportRect> {
     let (_, _, vstart, vstop) = playfield.display_window();
-    let y_height = usize::from(vstop.saturating_sub(vstart)).min(HEIGHT);
+    let y_height = usize::from(vstop.saturating_sub(vstart)).min(active_height);
     if y_height == 0 {
         return None;
     }
@@ -3918,11 +3972,14 @@ fn chipset_display_window_rect(playfield: &PlayfieldState) -> Option<ViewportRec
     })
 }
 
-fn visible_area_viewport_rect(playfield: &PlayfieldState) -> Option<ViewportRect> {
+fn visible_area_viewport_rect(
+    playfield: &PlayfieldState,
+    active_height: usize,
+) -> Option<ViewportRect> {
     let (hstart, hstop, vstart, vstop) = playfield.display_window();
     let x_start = active_x_for_hpos(hstart).min(WIDTH - 1);
     let x_end = active_x_for_hpos(hstop).min(WIDTH).max(x_start + 1);
-    let y_height = usize::from(vstop.saturating_sub(vstart)).min(HEIGHT);
+    let y_height = usize::from(vstop.saturating_sub(vstart)).min(active_height);
     if y_height == 0 || x_end <= x_start {
         return None;
     }
@@ -3935,15 +3992,18 @@ fn visible_area_viewport_rect(playfield: &PlayfieldState) -> Option<ViewportRect
     })
 }
 
-fn manual_viewport_rect(viewport: &rumiga_api::ViewportConfig) -> ViewportRect {
+fn manual_viewport_rect(
+    viewport: &rumiga_api::ViewportConfig,
+    active_height: usize,
+) -> ViewportRect {
     let x = usize::try_from(viewport.x.max(0))
         .unwrap_or(0)
         .min(WIDTH - 1);
     let y = usize::try_from(viewport.y.max(0))
         .unwrap_or(0)
-        .min(HEIGHT - 1);
+        .min(active_height - 1);
     let width = usize::from(viewport.width).min(WIDTH - x).max(1);
-    let height = usize::from(viewport.height).min(HEIGHT - y).max(1);
+    let height = usize::from(viewport.height).min(active_height - y).max(1);
     ViewportRect {
         x,
         y,
@@ -4788,7 +4848,7 @@ mod tests {
         playfield.diwstop = 0x38C1;
         let display = rumiga_api::DisplayConfig::default();
 
-        let rect = resolve_viewport_rect(&display, Some(&playfield));
+        let rect = resolve_viewport_rect(&display, Some(&playfield), HEIGHT);
 
         assert_eq!(
             rect,
@@ -4810,7 +4870,7 @@ mod tests {
         display.viewport.preset = rumiga_api::ViewportPreset::VisibleArea;
         let (hstart, hstop, vstart, vstop) = playfield.display_window();
 
-        let rect = resolve_viewport_rect(&display, Some(&playfield));
+        let rect = resolve_viewport_rect(&display, Some(&playfield), HEIGHT);
 
         assert_eq!(
             rect,
@@ -4910,12 +4970,68 @@ mod tests {
     fn prepare_capture_frame_uses_presented_height() {
         let framebuffer = vec![0xFFFFu16; WIDTH * HEIGHT];
         let display = display_config_from_launch_args(&default_test_args());
-        let frame =
-            prepare_capture_frame(&framebuffer, &display, None).expect("valid frame buffer");
+        let frame = prepare_capture_frame(&framebuffer, &display, None, HEIGHT)
+            .expect("valid frame buffer");
 
         assert_eq!(frame.width, WIDTH);
         assert_eq!(frame.height, HEIGHT * 2);
         assert_eq!(frame.pixels.len(), WIDTH * HEIGHT * 2);
+    }
+
+    #[test]
+    fn native_capture_crops_to_the_active_height_of_the_standard() {
+        // An NTSC machine fills 243 of the buffer's 288 lines. Emitting all 288
+        // would append 45 never-written lines to the image.
+        let ntsc_height = usize::from(VideoStandard::Ntsc.active_height());
+        let mut framebuffer = vec![0x0000u16; WIDTH * HEIGHT];
+        framebuffer[WIDTH * ntsc_height] = 0xDEAD; // first line beyond NTSC
+
+        let frame =
+            prepare_native_capture_frame(&framebuffer, ntsc_height).expect("valid frame buffer");
+
+        assert_eq!(frame.height, ntsc_height);
+        assert_eq!(frame.source_y_end, ntsc_height);
+        assert_eq!(frame.pixels.len(), WIDTH * ntsc_height);
+        assert!(
+            !frame.pixels.contains(&0xDEAD),
+            "the capture reached past the active height"
+        );
+    }
+
+    #[test]
+    fn native_capture_rejects_an_active_height_past_the_buffer() {
+        let framebuffer = vec![0x0000u16; WIDTH * HEIGHT];
+        assert!(prepare_native_capture_frame(&framebuffer, HEIGHT + 1).is_err());
+    }
+
+    #[test]
+    fn full_frame_viewport_follows_the_active_height() {
+        let pal = usize::from(VideoStandard::Pal.active_height());
+        let ntsc = usize::from(VideoStandard::Ntsc.active_height());
+
+        assert_eq!(ViewportRect::full_frame(pal).height, 288);
+        assert_eq!(ViewportRect::full_frame(ntsc).height, 243);
+    }
+
+    #[test]
+    fn parse_args_accepts_the_video_standard_flags() {
+        let ntsc =
+            parse_args(&["--ntsc".to_owned(), "kick.rom".to_owned()]).expect("--ntsc should parse");
+        assert!(ntsc.ntsc && !ntsc.pal);
+
+        let pal =
+            parse_args(&["--pal".to_owned(), "kick.rom".to_owned()]).expect("--pal should parse");
+        assert!(pal.pal && !pal.ntsc);
+
+        assert!(
+            parse_args(&[
+                "--pal".to_owned(),
+                "--ntsc".to_owned(),
+                "kick.rom".to_owned()
+            ])
+            .is_err(),
+            "the two standards are mutually exclusive"
+        );
     }
 
     #[test]
@@ -4930,6 +5046,7 @@ mod tests {
             &display,
             None,
             &rumiga_api::ScreenshotKind::NativeFramebuffer,
+            HEIGHT,
         )
         .expect("native framebuffer should capture");
 
@@ -5277,10 +5394,10 @@ mod tests {
         playfield.diwstrt = 0x1D81;
         playfield.diwstop = 0x38C1;
         let display = rumiga_api::DisplayConfig::default();
-        let rect = resolve_viewport_rect(&display, Some(&playfield));
+        let rect = resolve_viewport_rect(&display, Some(&playfield), HEIGHT);
         framebuffer[(rect.height - 1) * WIDTH + 3] = 0x7BEF;
 
-        let frame = prepare_capture_frame(&framebuffer, &display, Some(&playfield))
+        let frame = prepare_capture_frame(&framebuffer, &display, Some(&playfield), HEIGHT)
             .expect("valid frame buffer");
         let bottom_start = (frame.height - 1) * frame.width;
 

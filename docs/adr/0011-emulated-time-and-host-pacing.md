@@ -33,8 +33,9 @@ microseconds per frame and the implied rate is PAL's 50.08 Hz. `core::time::Dura
 is emulated time here, not host time; the distinction is the point.
 
 The shell paces against that declared period rather than a constant of its own, so
-pacing follows automatically when M1-013 makes the video standard selectable. The
-reported frame rate is measured over a 500 ms window.
+pacing follows the video standard. M1-013 made the standard selectable and required no
+pacing change, which is what this decision was for. The reported frame rate is measured
+over a 500 ms window.
 
 The core is prevented from naming a host clock type. `crates/rumiga-core/clippy.toml`
 disallows `std::time::Instant` and `std::time::SystemTime`, and `lib.rs` denies

@@ -26,6 +26,7 @@ use crate::cia::CiaPair;
 use crate::custom;
 use crate::ide::AtaController;
 use crate::network::MacAddress;
+use crate::video::VideoStandard;
 
 /// Custom chip register address range.
 const CUSTOM_BASE: u32 = 0x00DF_F000;
@@ -81,6 +82,11 @@ pub struct MemoryConfig {
     pub cpu_type: m68k::CpuType,
     /// Whether CIA accesses use Gayle/Fat Gary single-CIA chip-select decoding.
     pub gayle_cia_decode: bool,
+    /// Video standard the chipset runs at.
+    ///
+    /// Both standards were sold for every model this crate models, so this is a
+    /// separate choice rather than a consequence of the model profile.
+    pub video_standard: VideoStandard,
 }
 
 impl MemoryConfig {
@@ -94,6 +100,7 @@ impl MemoryConfig {
             rom_size: 256 * 1024,
             cpu_type: m68k::CpuType::M68000,
             gayle_cia_decode: false,
+            video_standard: VideoStandard::Pal,
         }
     }
 
@@ -107,6 +114,7 @@ impl MemoryConfig {
             rom_size: 512 * 1024,
             cpu_type: m68k::CpuType::M68000,
             gayle_cia_decode: false,
+            video_standard: VideoStandard::Pal,
         }
     }
 
@@ -120,6 +128,7 @@ impl MemoryConfig {
             rom_size: 512 * 1024,
             cpu_type: m68k::CpuType::M68000,
             gayle_cia_decode: true,
+            video_standard: VideoStandard::Pal,
         }
     }
 
@@ -133,6 +142,7 @@ impl MemoryConfig {
             rom_size: 512 * 1024,
             cpu_type: m68k::CpuType::M68020,
             gayle_cia_decode: true,
+            video_standard: VideoStandard::Pal,
         }
     }
 }

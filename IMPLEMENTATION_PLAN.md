@@ -505,7 +505,7 @@ local promotion result.
 | M1-010 | PLANNED | Add allocation instrumentation and steady-state no-allocation assertion | One-minute host run has no scanline-loop allocations |
 | M1-011 | PLANNED | Measure 32-bit assumptions, alignment, endianness, and `usize` conversions | Miri/sanitizer/property fixtures cover critical boundaries |
 | M1-012 | PLANNED | Publish portability contract in architecture docs | Core dependency graph contains only approved `no_std` crates |
-| M1-013 | PLANNED | Make the video standard selectable and model NTSC geometry, colour clock, and Agnus identification | An NTSC Kickstart boots, detects the standard, and produces a stable screenshot digest; conformance to documented constants is asserted |
+| M1-013 | DONE | Make the video standard selectable and model NTSC geometry, colour clock, and Agnus identification | An NTSC Kickstart boots, detects the standard, and produces a stable screenshot digest; conformance to documented constants is asserted |
 
 M1-001 evidence (2026-08-16):
 
@@ -732,8 +732,8 @@ M1-006 implementation evidence (2026-08-18):
   microseconds per frame, and the implied rate is PAL's 50.08 Hz. A unit test pins
   this in both runtime profiles
 - because the shell paces against the core's declared period rather than a
-  constant, pacing will follow automatically when M1-013 makes the standard
-  selectable
+  constant, pacing follows the video standard with no further change. M1-013 made
+  the standard selectable and needed no pacing change to do it
 - the desktop frame loop now paces deliberately. It previously ran flat out and
   slept 16 ms only when no frame was ready, so nothing enforced the 50 frames per
   second that `ROADMAP.md` states as the PAL target
@@ -785,6 +785,60 @@ M1-006 implementation evidence (2026-08-18):
   independent verification covers the payload, not the archive container, because
   the API does not serve the archive bytes to a plain token fetch
 
+M1-013 implementation evidence (2026-08-18):
+
+- the `--ntsc` flag was inert before this task. A 1200-frame A1200 Kickstart 46.143
+  capture taken with `--ntsc` at revision `e002644` is byte-identical to the same
+  capture without it, so the option offered a choice the machine could not make
+- PAL was compiled in at five independent places: the frame loop, the framebuffer
+  line filter, `frame_period`, the `BEAMCON0` shadow, and the beam wrap, which was a
+  literal 311 in the scanline loop plus a second constant in `advance_beam`. One type,
+  `VideoStandard` in `rumiga-core::video`, now answers all of them
+- two of those five are coupled and the coupling is not obvious: the frame length and
+  the beam wrap must agree. A 262-line frame with a wrap at line 311 leaves the beam
+  50 lines further down every frame, so guest code waiting for a line either waits an
+  extra frame or never sees it. A test asserts the agreement and fails on the
+  half-implemented version, reporting the beam at line 262
+- every constant is sourced from `WinUAE` rather than recalled. `include/custom.h`
+  gives `MAXVPOS_PAL` 312 and `MAXVPOS_NTSC` 262, `MAXHPOS_PAL` and `MAXHPOS_NTSC`
+  both 227, `CHIPSET_CLOCK_PAL` 3,546,895 and `CHIPSET_CLOCK_NTSC` 3,579,545,
+  `VBLANK_ENDLINE_PAL` 26 and `VBLANK_ENDLINE_NTSC` 21, and `BEAMCON0_PAL` `0x0020`;
+  `include/drawing.h` gives `AMIGA_HEIGHT_MAX_PAL` 576/2 and `AMIGA_HEIGHT_MAX_NTSC`
+  486/2; `custom.cpp` sets `0x1000` in `VPOSR` for NTSC and `beamcon0` to `0x00`
+- the NTSC frame period is 16,614,960 ns, implying 60.19 Hz. Both the 60 Hz the option
+  is usually labelled with and broadcast NTSC's 59.94 Hz are wrong for this machine.
+  Both periods were computed independently in Python before being asserted
+- the framebuffer stays PAL-sized and constant because PAL is the taller standard. A
+  compile-time assertion enforces that, and `Emulator::active_height` lets a presenter
+  crop rather than emit the 45 lines the chipset never writes under NTSC
+- the guest detects the standard and acts on it. Under `--ntsc`, Kickstart 46.143
+  writes `DIWSTRT` `0x1595` and `DIWSTOP` `0x06AD`, a window from line 21 to line 262,
+  against PAL's `0x1D95` and `0x38AD` from line 29 to line 312. The two stop lines are
+  exactly the two standards' line counts, which the guest can only have derived from
+  the standard it read. The NTSC start line happens to equal `VBLANK_ENDLINE_NTSC`,
+  but PAL's 29 does not equal `VBLANK_ENDLINE_PAL`'s 26, so that single agreement is a
+  coincidence rather than evidence
+- `VPOSR` had two implementations that disagreed: the register shadow the guest reads
+  included `LOF` while the direct register read omitted it. Adding a standard bit to
+  both would have preserved the disagreement, so they were merged into one. The
+  guest-visible value is unchanged and one golden vector gained bit 15
+- three consecutive 1200-frame NTSC captures share SHA-256
+  `06d225152680aa41b640d1c721b1f482c80d7157727b88190111e69f66e29ff6` at 754x482
+- PAL is unchanged: a 1200-frame capture is byte-identical to the same capture from
+  revision `e002644` in a separate worktree, and the 60-frame capture keeps digest
+  `03a0b882b85474795554180cfa138110` recorded for M1-005 and M1-006
+- `state_digest` now includes the standard, so the pinned blit fixture digest moved to
+  `0x08e6ace72721e3cd`. The frame digest did not move, because the fixture renders no
+  frame
+- not modelled: the Agnus revision, which `VPOSR` still reports as `0x00` on every
+  profile with only the standard bit varying; interlace and long/short frame
+  alternation, so `LOF` is always set and an NTSC frame is a flat 262 lines rather
+  than alternating 262 and 263; runtime switching through a guest `BEAMCON0` write
+- not compared against a reference emulator. The constants come from `WinUAE` sources
+  and the guest behaviour is self-consistent, but no frame has been diffed against
+  `WinUAE` or FS-UAE output. That comparison is deliberately deferred
+- hosted pull-request and final `main` evidence is pending promotion
+
 ### M1 functional commits
 
 1. `refactor(core): define std and no-std runtime profiles`
@@ -808,6 +862,7 @@ M1-006 implementation evidence (2026-08-18):
 19. `refactor(blitter): restore deterministic single-owner execution`
 20. `feat(platform): add capabilities errors and bounded queues`
 21. `test(core): add deterministic replay and state digests`
+22. `feat(core): make the video standard selectable`
 
 ## M2 Backlog: D1001 Board Bring-Up
 

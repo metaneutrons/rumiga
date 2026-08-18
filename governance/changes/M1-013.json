@@ -1,0 +1,108 @@
+{
+  "schema": "rumiga.change-record.v1",
+  "task_id": "M1-013",
+  "title": "Make the video standard selectable with NTSC geometry, colour clock, and beam identification",
+  "status": "implemented",
+  "summary": "Introduce one type that owns every PAL/NTSC difference, select the standard through the machine configuration, derive the frame length, colour clock, active height, and beam wrap from it, report it in VPOSR and BEAMCON0 so the guest detects it, and crop presentation to the active height while keeping the framebuffer PAL-sized.",
+  "scope": [
+    "Video standard type and its sourced constants",
+    "Machine configuration and CLI selection",
+    "Frame length, colour clock, and emulated frame period",
+    "Beam wrap and its agreement with the frame length",
+    "VPOSR and BEAMCON0 reporting, unified into one VPOSR implementation",
+    "Active height in presentation, capture, and manifests"
+  ],
+  "risk": {
+    "level": "medium",
+    "failure_mode": "Changing the frame length without the beam wrap makes the beam drift by 50 lines per frame, which no rendering test would notice while guest code waiting on a line stalls. A presenter that keeps using the buffer height silently appends 45 blank lines to every NTSC frame. Adding a field to the state digest invalidates recorded digests, so a stale comparison would look like a state change.",
+    "rollback": "Revert the M1-013 commits to restore the PAL-only machine and the inert --ntsc flag. No persisted format depends on the change; capture manifests gain fields rather than changing existing ones, except the state digest, which has no recorded external consumers."
+  },
+  "compatibility": {
+    "status": "affected",
+    "detail": "MemoryConfig gains video_standard and CustomChipState::new takes it; all model profiles default to PAL. Emulator::frame_period becomes standard-dependent and Emulator::active_height is new, which a presenter must use instead of the framebuffer height. Emulator::state_digest includes the standard, so digests recorded before this change no longer compare; frame digests are unaffected. CustomChipState::read_register(VPOSR) now includes LOF because the two disagreeing VPOSR implementations were merged into one; the guest-visible value is unchanged because guest reads go through the register shadow, and read_register together with advance_beam is currently exercised only by tests. Capture manifests keep video_standard as a string and add a video_timing object plus native_framebuffer.active_height. PAL rendering is byte-identical to the pre-change revision. The Agnus revision is still not modelled: VPOSR reports revision 0x00 on every profile and only the standard bit varies. Interlace and long/short frame alternation are not modelled. The standard is fixed at construction, so a guest write to BEAMCON0 does not switch it."
+  },
+  "security": {
+    "status": "none",
+    "detail": "No network transport, credential, authorization, persistence, unsafe-code, or FFI behavior changes. The new code is arithmetic over compile-time constants and one extra field on two existing structures. The native capture path gained an explicit bound check that rejects an active height past the framebuffer rather than slicing out of range."
+  },
+  "tests": [
+    {
+      "id": "video-standard-constants",
+      "command": "cargo +1.97.1 test --locked -p rumiga-core --lib video",
+      "proves": "Line count, colour clock, active height, last line, first visible line, BEAMCON0, the VPOSR standard bit, and both frame periods match the values WinUAE records, and the line length and buffer maximum are asserted to be the same in both standards so neither becomes standard-dependent by accident."
+    },
+    {
+      "id": "beam-wrap-agrees-with-frame-length",
+      "command": "cargo +1.97.1 test --locked -p rumiga-core --lib the_beam_wrap_agrees_with_the_frame_length",
+      "proves": "After one full frame the beam is back at the top in both standards. This fails on an implementation that shortens the frame without moving the wrap, reporting the beam at line 262."
+    },
+    {
+      "id": "registers-report-the-standard",
+      "command": "cargo +1.97.1 test --locked -p rumiga-core",
+      "proves": "VPOSR sets bit 12 under NTSC and leaves it clear under PAL, BEAMCON0 reports 0x0020 under PAL and 0x0000 under NTSC, and the state digest separates two machines that differ only in standard."
+    },
+    {
+      "id": "presentation-crops-to-active-height",
+      "command": "cargo +1.97.1 test --locked -p rumiga-desktop",
+      "proves": "A native capture of an NTSC machine ends at line 243 and cannot include buffer content past it, an active height greater than the buffer is rejected, the full-frame viewport follows the standard, and the two standard flags remain mutually exclusive."
+    },
+    {
+      "id": "both-runtime-profiles",
+      "command": "cargo +1.97.1 test --locked -p rumiga-core --no-default-features --features no_std --lib",
+      "proves": "The standard is portable: every constant and the beam agreement hold in the bare-metal profile as well as the desktop one."
+    },
+    {
+      "id": "full-local-promotion",
+      "command": "cargo +1.97.1 xtask ci",
+      "proves": "All eight gates pass for the change."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "local-flag-was-inert",
+      "kind": "host-scenario",
+      "location": "2026-08-18 local execution: at revision e00264421c36a3d96eec9b98a491cd75df63ce8c a 1200-frame A1200 Kickstart 46.143 capture taken with --ntsc has SHA-256 b190d54b1bbf1e6a9bba3f36d34b74c95ab8fc6fe7796f2f6c694b70165ea1aa, identical to the same capture without --ntsc.",
+      "proves": "The option previously offered a choice the machine could not make, which is the defect this task closes rather than a feature it extends."
+    },
+    {
+      "id": "local-guest-detects-the-standard",
+      "kind": "host-scenario",
+      "location": "2026-08-18 local execution: with --ntsc, Kickstart 46.143 writes DIWSTRT 0x1595 and DIWSTOP 0x06AD, a vertical window from line 21 to line 262, against PAL's 0x1D95 and 0x38AD from line 29 to line 312. The register values were decoded independently, including the DIWSTOP V8 complement rule.",
+      "proves": "The guest reads the reported standard and acts on it. The two stop lines are exactly the two standards' line counts, which the guest can only have derived from what it read. The NTSC start line happens to equal WinUAE's VBLANK_ENDLINE_NTSC, but PAL's 29 does not equal VBLANK_ENDLINE_PAL's 26, so that single agreement is a coincidence and is not claimed as evidence."
+    },
+    {
+      "id": "local-ntsc-capture-stable",
+      "kind": "host-scenario",
+      "location": "2026-08-18 local execution: three consecutive 1200-frame NTSC captures share SHA-256 06d225152680aa41b640d1c721b1f482c80d7157727b88190111e69f66e29ff6 at 754x482, and three 60-frame captures share d924093bd4138df1932c45d1f8018bc57f14975a0eac0e9a3366670152c317ba at 754x486.",
+      "proves": "NTSC output is deterministic, so the image is usable as recorded evidence."
+    },
+    {
+      "id": "local-pal-unchanged-differential",
+      "kind": "host-scenario",
+      "location": "2026-08-18 local execution: a 1200-frame A1200 PAL capture is byte-identical to the same capture produced from revision e00264421c36a3d96eec9b98a491cd75df63ce8c in a separate worktree, both b190d54b1bbf1e6a9bba3f36d34b74c95ab8fc6fe7796f2f6c694b70165ea1aa. The 60-frame PAL capture keeps digest 03a0b882b85474795554180cfa138110, the value recorded for M1-005 and M1-006.",
+      "proves": "Making the standard selectable changed nothing about the default standard, on both the short capture used for earlier evidence and the longer one that renders real content."
+    },
+    {
+      "id": "local-constants-sourced-not-recalled",
+      "kind": "command",
+      "location": "2026-08-18 local execution: every constant was read from WinUAE sources rather than reproduced from memory. include/custom.h gives MAXVPOS_PAL 312, MAXVPOS_NTSC 262, MAXHPOS_PAL and MAXHPOS_NTSC both 227, CHIPSET_CLOCK_PAL 3546895, CHIPSET_CLOCK_NTSC 3579545, VBLANK_ENDLINE_PAL 26, VBLANK_ENDLINE_NTSC 21, and BEAMCON0_PAL 0x0020; include/drawing.h gives AMIGA_HEIGHT_MAX_PAL 576/2 and AMIGA_HEIGHT_MAX_NTSC 486/2; custom.cpp VPOSR() sets 0x1000 for NTSC and custom.cpp sets beamcon0 to 0x00 under NTSC. Both frame periods were computed independently in Python before being asserted.",
+      "proves": "The pinned values rest on a citable source and an independent computation rather than on the implementation's own output."
+    },
+    {
+      "id": "hosted-promotion",
+      "kind": "ci-artifact",
+      "location": "Pending: hosted pull-request and final main promotion evidence is required before this record moves to verified.",
+      "proves": "Nothing yet."
+    }
+  ],
+  "documentation": [
+    "IMPLEMENTATION_PLAN.md",
+    "PROJECT_STATUS.md",
+    "docs/adr/0012-selectable-video-standard.md",
+    "docs/adr/README.md"
+  ],
+  "release_note": "docs/release-notes/unreleased/M1-013.md",
+  "architecture_decisions": [
+    "docs/adr/0012-selectable-video-standard.md"
+  ]
+}
