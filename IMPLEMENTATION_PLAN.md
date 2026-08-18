@@ -500,7 +500,7 @@ local promotion result.
 | M1-005 | DONE | Remove core thread spawning and affinity; restore deterministic single-owner blitter | Both runtime profiles reach a pinned fixture digest, and a host capture is byte-identical before and after |
 | M1-006 | DONE | Introduce emulated clock, host yield, and monotonic scheduling contracts | The core cannot name a host clock type, emulated frame duration comes from the colour clock, and the shell paces against it with a measured frame rate |
 | M1-007 | DONE | Version platform capabilities and typed error model | Unsupported and backpressure states are explicit and tested |
-| M1-008 | PLANNED | Add bounded video/audio/input/event queue contracts | Overflow policy and high-water marks have tests |
+| M1-008 | DONE | Add bounded video/audio/input/event queue contracts | Overflow policy and high-water marks have tests |
 | M1-009 | PLANNED | Add deterministic input replay and machine-state digest | Same replay yields same digest on repeated host runs |
 | M1-010 | PLANNED | Add allocation instrumentation and steady-state no-allocation assertion | One-minute host run has no scanline-loop allocations |
 | M1-011 | PLANNED | Measure 32-bit assumptions, alignment, endianness, and `usize` conversions | Miri/sanitizer/property fixtures cover critical boundaries |
@@ -947,6 +947,52 @@ M1-007 implementation evidence (2026-08-18):
   independent verification covers the payload, not the archive container, because the
   API does not serve the archive bytes to a plain token fetch
 
+M1-008 implementation evidence (2026-08-18):
+
+- `ARCHITECTURE.md` already required overflow policies to be part of the contract. One
+  queue existed and it stated nothing: `Emulator::key_event` guarded a `Vec` with
+  `if self.key_events.len() < MAX_KEY_EVENTS` and skipped the push otherwise, with no
+  counter and no named policy
+- the bound is reached in normal use. The queue drains one event every three frames,
+  about seventeen per second under PAL, so a key-repeat burst exceeds sixteen events. A
+  guest that missed a keystroke was indistinguishable from one that received everything
+- `BoundedQueue<T>` fixes capacity at construction, names its `OverflowPolicy`, and
+  returns a `QueueAdmission` so the effect of the policy is visible at every push rather
+  than inferred by comparing lengths
+- the policy is named per queue rather than once for the crate, because the two
+  consumers want opposite answers. `RejectNewest` keeps typing order, which is what a
+  full keyboard buffer does; `DropOldest` keeps the freshest audio, because stale sound
+  is worse than missing sound. A paired test shows the two policies retain different
+  items from identical input
+- a boolean push result was rejected. Eviction both queues the new item and loses an old
+  one, so `QueueAdmission::queued` and `lost_an_item` answer two questions that a
+  boolean conflates
+- `high_water` and `dropped` survive `clear` on purpose. They describe the queue's
+  history, and a shell that clears on reset would otherwise erase the evidence that the
+  queue had saturated
+- capacity never grows. Growing under load trades a visible loss for an unbounded
+  allocation and a latency increase that nothing reports
+- the keyboard queue keeps capacity sixteen and `RejectNewest`, which is exactly what
+  the unnamed length check already did. The policy is now stated and its effect counted;
+  guest-visible behaviour is unchanged
+- the counters have a real consumer rather than being decoration. The shell reports lost
+  events and the peak depth at shutdown, and capture manifests record the capacity, the
+  policy, and all three counters. In a capture run they read zero, which documents that
+  no input pressure could have influenced the frame
+- `InputCapabilities` gained `max_events_per_poll`, because `InputState::key_events` is
+  an unbounded `Vec` and the bound a consumer sizes against belongs in the descriptor
+- incidental: draining is now `pop_front` on a `VecDeque` rather than `remove(0)` on a
+  `Vec`, which no longer shifts the remaining events. That was not the motivation
+- not created: audio and video queues. `AudioOutput` and `Storage` still have no
+  backend, so such a queue would have neither producer nor consumer and could not be
+  tested against real pressure. The bound `AudioCapabilities::max_queued_frames`
+  declares therefore still describes an intention rather than an enforced limit
+- not provided: a windowed rate. The counters are cumulative, so a shell cannot
+  distinguish a burst an hour ago from one happening now
+- rendered output is unchanged: a 1200-frame A1200 capture keeps digest
+  `b190d54b1bbf1e6a9bba3f36d34b74c95ab8fc6fe7796f2f6c694b70165ea1aa`
+- hosted pull-request and final `main` evidence is pending promotion
+
 ### M1 functional commits
 
 1. `refactor(core): define std and no-std runtime profiles`
@@ -972,6 +1018,7 @@ M1-007 implementation evidence (2026-08-18):
 21. `test(core): add deterministic replay and state digests`
 22. `feat(core): make the video standard selectable`
 23. `feat(platform): version capabilities and type the error model`
+24. `feat(platform): bound queues with a named overflow policy`
 
 ## M2 Backlog: D1001 Board Bring-Up
 

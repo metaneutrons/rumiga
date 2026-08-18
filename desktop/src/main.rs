@@ -1803,6 +1803,22 @@ fn main() {
         eprintln!("Display refused {frames_dropped} frames under backpressure.");
     }
 
+    // Report keyboard queue saturation. The per-event admission result is not handled
+    // at each call site because the aggregate is what a user can act on; what matters
+    // is that a loss is recorded somewhere rather than nowhere.
+    let keys_dropped = emulator.key_events_dropped();
+    let key_high_water = emulator.key_queue_high_water();
+    if keys_dropped > 0 {
+        eprintln!(
+            "Keyboard queue lost {keys_dropped} events; peak depth {key_high_water} of {}.",
+            emulator.key_queue_capacity()
+        );
+    } else if key_high_water == emulator.key_queue_capacity() && key_high_water > 0 {
+        eprintln!(
+            "Keyboard queue reached its limit of {key_high_water} events without losing any."
+        );
+    }
+
     // Durability of the trace file is explicit, not a side effect of drop order.
     emulator.flush_trace();
 
@@ -2886,6 +2902,7 @@ fn write_capture_manifest(path: &Path, context: &CaptureManifestContext<'_>) -> 
     push_viewport_json(&mut json, context);
     push_presentation_json(&mut json, context);
     push_native_framebuffer_json(&mut json, context.emulator);
+    push_input_queue_json(&mut json, context.emulator);
     push_boot_workarounds_json(&mut json, context.emulator);
     push_cia_state_json(&mut json, context.emulator);
     let _ = writeln!(
@@ -2994,6 +3011,22 @@ fn push_native_framebuffer_json(json: &mut String, emulator: &Emulator) {
         WIDTH,
         HEIGHT,
         emulator.active_height()
+    );
+}
+
+/// Record the guest keyboard queue bound, its policy, and its saturation counters.
+///
+/// A capture run supplies no keyboard input, so these normally read zero. That zero is
+/// the useful part: it documents that no input pressure could have influenced the frame.
+fn push_input_queue_json(json: &mut String, emulator: &Emulator) {
+    let _ = writeln!(
+        json,
+        "  \"input_queue\": {{ \"capacity\": {}, \"overflow_policy\": {}, \"depth\": {}, \"high_water\": {}, \"dropped\": {} }},",
+        emulator.key_queue_capacity(),
+        json_string(emulator.key_queue_policy().as_str()),
+        emulator.key_queue_depth(),
+        emulator.key_queue_high_water(),
+        emulator.key_events_dropped()
     );
 }
 
@@ -5160,6 +5193,13 @@ mod tests {
         assert_eq!(manifest["producer"]["name"], "rumiga-desktop");
         assert_eq!(manifest["native_framebuffer"]["width"], WIDTH);
         assert_eq!(manifest["native_framebuffer"]["height"], HEIGHT);
+        // The queue bound and its policy are recorded, so a reader of the evidence can
+        // see that no input pressure could have influenced the frame.
+        assert_eq!(manifest["input_queue"]["capacity"], 16);
+        assert_eq!(manifest["input_queue"]["overflow_policy"], "reject-newest");
+        assert_eq!(manifest["input_queue"]["depth"], 0);
+        assert_eq!(manifest["input_queue"]["high_water"], 0);
+        assert_eq!(manifest["input_queue"]["dropped"], 0);
         assert_eq!(
             manifest["boot_workarounds"]["forced_cia_timer_start"],
             false

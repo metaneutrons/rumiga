@@ -151,6 +151,9 @@ impl CapabilityReport for DesktopBackend {
                 keyboard: true,
                 mouse: false,
                 joysticks: 0,
+                // DesktopInput reports at most one event per polled key, so the bound
+                // is the length of POLLED_KEYS rather than a guessed number.
+                max_events_per_poll: POLLED_KEYS.len(),
             },
             // The desktop shell serves files through its own REST storage layer,
             // which is not this platform contract.

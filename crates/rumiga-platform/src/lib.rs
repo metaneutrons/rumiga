@@ -36,6 +36,7 @@
 
 extern crate alloc;
 
+use alloc::collections::VecDeque;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
@@ -148,6 +149,11 @@ pub struct InputCapabilities {
     pub mouse: bool,
     /// Number of joystick ports reported.
     pub joysticks: u8,
+    /// Largest number of key events one [`InputSource::poll`] can return.
+    ///
+    /// `InputState::key_events` is an unbounded `Vec`, so this is the bound a consumer
+    /// can size against. A backend that reports no keyboard states zero.
+    pub max_events_per_poll: usize,
 }
 
 /// What a storage backend allows.
@@ -258,6 +264,185 @@ impl SamplesQueued {
     #[must_use]
     pub const fn backpressured(self) -> bool {
         self.rejected > 0
+    }
+}
+
+/// What a bounded queue does when it is full.
+///
+/// The policy is named per queue rather than chosen globally, because the right answer
+/// depends on what the items mean. Losing the newest keystroke preserves typing order;
+/// losing the oldest audio frame preserves the freshest sound. A queue that does not
+/// state its policy pushes the decision to a caller who cannot make it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OverflowPolicy {
+    /// Refuse the incoming item and keep the backlog intact.
+    RejectNewest,
+    /// Evict the oldest item to make room for the incoming one.
+    DropOldest,
+}
+
+impl OverflowPolicy {
+    /// Stable lowercase name for manifests and diagnostics.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::RejectNewest => "reject-newest",
+            Self::DropOldest => "drop-oldest",
+        }
+    }
+}
+
+/// What happened to one pushed item.
+///
+/// The effect of the overflow policy is visible at every push, so a caller never has to
+/// compare a length before and after to learn whether its item survived.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum QueueAdmission {
+    /// Queued with room to spare.
+    Accepted,
+    /// Queued after evicting the oldest item, under [`OverflowPolicy::DropOldest`].
+    AcceptedEvictingOldest,
+    /// Refused, so the incoming item is lost.
+    ///
+    /// This is the outcome under [`OverflowPolicy::RejectNewest`], and also under
+    /// [`OverflowPolicy::DropOldest`] at capacity zero, where there is nothing to evict.
+    Rejected,
+}
+
+impl QueueAdmission {
+    /// Whether the item was queued, however it got in.
+    #[must_use]
+    pub const fn queued(self) -> bool {
+        matches!(self, Self::Accepted | Self::AcceptedEvictingOldest)
+    }
+
+    /// Whether anything was lost, either the incoming item or an evicted one.
+    #[must_use]
+    pub const fn lost_an_item(self) -> bool {
+        matches!(self, Self::AcceptedEvictingOldest | Self::Rejected)
+    }
+}
+
+/// Queue with a fixed capacity, a named overflow policy, and saturation counters.
+///
+/// The counters exist because a queue that filled up and then drained is otherwise
+/// indistinguishable from one that was never busy. [`Self::high_water`] records the
+/// deepest the queue ever got and [`Self::dropped`] how many items were lost, so a shell
+/// can report saturation rather than infer it from missing input.
+///
+/// Capacity is fixed at construction and never grows. Growing under load would trade a
+/// visible loss for an invisible latency increase and an unbounded allocation.
+#[derive(Clone, Debug)]
+pub struct BoundedQueue<T> {
+    items: VecDeque<T>,
+    capacity: usize,
+    policy: OverflowPolicy,
+    high_water: usize,
+    dropped: u64,
+}
+
+impl<T> BoundedQueue<T> {
+    /// Create a queue holding at most `capacity` items under `policy`.
+    ///
+    /// A capacity of zero is permitted and rejects or drops everything, which is a
+    /// legitimate way to model a service that is present but has no room.
+    #[must_use]
+    pub fn new(capacity: usize, policy: OverflowPolicy) -> Self {
+        Self {
+            items: VecDeque::with_capacity(capacity),
+            capacity,
+            policy,
+            high_water: 0,
+            dropped: 0,
+        }
+    }
+
+    /// Offer one item, returning what the policy did with it.
+    pub fn push(&mut self, item: T) -> QueueAdmission {
+        if self.capacity == 0 {
+            // The policy makes no difference here: there is nothing to evict, so the
+            // item is lost either way.
+            self.dropped = self.dropped.saturating_add(1);
+            return QueueAdmission::Rejected;
+        }
+        if self.items.len() < self.capacity {
+            self.items.push_back(item);
+            self.high_water = self.high_water.max(self.items.len());
+            return QueueAdmission::Accepted;
+        }
+        self.dropped = self.dropped.saturating_add(1);
+        match self.policy {
+            OverflowPolicy::RejectNewest => QueueAdmission::Rejected,
+            OverflowPolicy::DropOldest => {
+                self.items.pop_front();
+                self.items.push_back(item);
+                QueueAdmission::AcceptedEvictingOldest
+            }
+        }
+    }
+
+    /// Take the oldest item.
+    pub fn pop(&mut self) -> Option<T> {
+        self.items.pop_front()
+    }
+
+    /// Look at the oldest item without taking it.
+    #[must_use]
+    pub fn peek(&self) -> Option<&T> {
+        self.items.front()
+    }
+
+    /// Items currently queued.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    /// Whether the queue is empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
+    /// Whether the next push will hit the overflow policy.
+    #[must_use]
+    pub fn is_full(&self) -> bool {
+        self.items.len() >= self.capacity
+    }
+
+    /// Fixed capacity.
+    #[must_use]
+    pub const fn capacity(&self) -> usize {
+        self.capacity
+    }
+
+    /// Overflow policy this queue was built with.
+    #[must_use]
+    pub const fn policy(&self) -> OverflowPolicy {
+        self.policy
+    }
+
+    /// Deepest the queue has ever been.
+    ///
+    /// This never decreases. A value equal to [`Self::capacity`] means the queue
+    /// reached its limit at least once, whether or not anything was lost.
+    #[must_use]
+    pub const fn high_water(&self) -> usize {
+        self.high_water
+    }
+
+    /// Items lost to the overflow policy since construction.
+    #[must_use]
+    pub const fn dropped(&self) -> u64 {
+        self.dropped
+    }
+
+    /// Remove all queued items, keeping the saturation counters.
+    ///
+    /// The counters survive on purpose: they describe the history of the queue, and a
+    /// reset would hide a saturation episode from whatever reports it later.
+    pub fn clear(&mut self) {
+        self.items.clear();
     }
 }
 
@@ -549,9 +734,10 @@ pub trait Storage {
 #[cfg(test)]
 mod tests {
     use super::{
-        AudioCapabilities, AudioOutput, CONTRACT_VERSION, CapabilityReport, FramePresentation,
-        InputCapabilities, PixelFormat, PlatformCapabilities, PlatformError, SamplesQueued,
-        StorageCapabilities, VideoCapabilities, VideoOutput,
+        AudioCapabilities, AudioOutput, BoundedQueue, CONTRACT_VERSION, CapabilityReport,
+        FramePresentation, InputCapabilities, OverflowPolicy, PixelFormat, PlatformCapabilities,
+        PlatformError, QueueAdmission, SamplesQueued, StorageCapabilities, VideoCapabilities,
+        VideoOutput,
     };
 
     /// Backend with no audio and a display that can refuse a frame.
@@ -756,6 +942,151 @@ mod tests {
         };
 
         assert_ne!(read_only, writable);
+    }
+
+    #[test]
+    fn a_queue_with_room_accepts_without_losing_anything() {
+        let mut queue: BoundedQueue<u8> = BoundedQueue::new(4, OverflowPolicy::RejectNewest);
+
+        for value in 1..=4 {
+            assert_eq!(queue.push(value), QueueAdmission::Accepted);
+        }
+
+        assert_eq!(queue.len(), 4);
+        assert!(queue.is_full());
+        assert_eq!(queue.dropped(), 0);
+        assert_eq!(queue.high_water(), 4);
+    }
+
+    #[test]
+    fn reject_newest_keeps_the_backlog_and_loses_the_incoming_item() {
+        let mut queue: BoundedQueue<u8> = BoundedQueue::new(2, OverflowPolicy::RejectNewest);
+        queue.push(1);
+        queue.push(2);
+
+        assert_eq!(queue.push(3), QueueAdmission::Rejected);
+
+        // The two already queued survive in order; the newcomer is gone.
+        assert_eq!(queue.pop(), Some(1));
+        assert_eq!(queue.pop(), Some(2));
+        assert_eq!(queue.pop(), None);
+        assert_eq!(queue.dropped(), 1);
+    }
+
+    #[test]
+    fn drop_oldest_makes_room_and_loses_the_head() {
+        let mut queue: BoundedQueue<u8> = BoundedQueue::new(2, OverflowPolicy::DropOldest);
+        queue.push(1);
+        queue.push(2);
+
+        assert_eq!(queue.push(3), QueueAdmission::AcceptedEvictingOldest);
+
+        // The oldest is gone and the newcomer is queued behind what remains.
+        assert_eq!(queue.pop(), Some(2));
+        assert_eq!(queue.pop(), Some(3));
+        assert_eq!(queue.dropped(), 1);
+    }
+
+    #[test]
+    fn the_two_policies_disagree_about_which_item_survives() {
+        let mut reject: BoundedQueue<u8> = BoundedQueue::new(1, OverflowPolicy::RejectNewest);
+        let mut drop_oldest: BoundedQueue<u8> = BoundedQueue::new(1, OverflowPolicy::DropOldest);
+        reject.push(1);
+        drop_oldest.push(1);
+
+        reject.push(2);
+        drop_oldest.push(2);
+
+        // This is the whole reason the policy is named per queue rather than chosen once.
+        assert_eq!(reject.pop(), Some(1));
+        assert_eq!(drop_oldest.pop(), Some(2));
+    }
+
+    #[test]
+    fn admission_says_whether_the_item_was_queued_and_whether_anything_was_lost() {
+        assert!(QueueAdmission::Accepted.queued());
+        assert!(!QueueAdmission::Accepted.lost_an_item());
+
+        // Eviction queues the item and still loses one, so the two questions differ.
+        assert!(QueueAdmission::AcceptedEvictingOldest.queued());
+        assert!(QueueAdmission::AcceptedEvictingOldest.lost_an_item());
+
+        assert!(!QueueAdmission::Rejected.queued());
+        assert!(QueueAdmission::Rejected.lost_an_item());
+    }
+
+    #[test]
+    fn the_high_water_mark_survives_draining() {
+        let mut queue: BoundedQueue<u8> = BoundedQueue::new(4, OverflowPolicy::RejectNewest);
+        queue.push(1);
+        queue.push(2);
+        queue.push(3);
+        while queue.pop().is_some() {}
+
+        // A queue that filled and drained must not look like one that was never busy.
+        assert!(queue.is_empty());
+        assert_eq!(queue.high_water(), 3);
+    }
+
+    #[test]
+    fn clearing_keeps_the_saturation_history() {
+        let mut queue: BoundedQueue<u8> = BoundedQueue::new(1, OverflowPolicy::RejectNewest);
+        queue.push(1);
+        queue.push(2);
+        queue.clear();
+
+        // Resetting the counters here would hide a saturation episode from whatever
+        // reports it later.
+        assert!(queue.is_empty());
+        assert_eq!(queue.high_water(), 1);
+        assert_eq!(queue.dropped(), 1);
+    }
+
+    #[test]
+    fn a_zero_capacity_queue_loses_everything_under_either_policy() {
+        for policy in [OverflowPolicy::RejectNewest, OverflowPolicy::DropOldest] {
+            let mut queue: BoundedQueue<u8> = BoundedQueue::new(0, policy);
+
+            // Nothing can be evicted to make room, so DropOldest cannot accept either.
+            assert_eq!(queue.push(1), QueueAdmission::Rejected);
+            assert!(queue.is_empty());
+            assert!(queue.is_full());
+            assert_eq!(queue.dropped(), 1);
+            assert_eq!(queue.high_water(), 0);
+        }
+    }
+
+    #[test]
+    fn a_queue_reports_the_policy_it_was_built_with() {
+        let queue: BoundedQueue<u8> = BoundedQueue::new(8, OverflowPolicy::DropOldest);
+
+        assert_eq!(queue.policy(), OverflowPolicy::DropOldest);
+        assert_eq!(queue.capacity(), 8);
+    }
+
+    #[test]
+    fn peek_does_not_consume() {
+        let mut queue: BoundedQueue<u8> = BoundedQueue::new(2, OverflowPolicy::RejectNewest);
+        queue.push(7);
+
+        assert_eq!(queue.peek(), Some(&7));
+        assert_eq!(queue.len(), 1);
+        assert_eq!(queue.pop(), Some(7));
+    }
+
+    #[test]
+    fn input_capabilities_state_the_per_poll_event_bound() {
+        // InputState::key_events is an unbounded Vec, so this is the bound a consumer
+        // sizes against.
+        let input = InputCapabilities {
+            keyboard: true,
+            mouse: true,
+            joysticks: 2,
+            max_events_per_poll: 7,
+        };
+
+        assert_eq!(input.max_events_per_poll, 7);
+        assert_eq!(InputCapabilities::default().max_events_per_poll, 0);
     }
 
     #[test]

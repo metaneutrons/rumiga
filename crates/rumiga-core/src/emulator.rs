@@ -33,6 +33,7 @@ use crate::network::MacAddress;
 use crate::playfield::{self, PlayfieldState};
 use crate::sprites::SpriteEngine;
 use crate::video::VideoStandard;
+use rumiga_platform::{BoundedQueue, OverflowPolicy, QueueAdmission};
 
 /// CPU cycles per scanline (227 color clocks × 2).
 const CYCLES_PER_LINE: usize = 227 * 2;
@@ -43,8 +44,20 @@ const DISPLAY_WIDTH: usize = playfield::DISPLAY_WIDTH as usize;
 /// Framebuffer size in pixels.
 const FRAMEBUFFER_SIZE: usize = DISPLAY_WIDTH * playfield::DISPLAY_HEIGHT as usize;
 
-/// Maximum queued key events per frame.
+/// Capacity of the guest keyboard queue.
+///
+/// The queue drains one event every three frames, so about 17 events per second under
+/// PAL. A burst longer than this capacity loses events, which is what the queue's
+/// counters exist to make visible.
 const MAX_KEY_EVENTS: usize = 16;
+
+/// Overflow policy for the guest keyboard queue.
+///
+/// Refusing the newest event preserves the order of what is already typed, which is what
+/// a full keyboard buffer does on real hardware: the keystrokes are lost at the source
+/// rather than reordered. This matches the behaviour the previous unnamed bound had, so
+/// the policy makes an existing decision explicit rather than changing it.
+const KEY_EVENT_OVERFLOW: OverflowPolicy = OverflowPolicy::RejectNewest;
 
 /// Number of words dumped per bitplane in scanline capture manifests.
 pub const VIDEO_SCANLINE_WORD_DUMP: usize = 48;
@@ -166,7 +179,7 @@ pub struct Emulator {
     /// Most recent scanline that rendered active bitplanes.
     pub last_video_scanline: Option<VideoScanlineSnapshot>,
     /// Pending keyboard events (keycode, pressed).
-    key_events: Vec<(u8, bool)>,
+    key_events: BoundedQueue<(u8, bool)>,
     /// Mouse delta X accumulator.
     mouse_dx: i16,
     /// Mouse delta Y accumulator.
@@ -251,7 +264,7 @@ impl Emulator {
             first_video_scanline: None,
             early_video_scanlines: Vec::new(),
             last_video_scanline: None,
-            key_events: Vec::new(),
+            key_events: BoundedQueue::new(MAX_KEY_EVENTS, KEY_EVENT_OVERFLOW),
             mouse_dx: 0,
             mouse_dy: 0,
             gfxbase_cache: 0,
@@ -333,10 +346,46 @@ impl Emulator {
     }
 
     /// Queue a keyboard event for CIA handling.
-    pub fn key_event(&mut self, keycode: u8, pressed: bool) {
-        if self.key_events.len() < MAX_KEY_EVENTS {
-            self.key_events.push((keycode, pressed));
-        }
+    ///
+    /// Returns what the overflow policy did with the event. A full queue refuses the
+    /// event and counts it; a caller that ignores the result gets the previous
+    /// behaviour, but the loss is now recorded rather than invisible.
+    pub fn key_event(&mut self, keycode: u8, pressed: bool) -> QueueAdmission {
+        self.key_events.push((keycode, pressed))
+    }
+
+    /// Key events currently queued for the guest.
+    #[must_use]
+    pub fn key_queue_depth(&self) -> usize {
+        self.key_events.len()
+    }
+
+    /// Deepest the keyboard queue has ever been.
+    ///
+    /// A value equal to [`Emulator::key_queue_capacity`] means the queue reached its
+    /// limit at least once. Without this a queue that saturated and drained would look
+    /// exactly like one that was never busy.
+    #[must_use]
+    pub const fn key_queue_high_water(&self) -> usize {
+        self.key_events.high_water()
+    }
+
+    /// Capacity of the keyboard queue.
+    #[must_use]
+    pub const fn key_queue_capacity(&self) -> usize {
+        MAX_KEY_EVENTS
+    }
+
+    /// Key events lost to the overflow policy.
+    #[must_use]
+    pub const fn key_events_dropped(&self) -> u64 {
+        self.key_events.dropped()
+    }
+
+    /// Overflow policy the keyboard queue applies when full.
+    #[must_use]
+    pub const fn key_queue_policy(&self) -> OverflowPolicy {
+        self.key_events.policy()
     }
 
     /// Accumulate mouse movement deltas.
@@ -721,7 +770,7 @@ impl Emulator {
 
         // Process pending key events into CIA-A serial data register
         if self.keyboard_delay == 0 && !self.memory.cia.borrow().cia_a.icr_ir {
-            if let Some((keycode, pressed)) = self.key_events.first().copied() {
+            if let Some((keycode, pressed)) = self.key_events.peek().copied() {
                 // Amiga keyboard protocol: bit 7 = 0 for press, 1 for release
                 let code = if pressed { keycode } else { keycode | 0x80 };
                 let sdr_val = translate_amiga_keycode(code);
@@ -734,7 +783,7 @@ impl Emulator {
                         cia_a.icr_ir = true;
                     }
                 }
-                self.key_events.remove(0);
+                self.key_events.pop();
                 self.keyboard_delay = 3; // Enforce a 3-frame delay between key events
             }
         }
@@ -1755,6 +1804,53 @@ mod tests {
         let ntsc_beam = ntsc.memory.custom_regs[(custom::BEAMCON0 / 2) as usize];
         assert_eq!(pal_beam, custom::BEAMCON0_PAL);
         assert_eq!(ntsc_beam & custom::BEAMCON0_PAL, 0);
+    }
+
+    #[test]
+    fn the_keyboard_queue_reports_saturation_instead_of_swallowing_events() {
+        let mut emu = Emulator::new(MemoryConfig::a500());
+        let capacity = emu.key_queue_capacity();
+
+        for index in 0..capacity {
+            assert_eq!(
+                emu.key_event(u8::try_from(index).unwrap_or(0), true),
+                QueueAdmission::Accepted
+            );
+        }
+
+        // Before M1-008 this event vanished with no record: the bound was an unnamed
+        // length check and nothing counted the loss.
+        assert_eq!(emu.key_event(0x40, true), QueueAdmission::Rejected);
+
+        assert_eq!(emu.key_queue_depth(), capacity);
+        assert_eq!(emu.key_queue_high_water(), capacity);
+        assert_eq!(emu.key_events_dropped(), 1);
+    }
+
+    #[test]
+    fn the_keyboard_queue_keeps_what_was_already_typed() {
+        let mut emu = Emulator::new(MemoryConfig::a500());
+        for index in 0..emu.key_queue_capacity() {
+            emu.key_event(u8::try_from(index).unwrap_or(0), true);
+        }
+
+        emu.key_event(0x7F, true);
+
+        // RejectNewest preserves typing order, which is why the policy is named.
+        assert_eq!(emu.key_events.peek().copied(), Some((0, true)));
+    }
+
+    #[test]
+    fn the_keyboard_high_water_mark_outlives_the_backlog() {
+        let mut emu = Emulator::new(MemoryConfig::a500());
+        emu.key_event(0x40, true);
+        emu.key_event(0x41, true);
+        while emu.key_events.pop().is_some() {}
+
+        // An empty queue that once held two events must not read as never busy.
+        assert_eq!(emu.key_queue_depth(), 0);
+        assert_eq!(emu.key_queue_high_water(), 2);
+        assert_eq!(emu.key_events_dropped(), 0);
     }
 
     #[test]

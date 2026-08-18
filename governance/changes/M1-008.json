@@ -1,0 +1,101 @@
+{
+  "schema": "rumiga.change-record.v1",
+  "task_id": "M1-008",
+  "title": "Add bounded queue contracts with named overflow policy and saturation counters",
+  "status": "implemented",
+  "summary": "Introduce a bounded queue with a fixed capacity, an overflow policy named per queue, an admission result that shows what the policy did with each item, and counters that record the deepest the queue ever got and how much it lost; adopt it for the guest keyboard queue whose sixteen-event bound previously dropped events with nothing recorded, and record the bound, the policy, and the counters in capture manifests.",
+  "scope": [
+    "Bounded queue contract with capacity, policy, and admission result",
+    "High-water and dropped counters and their survival across clear",
+    "Guest keyboard queue adoption and its accessors",
+    "Per-poll input event bound in the capability descriptor",
+    "Saturation reporting in the shell and in capture manifests"
+  ],
+  "risk": {
+    "level": "medium",
+    "failure_mode": "A single crate-wide overflow policy would be wrong for one of the two consumers, since keyboard input and audio want opposite answers. A boolean push result cannot distinguish queueing with room from queueing by eviction, which loses an item while accepting the new one. Resetting the counters on clear would erase evidence that a queue had saturated before a reset. Counters that nothing reads would be decoration rather than instrumentation.",
+    "rollback": "Revert the M1-008 commits to restore the Vec-backed keyboard queue with its unnamed length check. Guest-visible behaviour is identical either way, so a rollback loses the reporting rather than changing emulation. Capture manifests would lose the input_queue section, which is additive."
+  },
+  "compatibility": {
+    "status": "affected",
+    "detail": "rumiga-platform gains BoundedQueue<T>, OverflowPolicy, and QueueAdmission. Emulator::key_event returns QueueAdmission instead of unit, which existing callers compile against unchanged, and the emulator gains key_queue_depth, key_queue_high_water, key_queue_capacity, key_events_dropped, and key_queue_policy. InputCapabilities gains max_events_per_poll, so code constructing it literally must add the field; Default reports zero. Capture manifests gain an additive input_queue section with the capacity, the policy, and the three counters. Guest-visible behaviour is unchanged: the keyboard queue keeps the same capacity of sixteen and the same reject-newest behaviour the unnamed length check already had, and a 1200-frame A1200 capture keeps the digest recorded for M1-013 and M1-007."
+  },
+  "security": {
+    "status": "none",
+    "detail": "No network transport, credential, authorization, persistence, unsafe-code, or FFI behavior changes. The queue's capacity is fixed at construction and never grows, so a producer cannot drive an unbounded allocation through it; the dropped counter saturates rather than wrapping."
+  },
+  "tests": [
+    {
+      "id": "overflow-policies-disagree",
+      "command": "cargo +1.97.1 test --locked -p rumiga-platform",
+      "proves": "RejectNewest keeps the backlog and loses the incoming item while DropOldest evicts the head and queues the newcomer, and a paired test shows the two policies retain different items from identical input. That disagreement is the reason the policy is named per queue rather than chosen once."
+    },
+    {
+      "id": "admission-separates-queued-from-lost",
+      "command": "cargo +1.97.1 test --locked -p rumiga-platform",
+      "proves": "AcceptedEvictingOldest reports both that the item was queued and that something was lost, which a boolean result could not express."
+    },
+    {
+      "id": "high-water-and-counters-persist",
+      "command": "cargo +1.97.1 test --locked -p rumiga-platform",
+      "proves": "The high-water mark survives a full drain and both counters survive clear, so a queue that filled and emptied cannot read as one that was never busy."
+    },
+    {
+      "id": "zero-capacity-is-well-defined",
+      "command": "cargo +1.97.1 test --locked -p rumiga-platform",
+      "proves": "A capacity of zero rejects under either policy, counts the loss, and reports itself as full and empty at once, which models a service that is present with no room."
+    },
+    {
+      "id": "keyboard-queue-reports-saturation",
+      "command": "cargo +1.97.1 test --locked -p rumiga-core --lib",
+      "proves": "Filling the guest keyboard queue and pushing once more returns Rejected and increments the dropped counter, the event already at the head is retained, and the high-water mark outlives a full drain. All of it holds in both runtime profiles."
+    },
+    {
+      "id": "manifest-records-the-bound",
+      "command": "cargo +1.97.1 test --locked -p rumiga-desktop",
+      "proves": "Capture manifests record the capacity, the policy name, and the three counters, so a reader of recorded evidence can see that no input pressure influenced the frame."
+    },
+    {
+      "id": "full-local-promotion",
+      "command": "cargo +1.97.1 xtask ci",
+      "proves": "All eight gates pass for the change."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "local-defect-closed",
+      "kind": "command",
+      "location": "2026-08-18 local execution: before this task Emulator::key_event guarded a Vec with `if self.key_events.len() < MAX_KEY_EVENTS` and skipped the push otherwise, with no counter and no named policy. The queue drains one event every three frames, about seventeen per second under PAL, so a key-repeat burst exceeds sixteen events in normal use.",
+      "proves": "A guest that missed a keystroke was indistinguishable from one that received everything, which is the defect this task closes rather than a feature it adds."
+    },
+    {
+      "id": "local-contract-and-consumer-tested",
+      "kind": "command",
+      "location": "2026-08-18 local execution: 25 contract tests pass in rumiga-platform and 179 core unit tests pass in each explicit runtime profile, including three that exercise the real keyboard queue rather than only the type.",
+      "proves": "The overflow policy and the high-water mark are demonstrated on the one queue that exists, not only on a generic container."
+    },
+    {
+      "id": "local-capture-unchanged",
+      "kind": "host-scenario",
+      "location": "2026-08-18 local execution: a 1200-frame A1200 Kickstart 46.143 capture has SHA-256 b190d54b1bbf1e6a9bba3f36d34b74c95ab8fc6fe7796f2f6c694b70165ea1aa, the value recorded for M1-013 and M1-007, and its manifest records input_queue capacity 16, policy reject-newest, and all three counters at zero.",
+      "proves": "Naming the policy and counting its effect changed no emulated behaviour, and the bound is now visible in recorded evidence."
+    },
+    {
+      "id": "hosted-promotion",
+      "kind": "ci-artifact",
+      "location": "Pending: hosted pull-request and final main promotion evidence is required before this record moves to verified.",
+      "proves": "Nothing yet."
+    }
+  ],
+  "documentation": [
+    "ARCHITECTURE.md",
+    "IMPLEMENTATION_PLAN.md",
+    "PROJECT_STATUS.md",
+    "docs/adr/0014-bounded-queues-and-overflow-policy.md",
+    "docs/adr/README.md"
+  ],
+  "release_note": "docs/release-notes/unreleased/M1-008.md",
+  "architecture_decisions": [
+    "docs/adr/0014-bounded-queues-and-overflow-policy.md"
+  ]
+}
