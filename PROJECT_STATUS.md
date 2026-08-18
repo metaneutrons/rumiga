@@ -10,7 +10,7 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-18 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M2-002: commit-derived firmware build stamp, hosted evidence pending |
+| Latest completed task | M2-002: commit-derived firmware build stamp, verified by hosted evidence |
 | Current implementation | M2-003: PSRAM allocator, panic, watchdog, logging, and reset policy |
 | Next task | M2-004: port Vellum D1001 services into Rust-first adapters |
 | Development host | macOS, Apple Silicon |
@@ -188,7 +188,8 @@ No feature is called done merely because it compiled or booted once.
   would have deleted working provenance. The rebuild comparison that proves byte equality
   runs on demand rather than in the gate, which is a weaker guarantee than a gate and is
   recorded as one, and the manifest distinguishes a bundle that was compared from one that
-  was not. Hosted evidence is pending, and nothing here has been flashed.
+  was not. It is verified by clean pull-request and final `main` evidence, with the firmware
+  job running the new checks in CI. Nothing here has been flashed.
 - M2-001 documented the target board. Eleven connectors with designators and parts, the
   schematic revision V01 dated 2025-10-15, and the BSP commit are recorded under
   `docs/hardware`, each value naming its source. Reading the schematic rather than the

@@ -135,6 +135,12 @@ descriptor reporting `Aug 18 2026 23:51:13` against a commit time of `Aug 18 202
 Two independent implementations count nineteen random link paths in the map, the Rust
 scan in the evidence task and a Python scan used to check it.
 
+Hosted promotion is complete. Pull-request run `32191111802` and final `main` run `32192393642`
+pass all ten required jobs. The firmware job runs the stamp, version, and digest checks in
+CI, which matters for one of them: the descriptor version depends on CMake's `git describe`
+helper resolving to this repository rather than to the ESP-IDF checkout under `IDF_PATH`,
+and that now holds under enforcement in both environments rather than only by observation.
+
 ## Supersession
 
 None. This refines the M0-008 firmware evidence bundle, whose `rumiga.firmware.build.v1`
