@@ -10,7 +10,7 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-17 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M1-005: deterministic single-owner blitter, hosted evidence pending |
+| Latest completed task | M1-005: verified deterministic single-owner blitter |
 | Current implementation | M1-006: emulated clock, host yield, and monotonic scheduling contracts |
 | Next task | M1-007: versioned platform capabilities and typed error model |
 | Development host | macOS, Apple Silicon |
@@ -181,7 +181,7 @@ No feature is called done merely because it compiled or booted once.
   pinned fixture digest. It also closed three defects that the thread had hidden:
   the blitter interrupt was never raised under `no_std`, the guest-visible BBUSY bit
   reported host thread state, and a state digest taken during a blit read an empty
-  chip RAM slice. Hosted promotion evidence is still outstanding.
+  chip RAM slice. It is verified by clean pull-request and final `main` evidence, with the pinned digest confirmed on both host operating systems.
 - M1-004 is verified by clean pull-request and final `main` promotion evidence.
   It removed core-owned trace files, so CPU tracing now runs through an injected
   sink in both runtime profiles, and a differential capture proves the desktop

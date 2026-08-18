@@ -664,7 +664,7 @@ M1-004 verified evidence (2026-08-17):
   `3998e06035db8cebda232344be2e3928e131985d03cd55b449c456a6b9727b5c` were
   independently verified
 
-M1-005 implementation evidence (2026-08-18):
+M1-005 verified evidence (2026-08-18):
 
 - both profiles execute the blit in place through one implementation; no
   `std::thread`, `JoinHandle`, or `core_affinity` remains in the core, and
@@ -695,7 +695,26 @@ M1-005 implementation evidence (2026-08-18):
   the next access
 - not measured: frame time. The thread presumably existed for throughput, so the
   cost of removing it belongs to the M9 performance work rather than this task
-- hosted pull-request and final `main` evidence is pending promotion
+- pull-request run
+  [`32078987151`](https://github.com/metaneutrons/rumiga/actions/runs/32078987151)
+  passes all ten jobs; Linux job `95538016620`, macOS job `95538016682`, portable
+  job `95538016691`, and aggregate job `95539228051` pass. Both host legs confirm
+  the pinned fixture digest, so it is stable across operating systems and
+  architectures, and the portable job resolves the core for bare-metal RISC-V
+  without `core_affinity`
+- pull-request governance artifact `9304428904`, produced from clean merge revision
+  `fa4baca41257ad34a0d9b8853261056d5687bcf2`, has archive SHA-256
+  `9f12870bc0013f459299e06c6d125838d1ed3489b52b714430e90ad2cf854346`; all payload
+  checksums and the M1-005 traceability record were independently verified
+- final `main` run
+  [`32104990662`](https://github.com/metaneutrons/rumiga/actions/runs/32104990662)
+  passes all ten jobs for clean revision
+  `4df7ff5a62bb73aabf521d3f1a060720934d7f36`; Linux job `95612536886`, macOS job
+  `95612536873`, portable job `95612536863`, and aggregate job `95613657710` pass
+- final governance artifact `9312830673` has archive SHA-256
+  `9d3a20e597a0014dbcd985612c8d9ea19877395cc3de663b6d6e88fa1629587a`; all payload
+  checksums, the clean-source claim, and the M1-005 traceability record were
+  independently verified
 
 ### M1 functional commits
 

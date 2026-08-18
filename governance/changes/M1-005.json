@@ -2,7 +2,7 @@
   "schema": "rumiga.change-record.v1",
   "task_id": "M1-005",
   "title": "Restore deterministic single-owner blitter execution",
-  "status": "implemented",
+  "status": "verified",
   "summary": "Execute the blitter in place in both runtime profiles so the core owns its state throughout, remove host thread spawning and CPU affinity from the core, raise the blitter interrupt where completion happens, and introduce a dependency-free state digest that proves both profiles reach the same machine state.",
   "scope": [
     "Blitter execution ownership and profile unification",
@@ -71,10 +71,16 @@
       "proves": "Removing the thread changes no rendered output on a real host fixture."
     },
     {
-      "id": "hosted-promotion",
+      "id": "hosted-pr-m1-005",
       "kind": "ci-artifact",
-      "location": "Pending: hosted pull-request and final main promotion evidence is required before this record moves to verified.",
-      "proves": "Nothing yet."
+      "location": "GitHub Actions pull-request run 32078987151, artifact 9304428904 governance-fa4baca41257ad34a0d9b8853261056d5687bcf2, archive sha256:9f12870bc0013f459299e06c6d125838d1ed3489b52b714430e90ad2cf854346.",
+      "proves": "All ten required quality jobs pass for the clean pull-request merge revision. Both host legs confirm the pinned fixture digest on Linux x86_64 and macOS arm64, so the digest is stable across operating systems and architectures, and the portable job resolves rumiga-core for bare-metal RISC-V without core_affinity."
+    },
+    {
+      "id": "hosted-main-m1-005",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions final main run 32104990662, artifact 9312830673 governance-4df7ff5a62bb73aabf521d3f1a060720934d7f36, archive sha256:9d3a20e597a0014dbcd985612c8d9ea19877395cc3de663b6d6e88fa1629587a.",
+      "proves": "All ten required quality jobs pass for clean main revision 4df7ff5a62bb73aabf521d3f1a060720934d7f36; the governance payload checksums, the clean-source claim, and the M1-005 traceability record were independently verified."
     }
   ],
   "documentation": [
