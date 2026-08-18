@@ -10,7 +10,7 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-18 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M1-007: platform capabilities and typed errors, hosted evidence pending |
+| Latest completed task | M1-007: platform capabilities and typed errors, hosted evidence verified |
 | Current implementation | M1-008: bounded video, audio, input, and event queue contracts |
 | Next task | M1-009: deterministic input replay and machine-state digest |
 | Development host | macOS, Apple Silicon |
@@ -179,8 +179,10 @@ No feature is called done merely because it compiled or booted once.
 - M1-007 versioned the platform contracts and separated typed failure from
   backpressure. A display failure was previously discarded, so a dead window looked
   like a healthy one; the shell now reports it and stops. An absent service is `None`
-  in the capability descriptor and `Unsupported` when called anyway. Hosted evidence is
-  pending. `AudioOutput` and `Storage` still have no backend, the bound that
+  in the capability descriptor and `Unsupported` when called anyway. It is verified by
+  clean pull-request and final `main` evidence, with the contract tests passing on both
+  host operating systems and the new types compiling for bare-metal RISC-V.
+  `AudioOutput` and `Storage` still have no backend, the bound that
   `AudioCapabilities::max_queued_frames` describes is not enforced yet, and
   capabilities are not published over REST or serial.
 - M1-013 made the video standard selectable. An NTSC machine runs 262 lines at

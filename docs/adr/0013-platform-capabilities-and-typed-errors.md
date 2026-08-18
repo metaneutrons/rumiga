@@ -117,6 +117,15 @@ backend was temporarily changed to report a version seven ahead of the contract;
 shell exited with status 1, named both versions, and wrote no capture. The probe was then
 removed and the capture digest re-checked.
 
+Hosted promotion confirms the contract beyond the development host. Pull-request run
+`32130769524` and final `main` run `32132116892` passed all ten required jobs, the 14
+contract tests and the 5 desktop capability tests passed on Linux x86_64 and macOS arm64,
+and the portable job checked `rumiga-platform` for `riscv32imafc-unknown-none-elf`.
+
+That last point is compilation, not execution. The host gate's explicit `std` and `no_std`
+matrix covers `rumiga-core` and `m68k`, so what is shown for these types is that they
+build for a bare-metal target, which is the claim the portable gate is designed to make.
+
 ## Supersession
 
 None. This closes the capability and typed-error entries in the platform contract table.

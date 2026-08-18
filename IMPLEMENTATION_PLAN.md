@@ -915,7 +915,37 @@ M1-007 implementation evidence (2026-08-18):
 - deferred: the bound `AudioCapabilities::max_queued_frames` describes is not enforced
   by anything yet, which is M1-008; publishing capabilities over REST or serial is
   M8-008
-- hosted pull-request and final `main` evidence is pending promotion
+- pull-request run
+  [`32130769524`](https://github.com/metaneutrons/rumiga/actions/runs/32130769524)
+  passes all ten jobs; Linux job `95691198842`, macOS job `95691198708`, portable job
+  `95691198712`, and aggregate job `95692638255` pass
+- pull-request governance artifact `9322086217`, produced from clean merge revision
+  `963803a704756f83fbe257998cb0526c0538dd1c`, has archive SHA-256
+  `62c3747e03d0ebbe3c4667c8ee3b7b7adc61b7fd8c9d62122233e6cfe4d74f6f` as reported by
+  the Actions API. Its manifest records 13 architecture decisions, 14 release notes,
+  and 14 change records, so ADR-0013 and the M1-007 record are inside the validated set
+- final `main` run
+  [`32132116892`](https://github.com/metaneutrons/rumiga/actions/runs/32132116892)
+  passes all ten jobs for clean revision
+  `407483750b6f10382f66e904403a592dd95af2c0`; Linux job `95695335410`, macOS job
+  `95695335441`, portable job `95695335380`, and aggregate job `95696696391` pass
+- final governance artifact `9322578190` has archive SHA-256
+  `aafc5d29f2888fa237c8f872d7a9138b0b2e4288a9ca1f10538c3d7aa2b17437` as reported by
+  the Actions API. The payload checksums were recomputed with two independent
+  implementations and match the artifact's own `SHA256SUMS`, the manifest records
+  `dirty: false`, and its recorded input digests match the git tree at that revision
+  for the change record, ADR-0013, the release note, `ARCHITECTURE.md`, the plan, the
+  status document, and `crates/rumiga-platform/src/lib.rs`
+- the 14 contract tests and the 5 desktop capability tests pass once per host leg on
+  Linux x86_64 and macOS arm64, and the portable job checks `rumiga-platform` for
+  `riscv32imafc-unknown-none-elf` in the `foundation` profile that
+  `toolchain/manifest.toml` declares
+- the contract tests are deliberately not claimed for a second runtime profile. The
+  host gate's explicit `std` and `no_std` matrix covers `rumiga-core` and `m68k`, so the
+  portable evidence for these types is compilation rather than execution
+- the archive SHA-256 values above are GitHub's reported artifact digests. The
+  independent verification covers the payload, not the archive container, because the
+  API does not serve the archive bytes to a plain token fetch
 
 ### M1 functional commits
 
