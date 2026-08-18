@@ -1331,11 +1331,56 @@ M1-012 implementation evidence (2026-08-18):
 27. `test(core): enforce byte order and pointer-width boundaries`
 28. `ci(core): close the portable core dependency graph`
 
+M2-001 implementation evidence (2026-08-18):
+
+- the vendor wiki main page and the product page were both fetched first, and neither
+  lists connectors, pin counts, or designators. The connector inventory exists only in
+  the schematic, so the manifest was built from that rather than from a specification
+  table
+- schematic revision is **V01 dated 2025-10-15**, read from the RevisionHistory sheet
+  (`2025/10/15  V01  Initail release.`), with the root title block reading `Rev: v01`,
+  13 sheets, KiCad `10.0.0-19-g65df3ab11c`, CC BY-SA 4.0
+- the downloadable archive and PDF are stamped `260715`. That is a publication date, not
+  a revision; recording the filename as the revision would have implied a 2026 revision
+  the document does not claim, so the two are recorded separately
+- board revision is **Main Board V1.0**, from the archive title
+- the BSP is pinned by commit `5074d3b2f45626b261298e305aaf792036febc5a` dated
+  2026-04-17. The repository publishes no tags, so a SHA is the only stable reference
+- eleven connectors are recorded with designators and manufacturer parts: `USB1`
+  Type-C 16 pin doubling as JTAG and power input, `J1` micro-SD with card detect, `J2`
+  and `J8` 31 pin 0.3 mm FPC for MIPI-CSI and MIPI-DSI, `J3` 6 pin touch FPC, `J4` SIM,
+  `U21` mini-PCIe, `J5` 1x5 header for C6 programming, `J6` speaker, `J7` battery with
+  NTC, `J9` SMA
+- reading the schematic contradicted the vendor overview twice, and both are left open.
+  The wiki advertises "flexible expansion interfaces (GPIO, I2C, UART)", but the only
+  2.54 mm header is `J5` carrying the C6's programming signals, and `EXP_GPO0`-
+  `EXP_GPO15` belong to `U27`, a `PCA9535RGER` at I2C `0x20` whose outputs drive
+  `LCD_PWR_EN`, `LCD_RST`, `TP_RST`, and `EN_PA`. Separately the `/mPCIE&Lora/` sheet
+  carries a `Wio-LR1121` module and `J9` that the wiki never mentions
+- neither is resolved, deliberately. A schematic cannot say what a shipped unit
+  populates, and the absence of a do-not-populate marking is not evidence of population.
+  Guessing would put a fabricated fact into the document the rest of M2 will trust
+- one existing architecture claim turned out weaker than it read. The 32 MiB PSRAM figure
+  the memory budget rests on is a wiki claim about the `ESP32-P4NRW32` variant; the
+  schematic symbol carries only the family name. The external flash `W25Q256JVEIQ` does
+  corroborate the 32 MB QSPI figure
+- the schematic PDF is checksummed, `sha256:c488b1ae...`, and not vendored: it is 2 MB of
+  CC BY-SA 4.0 material that Seeed hosts. The manifest states that the checksum was
+  computed on download and is not a vendor attestation
+- derived values are deliberately not duplicated. Flash layout stays in
+  `firmware/partitions.csv`, memory budgets in `ARCHITECTURE.md`, toolchain pins in
+  `toolchain/manifest.toml`; a manifest that repeated them would drift invisibly
+- not verified: anything against a physical board. No unit has been powered and no
+  connector probed, which the manifest states plainly
+- not read: the SCH and PCB source archive, the SoC and peripheral datasheets, and the 3D
+  model that would answer the dimensions question
+- hosted pull-request and final `main` evidence is pending promotion
+
 ## M2 Backlog: D1001 Board Bring-Up
 
 | Task | Status | Deliverable | Acceptance evidence |
 | --- | --- | --- | --- |
-| M2-001 | PLANNED | Record D1001 schematic revision, board revision, BSP SHA, and connector inventory | Reviewed hardware manifest under `docs/hardware` |
+| M2-001 | DONE | Record D1001 schematic revision, board revision, BSP SHA, and connector inventory | Reviewed hardware manifest under `docs/hardware` |
 | M2-002 | PLANNED | Create reproducible ESP-IDF/Rust firmware build using `riscv32imafc-esp-espidf` | CI produces ELF, binary, map, size report, and checksums |
 | M2-003 | PLANNED | Define PSRAM allocator, panic, watchdog, logging, and reset policy | Boot manifest reports all values and reset reason |
 | M2-004 | PLANNED | Port proven Vellum D1001 services into Rust-first adapters and establish the safety/provenance contract | Exact source-transfer records, narrowly scoped unsafe code, host mocks, and third-party license audit pass |

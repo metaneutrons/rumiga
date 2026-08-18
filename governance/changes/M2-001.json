@@ -1,0 +1,90 @@
+{
+  "schema": "rumiga.change-record.v1",
+  "task_id": "M2-001",
+  "status": "implemented",
+  "title": "Record the reTerminal D1001 hardware manifest with sourced provenance",
+  "summary": "Establish docs/hardware and record the target board's revision identity, BSP commit, silicon inventory, and complete connector inventory, tagging every value with its source, separating what the schematic shows from what the product page asserts, and recording the discrepancies as open questions rather than resolving them by inference.",
+  "scope": [
+    "Hardware manifest directory and format",
+    "reTerminal D1001 revision identity and schematic structure",
+    "BSP commit reference",
+    "Main board and module silicon inventory",
+    "Connector inventory with designators and parts",
+    "Recorded discrepancies between schematic and vendor claims"
+  ],
+  "risk": {
+    "level": "low",
+    "failure_mode": "A manifest built from the product specification table would turn marketing figures into design assumptions and could not have produced connector designators, which is what the bring-up tasks need. Omitting the unresolved questions would make the manifest read as complete, and the next task would plan against an expansion header that may not exist. Resolving them by inference would put a fabricated fact into the document the rest of M2 will trust.",
+    "rollback": "Delete docs/hardware and the ADR. No code depends on them; a rollback returns M2 to planning against a product page."
+  },
+  "compatibility": {
+    "status": "none",
+    "detail": "Documentation only. docs/hardware/ is new; no code, configuration, or gate behaviour changes. Derived values are deliberately not duplicated: flash layout stays in firmware/partitions.csv, memory budgets in ARCHITECTURE.md, and toolchain pins in toolchain/manifest.toml, because a manifest that repeated them would drift from them invisibly."
+  },
+  "security": {
+    "status": "none",
+    "detail": "No network transport, credential, authorization, persistence, unsafe-code, or FFI changes. One vendor document was downloaded over HTTPS and its SHA-256 recorded; the manifest states explicitly that this checksum was computed on download and is not a vendor attestation, since Seeed publishes none. The PDF is not vendored into the repository."
+  },
+  "tests": [
+    {
+      "id": "governance-links-resolve",
+      "command": "cargo +1.97.1 xtask ci --gate governance",
+      "proves": "The ADR and release note this record references exist and are linked from the ADR index, so the manifest is inside the governed document set rather than beside it."
+    },
+    {
+      "id": "full-local-promotion",
+      "command": "cargo +1.97.1 xtask ci",
+      "proves": "All eight gates pass for the change."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "local-schematic-read-not-specification-table",
+      "kind": "command",
+      "location": "2026-08-18 local execution: the V01 schematic PDF was downloaded from files.seeedstudio.com, checksummed to sha256 c488b1aeac3e8fd72d08f65aeb23e8c1143f0b36e2997024ddee252daa4a292c, and read with pdftotext -layout. Both the vendor wiki main page and the product page were fetched first and neither lists connectors, pin counts, or designators.",
+      "proves": "The connector inventory, which is what M2's bring-up tasks need, exists only in the schematic. A manifest built from the specification table could not have produced it."
+    },
+    {
+      "id": "local-revision-identity-from-the-revision-history",
+      "kind": "command",
+      "location": "2026-08-18 local execution: the schematic's RevisionHistory sheet reads \"2025/10/15  V01  Initail release.\", the root title block reads Rev: v01, and the document is 13 sheets drawn with KiCad 10.0.0-19-g65df3ab11c. The downloadable archive and PDF are named with the stamp 260715.",
+      "proves": "The revision is V01 dated 2025-10-15, and the filename stamp is a publication date rather than a revision. Recording the filename as the revision would have implied a 2026 revision the document does not claim."
+    },
+    {
+      "id": "local-two-discrepancies-found-and-left-open",
+      "kind": "command",
+      "location": "2026-08-18 local execution: the wiki advertises \"flexible expansion interfaces (GPIO, I2C, UART)\", while the V01 schematic's only 2.54 mm header is J5 carrying C6_CHIP_PU and C6_BOOT, and the EXP_GPO0-EXP_GPO15 nets belong to U27, a PCA9535RGER at I2C 0x20 whose outputs drive LCD_PWR_EN, LCD_RST, TP_RST, and EN_PA. Separately the /mPCIE&Lora/ sheet carries a Wio-LR1121 module and SMA connector J9 that the wiki never mentions, with no population marking.",
+      "proves": "Reading the schematic contradicted the vendor overview in two places. Both are recorded as unresolved: a schematic cannot say what a shipped unit populates, and the absence of a do-not-populate marking is not evidence of population."
+    },
+    {
+      "id": "local-psram-claim-is-weaker-than-it-read",
+      "kind": "command",
+      "location": "2026-08-18 local execution: the schematic symbol carries the family name ESP32-P4, while the exact variant ESP32-P4NRW32 with 32 MB in-package PSRAM comes from the wiki. The external flash is W25Q256JVEIQ, 256 Mbit, which does corroborate the wiki's 32 MB QSPI flash figure.",
+      "proves": "The 32 MiB PSRAM figure that the memory budget in ARCHITECTURE.md rests on is a vendor claim rather than a schematic fact, and the manifest records it as such instead of treating it as established."
+    },
+    {
+      "id": "local-bsp-pinned-by-commit",
+      "kind": "command",
+      "location": "2026-08-18 local execution: Seeed-Studio/reTerminal-D1001 has default branch main at commit 5074d3b2f45626b261298e305aaf792036febc5a dated 2026-04-17T07:35:48Z, and publishes no tags.",
+      "proves": "A commit SHA is the only stable reference the repository offers, so the manifest pins one rather than a branch name that would move."
+    },
+    {
+      "id": "hosted-promotion",
+      "kind": "ci-artifact",
+      "location": "Pending: hosted pull-request and final main promotion evidence is required before this record moves to verified.",
+      "proves": "Nothing yet."
+    }
+  ],
+  "documentation": [
+    "IMPLEMENTATION_PLAN.md",
+    "PROJECT_STATUS.md",
+    "docs/adr/0019-hardware-manifest-provenance.md",
+    "docs/adr/README.md",
+    "docs/hardware/README.md",
+    "docs/hardware/reterminal-d1001.md"
+  ],
+  "release_note": "docs/release-notes/unreleased/M2-001.md",
+  "architecture_decisions": [
+    "docs/adr/0019-hardware-manifest-provenance.md"
+  ]
+}
