@@ -10,9 +10,9 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-17 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M1-005: verified deterministic single-owner blitter |
-| Current implementation | M1-006: emulated clock, host yield, and monotonic scheduling contracts |
-| Next task | M1-007: versioned platform capabilities and typed error model |
+| Latest completed task | M1-006: emulated clock and pacing contract, hosted evidence pending |
+| Current implementation | M1-007: versioned platform capabilities and typed error model |
+| Next task | M1-013: selectable video standard with NTSC geometry and colour clock |
 | Development host | macOS, Apple Silicon |
 | Product target | Seeed reTerminal D1001, ESP32-P4 |
 | Product maturity | Desktop compatibility prototype |
@@ -334,7 +334,7 @@ this through the `encryption-not-enforced` exclusion.
 | ID | Severity | Risk | Required response |
 | --- | --- | --- | --- |
 | R-001 | Critical | Whole HDF images are resident in RAM | Introduce a bounded sector `BlockDevice` contract before A1200 device integration |
-| R-003 | Medium | The core no longer owns host threads, files, or CPU affinity, but emulated time still reads the host clock in the desktop pacing path | Introduce emulated clock and host yield contracts in M1-006 |
+| R-003 | Low | The core owns no host threads, files, CPU affinity, or clock, and a lint prevents a host clock type from reappearing. Remaining M1 work covers bounded queues, replay, and allocation bounds | Complete M1-007 through M1-012 |
 | R-004 | High | No D1001 firmware has booted | The pinned M0-008 build artifact is published; capture serial boot evidence in M2 |
 | R-005 | High | USB-C host wiring and VBUS behavior are not qualified | Verify schematic and actual board before promising direct USB-C peripherals; document required adapter/hub |
 | R-006 | High | Performance on ESP32-P4 is unknown | Add cycle, frame, PSRAM bandwidth, and memory benchmarks before compatibility expansion |

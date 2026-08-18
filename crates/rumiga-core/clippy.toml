@@ -1,0 +1,4 @@
+disallowed-types = [
+  { path = "std::time::Instant", reason = "the core must not read host time; use the platform Clock contract" },
+  { path = "std::time::SystemTime", reason = "the core must not read host time; use the platform Clock contract" },
+]

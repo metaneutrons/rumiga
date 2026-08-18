@@ -498,13 +498,14 @@ local promotion result.
 | M1-003 | DONE | Enforce `core`/`alloc` primitives in the canonical core | Both explicit profiles reject `std` replacements with portable equivalents; the stock core remains a bare-metal RISC-V release build |
 | M1-004 | DONE | Introduce injected trace/log sink and remove core file creation | Golden records captured from the file-writing implementation are reproduced byte for byte by an in-memory sink under both runtime profiles |
 | M1-005 | DONE | Remove core thread spawning and affinity; restore deterministic single-owner blitter | Both runtime profiles reach a pinned fixture digest, and a host capture is byte-identical before and after |
-| M1-006 | PLANNED | Introduce emulated clock, host yield, and monotonic scheduling contracts | PAL/NTSC timing tests do not read host wall clock |
+| M1-006 | DONE | Introduce emulated clock, host yield, and monotonic scheduling contracts | The core cannot name a host clock type, emulated frame duration comes from the colour clock, and the shell paces against it with a measured frame rate |
 | M1-007 | PLANNED | Version platform capabilities and typed error model | Unsupported and backpressure states are explicit and tested |
 | M1-008 | PLANNED | Add bounded video/audio/input/event queue contracts | Overflow policy and high-water marks have tests |
 | M1-009 | PLANNED | Add deterministic input replay and machine-state digest | Same replay yields same digest on repeated host runs |
 | M1-010 | PLANNED | Add allocation instrumentation and steady-state no-allocation assertion | One-minute host run has no scanline-loop allocations |
 | M1-011 | PLANNED | Measure 32-bit assumptions, alignment, endianness, and `usize` conversions | Miri/sanitizer/property fixtures cover critical boundaries |
 | M1-012 | PLANNED | Publish portability contract in architecture docs | Core dependency graph contains only approved `no_std` crates |
+| M1-013 | PLANNED | Make the video standard selectable and model NTSC geometry, colour clock, and Agnus identification | An NTSC Kickstart boots, detects the standard, and produces a stable screenshot digest; conformance to documented constants is asserted |
 
 M1-001 evidence (2026-08-16):
 
@@ -715,6 +716,44 @@ M1-005 verified evidence (2026-08-18):
   `9d3a20e597a0014dbcd985612c8d9ea19877395cc3de663b6d6e88fa1629587a`; all payload
   checksums, the clean-source claim, and the M1-005 traceability record were
   independently verified
+
+M1-006 implementation evidence (2026-08-18):
+
+- `rumiga-platform` gains a `Clock` contract with a monotonic `now` and a `pace`
+  that returns the time the host actually spent rather than the time requested,
+  because a host sleep routinely overshoots and a pacing caller must correct
+  against the measurement
+- `rumiga-platform-desktop` implements it as `DesktopClock`; four contract tests
+  cover monotonicity, that `pace` never reports less than requested, that a zero
+  request yields instead of sleeping, and that `now` advances across a `pace` call
+- the core declares its emulated frame duration through `Emulator::frame_period`,
+  derived from the colour clock and scanline count rather than a rounded rate. A
+  PAL frame is 19,967,887 ns, so the frequently quoted 20 ms would be wrong by 32
+  microseconds per frame, and the implied rate is PAL's 50.08 Hz. A unit test pins
+  this in both runtime profiles
+- because the shell paces against the core's declared period rather than a
+  constant, pacing will follow automatically when M1-013 makes the standard
+  selectable
+- the desktop frame loop now paces deliberately. It previously ran flat out and
+  slept 16 ms only when no frame was ready, so nothing enforced the 50 frames per
+  second that `ROADMAP.md` states as the PAL target
+- the REST `fps` field is measured over a 500 ms window instead of being reported as
+  a hardcoded 50.0. The interface previously published a constant as if it were a
+  measurement
+- the core cannot name a host clock type: `crates/rumiga-core/clippy.toml` disallows
+  `std::time::Instant` and `std::time::SystemTime`, and `lib.rs` denies
+  `clippy::disallowed_types`. This was verified by temporarily adding a
+  `std`-gated function returning `Instant`, which the lint rejected, so the ban also
+  covers the feature-gated path where the trace file and the blitter thread had
+  previously hidden. A source text search was deliberately not used, for the reasons
+  ADR-0005 records
+- the headless capture path is unaffected: a 60-frame Kickstart 46.143 capture keeps
+  digest `03a0b882b85474795554180cfa138110`, unchanged from before this task, so
+  pacing touches only the interactive loop
+- not measured: whether the desktop sustains the paced rate under load. The loop now
+  requests the correct period and reports what it achieves, which is the
+  precondition for that measurement rather than the measurement itself
+- hosted pull-request and final `main` evidence is pending promotion
 
 ### M1 functional commits
 

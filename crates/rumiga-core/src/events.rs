@@ -15,6 +15,15 @@ pub const SCANLINES_PAL: u64 = 312;
 /// Total scanlines per frame (NTSC).
 pub const SCANLINES_NTSC: u64 = 262;
 
+/// PAL colour clock in hertz.
+///
+/// Emulated time is derived from this rather than from a rounded frame rate, so a
+/// PAL frame is 19.968 ms and not the frequently quoted 20 ms.
+pub const COLOUR_CLOCK_PAL_HZ: u64 = 3_546_895;
+
+/// NTSC colour clock in hertz.
+pub const COLOUR_CLOCK_NTSC_HZ: u64 = 3_579_545;
+
 /// Number of event slots (one per event type).
 const EVENT_SLOTS: usize = 7;
 

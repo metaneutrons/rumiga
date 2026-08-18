@@ -1,0 +1,90 @@
+{
+  "schema": "rumiga.change-record.v1",
+  "task_id": "M1-006",
+  "title": "Introduce emulated clock, host yield, and monotonic pacing contracts",
+  "status": "implemented",
+  "summary": "Move host time into a platform Clock contract owned by the product shell, derive emulated frame duration in the core from the colour clock rather than a rounded rate, pace the desktop loop against that declared period, measure the reported frame rate, and lint the core so it cannot name a host clock type in either runtime profile.",
+  "scope": [
+    "Platform clock and pacing contract",
+    "Desktop clock adapter",
+    "Emulated frame duration in the core",
+    "Deliberate desktop frame pacing and measured frame rate",
+    "Enforced ban on host clock types in the core"
+  ],
+  "risk": {
+    "level": "medium",
+    "failure_mode": "A pace implementation that reports the requested duration instead of the measured one would let the shell drift while believing it paced correctly. Pacing the interactive loop could also mask a throughput regression by hiding it behind a sleep.",
+    "rollback": "Revert the M1-006 commits to restore the previous fallback sleep and the constant frame rate. No persisted format depends on the change."
+  },
+  "compatibility": {
+    "status": "affected",
+    "detail": "rumiga-platform gains a Clock trait that embedded integrators must implement for their host. Emulator::frame_period is new and shells should pace against it rather than a constant of their own. The REST fps field changes from a hardcoded 50.0 to a measurement over a 500 ms window. The headless capture path is unchanged and produces identical digests, so evidence generation stays independent of host timing."
+  },
+  "security": {
+    "status": "none",
+    "detail": "No network transport, credential, authorization, persistence, unsafe-code, or FFI behavior changes. Host time moves from an implicit sleep in the shell to an explicit contract, which narrows rather than widens what the core can reach."
+  },
+  "tests": [
+    {
+      "id": "frame-period-both-profiles",
+      "command": "cargo +1.97.1 test --locked -p rumiga-core --lib",
+      "proves": "The emulated frame period is 19,967,887 ns in both runtime profiles, is not the rounded 20 ms, and implies PAL's 50.08 Hz."
+    },
+    {
+      "id": "clock-contract-desktop",
+      "command": "cargo +1.97.1 test --locked -p rumiga-platform-desktop",
+      "proves": "now is monotonic and advances across a pace call, pace never reports less than requested, and a zero request yields instead of sleeping."
+    },
+    {
+      "id": "core-cannot-name-host-clock",
+      "command": "cargo +1.97.1 clippy --locked -p rumiga-core --all-targets --no-default-features --features std -- -D warnings",
+      "proves": "The core rejects std::time::Instant and std::time::SystemTime, including behind a std feature gate."
+    },
+    {
+      "id": "capture-path-unaffected",
+      "command": "cargo +1.97.1 run --locked --release -p rumiga-desktop -- assets/kick.a1200.46.143.rom --capture <png> --capture-frames 60",
+      "proves": "Evidence generation is independent of pacing: the capture digest is unchanged from before the task."
+    },
+    {
+      "id": "full-local-promotion",
+      "command": "cargo +1.97.1 xtask ci",
+      "proves": "All eight gates pass for the change."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "local-clock-contract",
+      "kind": "command",
+      "location": "2026-08-18 local execution: the frame period test passes in both profiles at 19,967,887 ns, the four desktop clock contract tests pass, and the complete eight-gate baseline passes.",
+      "proves": "The contract behaves as documented and the emulated frame duration rests on the colour clock rather than a rounded rate."
+    },
+    {
+      "id": "local-lint-verified-against-a-probe",
+      "kind": "command",
+      "location": "2026-08-18 local execution: a temporary std-gated function returning std::time::Instant was added to rumiga-core and rejected by clippy::disallowed_types, then removed. The clean tree lints without warnings.",
+      "proves": "The ban covers the feature-gated path that the trace file and the blitter thread had previously used to keep host services in the core, rather than only the unconditional path the portable gate already catches."
+    },
+    {
+      "id": "local-capture-unchanged",
+      "kind": "host-scenario",
+      "location": "2026-08-18 local execution: two 60-frame Kickstart 46.143 captures share digest 03a0b882b85474795554180cfa138110, identical to the same capture taken before this task.",
+      "proves": "Pacing touches only the interactive loop; the headless evidence path is unaffected."
+    },
+    {
+      "id": "hosted-promotion",
+      "kind": "ci-artifact",
+      "location": "Pending: hosted pull-request and final main promotion evidence is required before this record moves to verified.",
+      "proves": "Nothing yet."
+    }
+  ],
+  "documentation": [
+    "IMPLEMENTATION_PLAN.md",
+    "PROJECT_STATUS.md",
+    "docs/adr/0011-emulated-time-and-host-pacing.md",
+    "docs/adr/README.md"
+  ],
+  "release_note": "docs/release-notes/unreleased/M1-006.md",
+  "architecture_decisions": [
+    "docs/adr/0011-emulated-time-and-host-pacing.md"
+  ]
+}
