@@ -179,6 +179,14 @@ either into the error type would make normal operation indistinguishable from a
 fault. The video, audio, input, and storage rows have capability fields; the
 remaining rows are later milestones and have none yet.
 
+The core's frame loop is allocation-free in steady state as of M1-010, measured rather
+than asserted: one minute of a real Kickstart boot allocated 978,521 times before the
+two per-scanline buffers were retained and allocates nothing after. The measurement
+uses a test-only third-party counting allocator, because the workspace forbids unsafe
+code and a counting global allocator requires it; the emulator's own capacity
+accessors provide the same property in the `no_std` profile, where no allocator hook is
+available. ADR-0016 records why the measurement was built before the fix.
+
 Deterministic replay is available as of M1-009. Input is stamped with the frame the
 machine counts, recorded inside the core's input entry points so a recording cannot
 be incomplete, and applied inside `run_frame` so ordering is not a shell's

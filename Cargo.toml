@@ -47,6 +47,7 @@ m68k = { path = "crates/m68k", default-features = false }
 minifb = "0.28"
 rumiga-api = { path = "crates/rumiga-api" }
 rumiga-core = { path = "crates/rumiga-core" }
+stats_alloc = "=0.1.10"
 rumiga-platform = { path = "crates/rumiga-platform" }
 rumiga-platform-desktop = { path = "crates/rumiga-platform-desktop" }
 rumiga-platform-esp = { path = "crates/rumiga-platform-esp" }
