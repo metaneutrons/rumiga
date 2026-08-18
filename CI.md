@@ -232,14 +232,25 @@ unpadded merged image from the ESP-IDF bootloader, the product partition layout 
 `firmware/partitions.csv`, and the flash geometry declared by the resolved
 `sdkconfig`, verifies that the merged image embeds the bootloader byte for byte,
 carries the declared layout entry by entry, keeps the bootloader inside its
-window, and leaves the application within its slot, and emits
-rejects any configuration that could burn an eFuse, and emits
+window, and leaves the application within its slot, rejects any configuration that
+could burn an eFuse, requires the application and bootloader descriptors to record
+the HEAD commit time rather than the build clock, requires the descriptor version to
+be `git describe --always --tags --dirty`, requires the merged image's recorded ELF
+digest to be the packaged ELF's, and emits
 `rumiga.firmware.build.v1` evidence under
 `target/m0-008-firmware-evidence`. `SHA256SUMS` covers the ELF, final linker map,
 merged image, bootloader, partition table, resolved `sdkconfig`, flash arguments,
 size report, and JSON manifest. CI validates those hashes before uploading
 `firmware-esp32p4-<commit>` for 30 days. The gate verifies every generated hash
 before upload.
+
+The gate does not rebuild. Building the same revision twice would roughly double
+this job to re-derive a property whose one known input the stamp check already pins.
+`cargo +1.97.1 xtask firmware-evidence --verify-rebuild` is the direct proof: it
+empties the build tree, builds again, packages a second bundle, and compares them
+artifact by artifact. The manifest records `rebuild-byte-identical` only when that
+comparison actually ran, and `rebuild-not-compared` otherwise, so a bundle cannot
+read as proving reproducibility when it did not.
 
 The physical board has 32 MB flash and 32 MB PSRAM. M0-008 intentionally keeps
 the 16 MB flash geometry used by the pinned Seeed BSP and the hardware-proven

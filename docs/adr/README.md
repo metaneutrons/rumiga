@@ -47,3 +47,4 @@ Numbering is contiguous; `0000-template.md` is reserved and is not a decision.
 | [ADR-0017](0017-portability-boundaries.md) | Accepted | M1-011 | Enforce guest byte order and pointer-width assumptions instead of reaching for Miri, which cannot see either failure |
 | [ADR-0018](0018-published-portability-contract.md) | Accepted | M1-012 | Publish the portability contract with its enforcement, and close the core dependency graph rather than allowlisting crates |
 | [ADR-0019](0019-hardware-manifest-provenance.md) | Accepted | M2-001 | Source every hardware value, separate schematic record from product claim, and record the gaps rather than resolving them by inference |
+| [ADR-0020](0020-commit-derived-build-stamp.md) | Accepted | M2-002 | Pin the build stamp to the commit rather than the clock, enforce it on every run, and prove byte equality by rebuilding on demand |
