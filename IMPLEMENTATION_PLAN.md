@@ -504,7 +504,7 @@ local promotion result.
 | M1-009 | DONE | Add deterministic input replay and machine-state digest | Same replay yields same digest on repeated host runs |
 | M1-010 | DONE | Add allocation instrumentation and steady-state no-allocation assertion | One-minute host run has no scanline-loop allocations |
 | M1-011 | DONE | Measure 32-bit assumptions, alignment, endianness, and `usize` conversions | Miri/sanitizer/property fixtures cover critical boundaries |
-| M1-012 | PLANNED | Publish portability contract in architecture docs | Core dependency graph contains only approved `no_std` crates |
+| M1-012 | DONE | Publish portability contract in architecture docs | Core dependency graph contains only approved `no_std` crates |
 | M1-013 | DONE | Make the video standard selectable and model NTSC geometry, colour clock, and Agnus identification | An NTSC Kickstart boots, detects the standard, and produces a stable screenshot digest; conformance to documented constants is asserted |
 
 M1-001 evidence (2026-08-16):
@@ -1232,6 +1232,52 @@ M1-011 implementation evidence (2026-08-18):
 - the archive SHA-256 values above are GitHub's reported artifact digests; the independent
   verification covers the payload rather than the archive container
 
+M1-012 implementation evidence (2026-08-18):
+
+- the acceptance criterion was checked by nothing. The supply-chain policy constrains
+  licences, registries, Git sources, and advisories, and the portable gate compiled the
+  core for `riscv32imafc-unknown-none-elf`, but no gate constrained which crates may
+  appear in the core dependency graph
+- publishing a document alone would have left it that way, which would have made this the
+  weakest result in the M1 sequence. The contract is published *and* the criterion is
+  enforced
+- the portable core graph resolves to exactly `m68k`, `rumiga-core`, and
+  `rumiga-platform`, all local, with no third-party crate. `toolchain/manifest.toml`
+  therefore declares a closed set rather than an allowlist of approved `no_std` crates
+- a closed set is stricter than the plan's wording asks, deliberately. "Approved `no_std`"
+  is not a stable property: a crate can gain a `std` path, an allocator assumption, or a
+  platform dependency in a patch release, and the portable compile would catch some of
+  those and not others
+- the portable gate compares the resolved graph against the declaration in both
+  directions. An unexpected crate is the motivating case; a declared crate that is absent
+  matters too, because a drifted declaration would constrain nothing while still looking
+  like a constraint
+- both directions are probe-verified. Removing `rumiga-platform` from the declaration
+  produced `portable core graph contains crates the manifest does not permit`; adding
+  `serde` produced `portable core graph no longer contains declared crates`. Both probes
+  edited only the manifest and were reverted, leaving dependencies and `Cargo.lock`
+  untouched
+- the lockfile gate is a partial defence, not a substitute. A probe adding a real
+  dependency failed at `--locked` before the graph check ran. That stops an unintended
+  resolution change; it does not stop a dependency committed deliberately together with
+  its lockfile update, which is what the graph check catches
+- the declaration is pinned by the firmware manifest test as well as by the gate, so
+  widening the set fails in two places and appears twice in a reviewer's diff
+- `ARCHITECTURE.md` publishes eight rules, each naming the gate, lint, or assertion that
+  enforces it and the task it arrived with. Every row was checked against the mechanism it
+  names
+- two rows state their own weakness rather than reading stronger than they are: the
+  pointer-width rules are compile-time assertions evaluated for the target rather than
+  tests executed at a 32-bit `usize`, and the allocation rule is enforced over a 64-frame
+  fixture with the one-minute figure measured locally, because ROM images are not
+  committed
+- scope: the contract covers `rumiga-core` and what it pulls in. The desktop shell and the
+  ESP platform crate are outside it by design, and the platform crate's own graph is
+  covered by the `foundation` portable profile. Build and dev dependencies are excluded
+  because they do not ship in the core, which is why M1-010's `stats_alloc` is not part of
+  the set
+- hosted pull-request and final `main` evidence is pending promotion
+
 ### M1 functional commits
 
 1. `refactor(core): define std and no-std runtime profiles`
@@ -1261,6 +1307,7 @@ M1-011 implementation evidence (2026-08-18):
 25. `feat(core): record and replay input against emulated frames`
 26. `perf(core): stop allocating in the scanline loop`
 27. `test(core): enforce byte order and pointer-width boundaries`
+28. `ci(core): close the portable core dependency graph`
 
 ## M2 Backlog: D1001 Board Bring-Up
 

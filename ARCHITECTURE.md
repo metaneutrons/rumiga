@@ -143,6 +143,37 @@ The core must not own:
 - SD/MMC, FAT, MIPI-DSI, I2S, touch, ESP32-C6, or power management;
 - release update, logging transport, or UI state.
 
+### Portability contract
+
+Every rule below is enforced by a gate, not by review. The list is here so an
+integrator can see the whole contract in one place; the enforcement is what makes it
+a contract rather than an intention, and each rule names where it is enforced.
+
+| Rule | Enforced by | Since |
+| --- | --- | --- |
+| The core dependency graph is closed: exactly `m68k`, `rumiga-core`, and `rumiga-platform`, with no third-party crate | portable gate, against `[portable_rust.core_graph]` in `toolchain/manifest.toml` | M1-012 |
+| The stock core compiles as an optimized bare-metal `riscv32imafc` release under the `no_std` profile | portable gate | M1-002 |
+| `std` and `no_std` are mutually exclusive and one must be selected | `compile_error!` in the core crate root | M1-001 |
+| The core uses `core` and `alloc` primitives, never their `std` spellings | `clippy::std_instead_of_core` and `std_instead_of_alloc`, denied in the core | M1-003 |
+| The core never names a host clock type | `clippy::disallowed_types`, denied in the core | M1-006 |
+| The core converts guest values with an explicit byte order, never the host's | `clippy::disallowed_methods`, denied in the core | M1-011 |
+| `usize` is at least as wide as a guest address, and a chip RAM length fits in `u32` | compile-time assertions in the core crate root | M1-011 |
+| The core's frame loop does not allocate in steady state | allocation test with a counting allocator | M1-010 |
+
+The dependency rule is deliberately stricter than a list of approved `no_std`
+crates. The stock core resolves to three workspace crates and nothing else, so the
+contract states that rather than granting licence to add vetted ones. A crate that is
+`no_std` today can gain a `std` path, an allocator assumption, or a platform
+dependency in a patch release, and the portable compile alone would not necessarily
+catch it. Widening the set is an edit to the manifest and to the test that pins it,
+which is a reviewed change rather than a side effect of adding a dependency.
+
+Two limits are worth stating plainly. The pointer-width rules are compile-time
+assertions evaluated for the target rather than tests executed at a 32-bit `usize`;
+no such target with a usable `std` exists on the development hosts. And the
+allocation rule is enforced over a 64-frame fixture in CI, with the one-minute figure
+measured locally, because ROM images are not committed.
+
 ### Platform services
 
 Platform contracts are versioned and capability-driven. The final contract set

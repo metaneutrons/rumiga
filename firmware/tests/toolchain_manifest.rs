@@ -164,6 +164,19 @@ fn assert_target_baseline(manifest: &toml::Value) {
     assert_eq!(stock_core["release"].as_bool(), Some(true));
     assert_eq!(stock_core["default_features"].as_bool(), Some(false));
     assert_eq!(string_array(&stock_core["features"]), ["no_std"]);
+
+    // The closed core graph. Pinning it here means widening the set is a visible edit to
+    // both this test and the manifest, rather than a quiet manifest change that makes the
+    // portable gate accept a new dependency.
+    let core_graph = &manifest["portable_rust"]["core_graph"];
+    assert_eq!(core_graph["profile"].as_str(), Some("stock-amiga-core"));
+    assert_eq!(core_graph["root"].as_str(), Some("rumiga-core"));
+    assert_eq!(
+        string_array(&core_graph["crates"]),
+        ["m68k", "rumiga-core", "rumiga-platform"],
+        "the portable core graph must contain exactly these three workspace crates"
+    );
+
     assert_eq!(
         manifest["build"]["evidence_schema"].as_str(),
         Some("rumiga.firmware.build.v1")

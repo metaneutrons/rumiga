@@ -29,6 +29,19 @@ release = true
 default_features = false
 features = ["no_std"]
 
+# The portable core graph is closed: exactly these crates and nothing else.
+#
+# This is stronger than "only approved no_std crates". The stock core today resolves to
+# three workspace crates and no third-party dependency at all, so the contract states
+# that rather than a licence to add vetted ones. Pulling any external crate into the
+# core fails the portable gate, which is the point: a crate that is `no_std` today can
+# gain a `std` path, an allocator assumption, or a platform dependency in a patch
+# release, and the portable compile alone would not necessarily catch it.
+[portable_rust.core_graph]
+profile = "stock-amiga-core"
+root = "rumiga-core"
+crates = ["m68k", "rumiga-core", "rumiga-platform"]
+
 [host]
 rust = "1.97.1"
 rust_msrv = "1.85.0"
