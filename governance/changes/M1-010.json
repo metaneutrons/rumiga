@@ -1,7 +1,7 @@
 {
   "schema": "rumiga.change-record.v1",
   "task_id": "M1-010",
-  "status": "implemented",
+  "status": "verified",
   "title": "Instrument allocations and remove the frame loop's steady-state allocations",
   "summary": "Measure allocations before changing anything, using a third-party counting allocator because the workspace forbids unsafe code, then retain the two buffers the scanline loop rebuilt on every line, expose emulator buffer capacities so a count can be attributed and so the same property is observable in the no_std profile, and strengthen the fixture until it reaches both allocation paths.",
   "scope": [
@@ -78,10 +78,22 @@
       "proves": "Removing the allocations changed no emulated state and no rendered output."
     },
     {
-      "id": "hosted-promotion",
+      "id": "hosted-pr-m1-010",
       "kind": "ci-artifact",
-      "location": "Pending: hosted pull-request and final main promotion evidence is required before this record moves to verified.",
-      "proves": "Nothing yet."
+      "location": "GitHub Actions pull-request run 32170645437 for the rebased head, artifact 9337123534 governance-565f62d45b8fed97a6dbd52faf406356ca096c00, archive sha256:32974092ad0dc9978eb7d506e512ce7feda1d91245a7082d1e48bdb05cdb77e6 as reported by the Actions API.",
+      "proves": "All ten required quality jobs pass for the clean pull-request merge revision after the branch was rebased onto the M1-009 closure. The manifest records dirty false and a bundle of 16 architecture decisions, 17 release notes, and 17 change records, so ADR-0016 and the M1-010 record are inside the validated set. The Supply Chain Policy job passing is the material result here, because this task adds the stats_alloc dev-dependency."
+    },
+    {
+      "id": "hosted-main-m1-010",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions final main run 32171339632, artifact 9337376831 governance-2276344dd5abbf4391d470aca9e0c65ff5a8f70a, archive sha256:6e8c84fb976d445ded0e3b5266a82cf5461a72da3b545ca639d2f5530a199f30 as reported by the Actions API.",
+      "proves": "All ten required quality jobs pass for clean main revision 2276344dd5abbf4391d470aca9e0c65ff5a8f70a. The payload checksums were recomputed with two independent implementations and match the artifact's own SHA256SUMS, the manifest records dirty false, and its recorded input digests match the git tree at that revision for the change record, ADR-0016, the release note, ARCHITECTURE.md, the plan, and the status document."
+    },
+    {
+      "id": "hosted-allocation-test-in-both-profiles",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions final main run 32171339632, Linux and macOS host jobs: the_scanline_loop_does_not_allocate_in_steady_state appears twice per leg, once per explicit runtime profile.",
+      "proves": "The steady-state allocation assertion holds on Linux x86_64 and macOS arm64 in both the std and no_std profiles. The one-minute figure remains a local measurement, because ROMs are not committed; the enforced claim is the 64-frame test."
     }
   ],
   "documentation": [

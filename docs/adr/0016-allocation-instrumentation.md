@@ -108,6 +108,11 @@ and 3 949 644 bytes.
 Reverting either fix fails the test. Reverting the guest register write buffer reports
 658 944 allocations over 64 frames.
 
+Hosted promotion confirms it. Pull-request run `32170645437` and final `main` run
+`32171339632` passed all ten required jobs, and the steady-state assertion appears twice per
+host leg, once per explicit runtime profile. The Supply Chain Policy job passing is the
+material result for the dev-dependency this decision introduces.
+
 ## Supersession
 
 None. This closes the allocation instrumentation entry.
