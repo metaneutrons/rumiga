@@ -187,13 +187,30 @@ impl BootManifest {
     ///
     /// Text rather than JSON, because the consumer is the serial console and a line-oriented
     /// form can be read by a person and diffed between boots without a parser. The order is
-    /// fixed so two boots can be compared directly.
+    /// fixed so two boots can be compared directly, which is why the three sections are
+    /// written in sequence rather than assembled from a map.
     #[must_use]
     pub fn to_text(&self) -> String {
         let mut text = String::new();
         let _ = writeln!(text, "schema={BOOT_MANIFEST_SCHEMA}");
+        self.write_reset(&mut text);
+        Self::write_policy(&mut text);
+        self.write_observations(&mut text);
+        text
+    }
+
+    /// Why the device started, and whether that counts as a fault.
+    fn write_reset(&self, text: &mut String) {
         let _ = writeln!(text, "reset_reason={}", self.reset_reason.as_str());
         let _ = writeln!(text, "reset_is_fault={}", self.reset_reason.is_fault());
+    }
+
+    /// What the image was configured with.
+    ///
+    /// Associated rather than taking `self`, because none of it depends on the boot: these
+    /// are the mirrored constants, and a reader should not have to check whether a value
+    /// came from the running system.
+    fn write_policy(text: &mut String) {
         let _ = writeln!(text, "psram_allocator={PSRAM_ALLOCATOR}");
         let _ = writeln!(
             text,
@@ -238,6 +255,10 @@ impl BootManifest {
         );
         let _ = writeln!(text, "log_default_level={LOG_DEFAULT_LEVEL}");
         let _ = writeln!(text, "log_maximum_level={LOG_MAXIMUM_LEVEL}");
+    }
+
+    /// What the running system actually has.
+    fn write_observations(&self, text: &mut String) {
         let _ = writeln!(
             text,
             "psram_total_bytes={}",
@@ -253,7 +274,6 @@ impl BootManifest {
             "internal_free_bytes={}",
             self.observations.internal_free_bytes
         );
-        text
     }
 }
 

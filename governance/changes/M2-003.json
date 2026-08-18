@@ -29,7 +29,7 @@
     {
       "id": "boot-policy-mirror-pinned",
       "command": "cargo +1.97.1 test --locked -p rumiga-platform-esp",
-      "proves": "The Rust policy constants equal the manifest declaration. The duplication is unavoidable because integer sdkconfig values do not reach Rust as cfgs, so the firmware cannot read them from the build it belongs to; this makes the duplication unable to drift unnoticed."
+      "proves": "The Rust policy constants equal the manifest declaration, checked per value kind so a failure names which kind drifted, plus a coverage check that the tables list every declared value rather than only the rows they happen to carry. The duplication is unavoidable because integer sdkconfig values do not reach Rust as cfgs, so the firmware cannot read them from the build it belongs to; this makes the duplication unable to drift unnoticed in either direction."
     },
     {
       "id": "watchdog-reset-is-not-a-crash",

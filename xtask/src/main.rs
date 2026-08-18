@@ -1829,6 +1829,24 @@ fn verify_core_dump_policy(
         &declared.max_tasks.to_string(),
     )?;
 
+    let partition = verify_core_dump_partition(config, declared, partitions)?;
+
+    Ok(CoreDumpEvidence {
+        policy: declared.clone(),
+        partition_bytes: partition.bytes,
+        partition_encrypted: partition.encrypted,
+    })
+}
+
+/// Check the core-dump policy against the flash layout it depends on.
+///
+/// Split from the configuration checks because these two span files, and both would
+/// otherwise be found on hardware, where the layout can no longer change.
+fn verify_core_dump_partition<'a>(
+    config: &BTreeMap<String, String>,
+    declared: &CoreDumpPolicy,
+    partitions: &'a [PartitionEvidence],
+) -> Result<&'a PartitionEvidence> {
     let partition = partitions
         .iter()
         .find(|entry| entry.label == "coredump")
@@ -1856,12 +1874,7 @@ fn verify_core_dump_policy(
             partition.bytes
         );
     }
-
-    Ok(CoreDumpEvidence {
-        policy: declared.clone(),
-        partition_bytes: partition.bytes,
-        partition_encrypted: partition.encrypted,
-    })
+    Ok(partition)
 }
 
 fn verify_watchdog_policy(

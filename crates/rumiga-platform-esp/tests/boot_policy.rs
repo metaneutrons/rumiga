@@ -49,74 +49,131 @@ fn text<'a>(policy: &'a toml::Value, section: &str, key: &str) -> &'a str {
         .unwrap_or_else(|| panic!("boot_policy.{section}.{key} must be a string"))
 }
 
+/// The mirrored strings match the declaration.
+///
+/// Split by value kind so a failure names which kind drifted, and so each table stays short
+/// enough to read at a glance.
 #[test]
-fn the_mirror_matches_the_declared_boot_policy() {
+fn the_mirrored_strings_match_the_declaration() {
     let manifest = manifest();
     let policy = &manifest["boot_policy"];
 
-    assert_eq!(text(policy, "psram", "allocator"), boot::PSRAM_ALLOCATOR);
-    assert_eq!(
-        integer(policy, "psram", "always_internal_bytes"),
-        boot::PSRAM_ALWAYS_INTERNAL_BYTES
-    );
-    assert_eq!(
-        integer(policy, "psram", "reserve_internal_bytes"),
-        boot::PSRAM_RESERVE_INTERNAL_BYTES
-    );
+    for (section, key, mirrored) in [
+        ("psram", "allocator", boot::PSRAM_ALLOCATOR),
+        ("panic", "action", boot::PANIC_ACTION),
+        ("core_dump", "target", boot::CORE_DUMP_TARGET),
+    ] {
+        assert_eq!(text(policy, section, key), mirrored, "{section}.{key}");
+    }
+}
 
-    assert_eq!(text(policy, "panic", "action"), boot::PANIC_ACTION);
-    assert_eq!(
-        integer(policy, "panic", "reboot_delay_seconds"),
-        boot::PANIC_REBOOT_DELAY_SECONDS
-    );
+/// The mirrored integers match the declaration.
+///
+/// These are the values that cannot reach Rust from the build at all, so this is the table
+/// the duplication exists for.
+#[test]
+fn the_mirrored_integers_match_the_declaration() {
+    let manifest = manifest();
+    let policy = &manifest["boot_policy"];
 
-    assert_eq!(text(policy, "core_dump", "target"), boot::CORE_DUMP_TARGET);
-    assert_eq!(
-        boolean(policy, "core_dump", "captures_dram"),
-        boot::CORE_DUMP_CAPTURES_DRAM
-    );
-    assert_eq!(
-        boolean(policy, "core_dump", "checked_on_boot"),
-        boot::CORE_DUMP_CHECKED_ON_BOOT
-    );
-    assert_eq!(
-        integer(policy, "core_dump", "max_tasks"),
-        boot::CORE_DUMP_MAX_TASKS
-    );
+    for (section, key, mirrored) in [
+        (
+            "psram",
+            "always_internal_bytes",
+            boot::PSRAM_ALWAYS_INTERNAL_BYTES,
+        ),
+        (
+            "psram",
+            "reserve_internal_bytes",
+            boot::PSRAM_RESERVE_INTERNAL_BYTES,
+        ),
+        (
+            "panic",
+            "reboot_delay_seconds",
+            boot::PANIC_REBOOT_DELAY_SECONDS,
+        ),
+        ("core_dump", "max_tasks", boot::CORE_DUMP_MAX_TASKS),
+        (
+            "watchdog",
+            "task_timeout_seconds",
+            boot::TASK_WATCHDOG_TIMEOUT_SECONDS,
+        ),
+        (
+            "watchdog",
+            "interrupt_timeout_millis",
+            boot::INTERRUPT_WATCHDOG_TIMEOUT_MILLIS,
+        ),
+        (
+            "watchdog",
+            "bootloader_timeout_millis",
+            boot::BOOTLOADER_WATCHDOG_TIMEOUT_MILLIS,
+        ),
+        ("logging", "default_level", boot::LOG_DEFAULT_LEVEL),
+        ("logging", "maximum_level", boot::LOG_MAXIMUM_LEVEL),
+    ] {
+        assert_eq!(integer(policy, section, key), mirrored, "{section}.{key}");
+    }
+}
 
-    assert_eq!(
-        integer(policy, "watchdog", "task_timeout_seconds"),
-        boot::TASK_WATCHDOG_TIMEOUT_SECONDS
-    );
-    assert_eq!(
-        boolean(policy, "watchdog", "task_panics"),
-        boot::TASK_WATCHDOG_PANICS
-    );
-    assert_eq!(
-        boolean(policy, "watchdog", "task_checks_idle_cpu0"),
-        boot::TASK_WATCHDOG_CHECKS_IDLE_CPU0
-    );
-    assert_eq!(
-        boolean(policy, "watchdog", "task_checks_idle_cpu1"),
-        boot::TASK_WATCHDOG_CHECKS_IDLE_CPU1
-    );
-    assert_eq!(
-        integer(policy, "watchdog", "interrupt_timeout_millis"),
-        boot::INTERRUPT_WATCHDOG_TIMEOUT_MILLIS
-    );
-    assert_eq!(
-        integer(policy, "watchdog", "bootloader_timeout_millis"),
-        boot::BOOTLOADER_WATCHDOG_TIMEOUT_MILLIS
-    );
+/// The mirrored booleans match the declaration.
+#[test]
+fn the_mirrored_booleans_match_the_declaration() {
+    let manifest = manifest();
+    let policy = &manifest["boot_policy"];
 
+    for (section, key, mirrored) in [
+        ("core_dump", "captures_dram", boot::CORE_DUMP_CAPTURES_DRAM),
+        (
+            "core_dump",
+            "checked_on_boot",
+            boot::CORE_DUMP_CHECKED_ON_BOOT,
+        ),
+        ("watchdog", "task_panics", boot::TASK_WATCHDOG_PANICS),
+        (
+            "watchdog",
+            "task_checks_idle_cpu0",
+            boot::TASK_WATCHDOG_CHECKS_IDLE_CPU0,
+        ),
+        (
+            "watchdog",
+            "task_checks_idle_cpu1",
+            boot::TASK_WATCHDOG_CHECKS_IDLE_CPU1,
+        ),
+    ] {
+        assert_eq!(boolean(policy, section, key), mirrored, "{section}.{key}");
+    }
+}
+
+/// The declaration must not gain a value the mirror does not carry.
+///
+/// The table-driven test above checks every row it lists; this checks that the rows cover
+/// the declaration, which is the direction that fails silently.
+#[test]
+fn the_mirror_covers_every_declared_value() {
+    let manifest = manifest();
+    let policy = manifest["boot_policy"]
+        .as_table()
+        .expect("boot_policy must be a table");
+
+    let declared: usize = policy
+        .values()
+        .map(|section| {
+            section
+                .as_table()
+                .expect("every boot_policy section must be a table")
+                .len()
+        })
+        .sum();
+
+    // Seventeen values across five sections: three PSRAM, two panic, four core dump, six
+    // watchdog, two logging. Adding one without a mirrored constant and a row above fails
+    // here, which is the point.
     assert_eq!(
-        integer(policy, "logging", "default_level"),
-        boot::LOG_DEFAULT_LEVEL
+        declared, 17,
+        "the declared boot policy has {declared} values; add the mirror and its row, then \
+         update this count"
     );
-    assert_eq!(
-        integer(policy, "logging", "maximum_level"),
-        boot::LOG_MAXIMUM_LEVEL
-    );
+    assert_eq!(policy.len(), 5, "boot_policy must have five sections");
 }
 
 /// A watchdog reset must not read as a crash.
