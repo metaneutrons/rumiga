@@ -102,6 +102,21 @@ On the host, three consecutive 60-frame Kickstart 46.143 captures are
 byte-identical to each other and to the same capture taken from the threaded
 implementation at revision `1a5bee2`.
 
+Clean pull-request run
+[`32078987151`](https://github.com/metaneutrons/rumiga/actions/runs/32078987151)
+produced governance artifact `9304428904` with archive SHA-256
+`9f12870bc0013f459299e06c6d125838d1ed3489b52b714430e90ad2cf854346`. Final `main`
+run
+[`32104990662`](https://github.com/metaneutrons/rumiga/actions/runs/32104990662)
+produced governance artifact `9312830673` with archive SHA-256
+`9d3a20e597a0014dbcd985612c8d9ea19877395cc3de663b6d6e88fa1629587a`. Both were
+independently downloaded and verified.
+
+Both host legs confirmed the pinned fixture digest on Linux x86_64 and macOS arm64,
+which is the property that matters for a digest whose purpose is comparison across
+time and machines. The portable job resolved the core for bare-metal RISC-V with
+`core_affinity` absent from the target graph.
+
 ## Supersession
 
 None. This closes the threaded blitter that ADR-0002 and ADR-0005 recorded as a
