@@ -10,7 +10,7 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-18 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M1-013: selectable video standard, hosted evidence pending |
+| Latest completed task | M1-013: selectable video standard, hosted evidence verified |
 | Current implementation | M1-007: versioned platform capabilities and typed error model |
 | Next task | M1-008: bounded video, audio, input, and event queue contracts |
 | Development host | macOS, Apple Silicon |
@@ -180,8 +180,10 @@ No feature is called done merely because it compiled or booted once.
   3,579,545 Hz with a 243-line active height, and the guest detects the standard: under
   `--ntsc`, Kickstart 46.143 sets a display window from line 21 to line 262 against
   PAL's line 29 to line 312. The flag was previously inert and produced byte-identical
-  output to PAL. PAL rendering is byte-identical before and after the change. Hosted
-  evidence is pending. The Agnus revision is still reported as OCS on every profile,
+  output to PAL. PAL rendering is byte-identical before and after the change. It is
+  verified by clean pull-request and final `main` evidence, with every constant test and
+  every standard-related emulator test passing twice per host leg, once per runtime
+  profile. The Agnus revision is still reported as OCS on every profile,
   interlace and long/short frame alternation are not modelled, and nothing has been
   diffed against `WinUAE` or FS-UAE output.
 - M1-005 removed the threaded blitter, so no `std::thread`, `JoinHandle`, or
