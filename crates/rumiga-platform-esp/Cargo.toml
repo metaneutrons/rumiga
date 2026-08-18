@@ -14,6 +14,9 @@ publish = false
 [dependencies]
 rumiga-platform = { workspace = true }
 
+[dev-dependencies]
+toml = { workspace = true }
+
 [target.'cfg(target_os = "espidf")'.dependencies]
 esp-idf-svc = { workspace = true, features = ["std"] }
 

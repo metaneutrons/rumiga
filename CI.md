@@ -244,6 +244,19 @@ size report, and JSON manifest. CI validates those hashes before uploading
 `firmware-esp32p4-<commit>` for 30 days. The gate verifies every generated hash
 before upload.
 
+The gate also compares the boot policy declared in `toolchain/manifest.toml`
+`[boot_policy]` against the resolved `sdkconfig`, value by value, and cross-checks two
+things that span files: the `coredump` partition must carry the `encrypted` flag whenever
+flash encryption is on, because ESP-IDF otherwise writes task stacks to flash in plain text
+and only logs a warning; and whole-DRAM core dump capture must not be declared against a
+partition smaller than the 128 KiB ESP-IDF documents. The partition comparison now includes
+the `encrypted` flag in both directions and rejects an unrecognized flag rather than
+dropping it.
+
+The bundle's `boot_policy` section reports the values the built image runs. Its
+`reset_reason` is `null`: that value exists only at runtime, and no board has booted this
+image.
+
 The gate does not rebuild. Building the same revision twice would roughly double
 this job to re-derive a property whose one known input the stamp check already pins.
 `cargo +1.97.1 xtask firmware-evidence --verify-rebuild` is the direct proof: it

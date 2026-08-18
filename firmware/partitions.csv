@@ -17,12 +17,17 @@
 # Sizes are chosen so that no alignment gap is left unallocated. Application
 # partitions require 64 KiB alignment, data partitions 4 KiB.
 #
+# `coredump` is marked encrypted because ESP-IDF writes the dump in plain text and only
+# logs a warning when flash encryption is on and the flag is absent, and a dump contains
+# task stacks. Its 108 KiB also precludes DRAM capture, for which ESP-IDF states at least
+# 128 KiB is needed; task stacks fit. See toolchain/manifest.toml [boot_policy].
+#
 # Name,     Type, SubType,  Offset,   Size,     Flags
 nvs,        data, nvs,      0x11000,  0x50000,
 nvs_keys,   data, nvs_keys, 0x61000,  0x1000,   encrypted
 otadata,    data, ota,      0x62000,  0x2000,
 phy_init,   data, phy,      0x64000,  0x1000,
-coredump,   data, coredump, 0x65000,  0x1B000,
+coredump,   data, coredump, 0x65000,  0x1B000,  encrypted
 ota_0,      app,  ota_0,    0x80000,  0x600000,
 ota_1,      app,  ota_1,    0x680000, 0x600000,
 storage,    data, fat,      0xC80000, 0x380000,

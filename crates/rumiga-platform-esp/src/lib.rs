@@ -13,6 +13,7 @@
 
 pub mod api;
 pub mod audio;
+pub mod boot;
 pub mod display;
 pub mod input;
 pub mod osd;

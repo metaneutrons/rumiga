@@ -72,6 +72,7 @@ const RANDOM_LINK_PATH_STEM: usize = 6;
 #[derive(Debug, Deserialize)]
 struct ToolchainManifest {
     target: TargetConfiguration,
+    boot_policy: BootPolicyConfiguration,
     portable_rust: PortableRustConfiguration,
     host: HostConfiguration,
     embedded_rust: EmbeddedRustConfiguration,
@@ -120,6 +121,58 @@ struct TargetConfiguration {
     physical_psram: String,
 }
 
+/// The declared boot policy, the single place these values are written down.
+///
+/// Integer `sdkconfig` values do not reach Rust as cfgs, so `rumiga-platform-esp` mirrors
+/// this table for the boot manifest and a host test pins the mirror against it. The
+/// firmware gate compares the table against the resolved `sdkconfig`, which catches a
+/// `sdkconfig.defaults` edit that did not take effect.
+#[derive(Debug, Deserialize)]
+struct BootPolicyConfiguration {
+    psram: PsramPolicy,
+    panic: PanicPolicy,
+    core_dump: CoreDumpPolicy,
+    watchdog: WatchdogPolicy,
+    logging: LoggingPolicy,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct PsramPolicy {
+    allocator: String,
+    always_internal_bytes: u32,
+    reserve_internal_bytes: u32,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct PanicPolicy {
+    action: String,
+    reboot_delay_seconds: u32,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct CoreDumpPolicy {
+    target: String,
+    captures_dram: bool,
+    checked_on_boot: bool,
+    max_tasks: u32,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct WatchdogPolicy {
+    task_timeout_seconds: u32,
+    task_panics: bool,
+    task_checks_idle_cpu0: bool,
+    task_checks_idle_cpu1: bool,
+    interrupt_timeout_millis: u32,
+    bootloader_timeout_millis: u32,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct LoggingPolicy {
+    default_level: u32,
+    maximum_level: u32,
+}
+
 #[derive(Debug, Deserialize)]
 struct EmbeddedRustConfiguration {
     channel: String,
@@ -166,6 +219,7 @@ struct EvidenceManifest {
     elf: ElfMetadata,
     board_configuration: BoardConfigurationEvidence,
     reversibility: ReversibilityEvidence,
+    boot_policy: BootPolicyEvidence,
     determinism: DeterminismEvidence,
     merged_image: MergedImageEvidence,
     esp_idf: EspIdfEvidence,
@@ -253,6 +307,32 @@ struct PartitionEvidence {
     subtype: String,
     offset: String,
     bytes: u32,
+    encrypted: bool,
+}
+
+/// The boot policy as the built image will run it, read back from the resolved config.
+///
+/// This is what the firmware evidence bundle can report today. The boot manifest reports
+/// the same values plus the reset reason, and that emission is unverified until a board
+/// boots.
+#[derive(Debug, Serialize)]
+struct BootPolicyEvidence {
+    psram: PsramPolicy,
+    panic: PanicPolicy,
+    core_dump: CoreDumpEvidence,
+    watchdog: WatchdogPolicy,
+    logging: LoggingPolicy,
+    /// A runtime value. `None` until a board boots this image, rather than a placeholder
+    /// that would read as a measurement.
+    reset_reason: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct CoreDumpEvidence {
+    #[serde(flatten)]
+    policy: CoreDumpPolicy,
+    partition_bytes: u32,
+    partition_encrypted: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -428,6 +508,12 @@ fn build_firmware_evidence(verify_rebuild: bool) -> Result<()> {
         parse_partition_number(&board_configuration.partition_table_offset)? as usize,
     )?;
 
+    let boot_policy = verify_boot_policy(
+        &read_sdkconfig(&outputs.sdkconfig)?,
+        &manifest.boot_policy,
+        &merged_image.partitions,
+    )?;
+
     let evidence = EvidenceManifest {
         schema: manifest.build.evidence_schema,
         source_revision,
@@ -440,6 +526,7 @@ fn build_firmware_evidence(verify_rebuild: bool) -> Result<()> {
         elf: elf_metadata,
         board_configuration,
         reversibility,
+        boot_policy,
         determinism,
         merged_image,
         esp_idf: idf_evidence,
@@ -1014,7 +1101,8 @@ fn verify_merged_flash_image(
                 && actual.kind == wanted.kind
                 && actual.subtype == wanted.subtype
                 && actual.raw_offset == wanted.raw_offset
-                && actual.bytes == wanted.bytes,
+                && actual.bytes == wanted.bytes
+                && actual.encrypted == wanted.encrypted,
             "merged image partition {} does not match {PARTITION_LAYOUT_PATH}",
             actual.label
         );
@@ -1081,12 +1169,22 @@ fn parse_partition_layout(contents: &str) -> Result<Vec<DecodedPartition>> {
             "app" | "data" => fields[1].to_owned(),
             other => bail!("{PARTITION_LAYOUT_PATH} has unsupported partition type {other}"),
         };
+        // The flags column is optional and a trailing comma leaves it empty. Only the
+        // flags this layout uses are accepted, so a typo is rejected rather than silently
+        // dropped, which is how an `encrypted` flag would go missing.
+        let flags = fields.get(5).copied().unwrap_or_default();
+        let encrypted = match flags {
+            "" => false,
+            "encrypted" => true,
+            other => bail!("{PARTITION_LAYOUT_PATH} has unsupported partition flag {other:?}"),
+        };
         entries.push(DecodedPartition {
             label: fields[0].to_owned(),
             subtype: format!("{:#04x}", partition_subtype(&kind, fields[2])?),
             kind,
             raw_offset: parse_partition_number(fields[3])?,
             bytes: parse_partition_number(fields[4])?,
+            encrypted,
         });
     }
     ensure!(
@@ -1143,6 +1241,13 @@ struct DecodedPartition {
     subtype: String,
     raw_offset: u32,
     bytes: u32,
+    /// Whether the entry carries the `encrypted` flag, bit 0 of the entry's flags word.
+    ///
+    /// Compared in both directions because it is the field the security posture rests on.
+    /// `nvs_keys` holds the NVS encryption keys and `coredump` holds task stacks, and
+    /// ESP-IDF writes an unflagged data partition in plain text on an encrypted device
+    /// while only logging a warning.
+    encrypted: bool,
 }
 
 impl DecodedPartition {
@@ -1153,6 +1258,7 @@ impl DecodedPartition {
             subtype: self.subtype,
             offset: format!("{:#x}", self.raw_offset),
             bytes: self.bytes,
+            encrypted: self.encrypted,
         }
     }
 }
@@ -1183,6 +1289,7 @@ fn decode_partition_table(table: &[u8]) -> Result<Vec<DecodedPartition>> {
             subtype: format!("{:#04x}", chunk[3]),
             raw_offset: read_u32(chunk, 4)?,
             bytes: read_u32(chunk, 8)?,
+            encrypted: read_u32(chunk, 28)? & 1 != 0,
         });
     }
     ensure!(
@@ -1622,6 +1729,216 @@ fn compare_rebuild(first: &Path, second: &Path) -> Result<RebuildEvidence> {
     })
 }
 
+/// Minimum core-dump partition size ESP-IDF documents for whole-DRAM capture.
+///
+/// From `components/espcoredump/Kconfig`: "At least 128KB should be reserved". The product
+/// layout reserves 108 KiB, so DRAM capture is precluded by a layout that is effectively
+/// permanent once devices ship. Encoding the figure makes a future edit that enables
+/// capture fail here rather than overflow the partition on a device.
+const CORE_DUMP_DRAM_CAPTURE_MINIMUM_BYTES: u32 = 128 * 1024;
+
+/// Require a boolean `sdkconfig` option to be set or absent as declared.
+///
+/// An option that is not set does not appear as a key, so absence is the negative case
+/// rather than a `n` value.
+fn ensure_config_flag(config: &BTreeMap<String, String>, key: &str, expected: bool) -> Result<()> {
+    let actual = config.get(key).is_some_and(|value| value == "y");
+    ensure!(
+        actual == expected,
+        "{key} must be {}, the boot policy declares {expected}",
+        if expected { "set" } else { "unset" }
+    );
+    Ok(())
+}
+
+fn verify_psram_policy(config: &BTreeMap<String, String>, declared: &PsramPolicy) -> Result<()> {
+    match declared.allocator.as_str() {
+        "malloc" => ensure_config(config, "CONFIG_SPIRAM_USE_MALLOC", "y")?,
+        other => bail!("unsupported declared PSRAM allocator {other}"),
+    }
+    ensure_config(
+        config,
+        "CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL",
+        &declared.always_internal_bytes.to_string(),
+    )?;
+    ensure_config(
+        config,
+        "CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL",
+        &declared.reserve_internal_bytes.to_string(),
+    )
+}
+
+/// Check the panic action, including the three alternatives it excludes.
+///
+/// Setting the declared option is not enough on its own. The options are a Kconfig choice,
+/// so a second one appearing would mean the resolved configuration disagrees with itself.
+fn verify_panic_policy(config: &BTreeMap<String, String>, declared: &PanicPolicy) -> Result<()> {
+    match declared.action.as_str() {
+        "print-reboot" => {
+            ensure_config(config, "CONFIG_ESP_SYSTEM_PANIC_PRINT_REBOOT", "y")?;
+            ensure_config_flag(config, "CONFIG_ESP_SYSTEM_PANIC_PRINT_HALT", false)?;
+            ensure_config_flag(config, "CONFIG_ESP_SYSTEM_PANIC_SILENT_REBOOT", false)?;
+            ensure_config_flag(config, "CONFIG_ESP_SYSTEM_PANIC_GDBSTUB", false)?;
+        }
+        other => bail!("unsupported declared panic action {other}"),
+    }
+    ensure_config(
+        config,
+        "CONFIG_ESP_SYSTEM_PANIC_REBOOT_DELAY_SECONDS",
+        &declared.reboot_delay_seconds.to_string(),
+    )
+}
+
+/// Check the core-dump policy against both the configuration and the flash layout.
+///
+/// Two of these span files. A core dump written to an unflagged data partition on an
+/// encrypted device goes to flash in plain text and ESP-IDF only logs a warning, and
+/// whole-DRAM capture needs more room than this layout reserves. Both would otherwise be
+/// found on hardware, where the layout can no longer change.
+fn verify_core_dump_policy(
+    config: &BTreeMap<String, String>,
+    declared: &CoreDumpPolicy,
+    partitions: &[PartitionEvidence],
+) -> Result<CoreDumpEvidence> {
+    match declared.target.as_str() {
+        "flash" => {
+            ensure_config(config, "CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH", "y")?;
+            ensure_config_flag(config, "CONFIG_ESP_COREDUMP_ENABLE_TO_NONE", false)?;
+        }
+        other => bail!("unsupported declared core dump target {other}"),
+    }
+    ensure_config_flag(
+        config,
+        "CONFIG_ESP_COREDUMP_CAPTURE_DRAM",
+        declared.captures_dram,
+    )?;
+    ensure_config_flag(
+        config,
+        "CONFIG_ESP_COREDUMP_CHECK_BOOT",
+        declared.checked_on_boot,
+    )?;
+    ensure_config(
+        config,
+        "CONFIG_ESP_COREDUMP_MAX_TASKS_NUM",
+        &declared.max_tasks.to_string(),
+    )?;
+
+    let partition = partitions
+        .iter()
+        .find(|entry| entry.label == "coredump")
+        .context(
+            "the boot policy writes core dumps to flash but the layout declares no \
+             coredump partition",
+        )?;
+    if config
+        .get("CONFIG_SECURE_FLASH_ENC_ENABLED")
+        .is_some_and(|value| value == "y")
+    {
+        ensure!(
+            partition.encrypted,
+            "flash encryption is enabled and the coredump partition is not marked \
+             encrypted, so ESP-IDF would write task stacks to flash in plain text and only \
+             log a warning"
+        );
+    }
+    if declared.captures_dram {
+        ensure!(
+            partition.bytes >= CORE_DUMP_DRAM_CAPTURE_MINIMUM_BYTES,
+            "whole-DRAM core dump capture needs at least \
+             {CORE_DUMP_DRAM_CAPTURE_MINIMUM_BYTES} bytes reserved and the coredump \
+             partition is {} bytes",
+            partition.bytes
+        );
+    }
+
+    Ok(CoreDumpEvidence {
+        policy: declared.clone(),
+        partition_bytes: partition.bytes,
+        partition_encrypted: partition.encrypted,
+    })
+}
+
+fn verify_watchdog_policy(
+    config: &BTreeMap<String, String>,
+    declared: &WatchdogPolicy,
+) -> Result<()> {
+    ensure_config(config, "CONFIG_ESP_TASK_WDT_EN", "y")?;
+    ensure_config(config, "CONFIG_ESP_TASK_WDT_INIT", "y")?;
+    ensure_config_flag(config, "CONFIG_ESP_TASK_WDT_PANIC", declared.task_panics)?;
+    ensure_config(
+        config,
+        "CONFIG_ESP_TASK_WDT_TIMEOUT_S",
+        &declared.task_timeout_seconds.to_string(),
+    )?;
+    ensure_config_flag(
+        config,
+        "CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0",
+        declared.task_checks_idle_cpu0,
+    )?;
+    ensure_config_flag(
+        config,
+        "CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1",
+        declared.task_checks_idle_cpu1,
+    )?;
+    ensure_config(config, "CONFIG_ESP_INT_WDT", "y")?;
+    ensure_config(
+        config,
+        "CONFIG_ESP_INT_WDT_TIMEOUT_MS",
+        &declared.interrupt_timeout_millis.to_string(),
+    )?;
+    ensure_config(config, "CONFIG_BOOTLOADER_WDT_ENABLE", "y")?;
+    ensure_config(
+        config,
+        "CONFIG_BOOTLOADER_WDT_TIME_MS",
+        &declared.bootloader_timeout_millis.to_string(),
+    )
+}
+
+fn verify_logging_policy(
+    config: &BTreeMap<String, String>,
+    declared: &LoggingPolicy,
+) -> Result<()> {
+    ensure!(
+        declared.default_level <= declared.maximum_level,
+        "the declared default log level {} exceeds the maximum {}, so the default would be \
+         compiled out",
+        declared.default_level,
+        declared.maximum_level
+    );
+    ensure_config(
+        config,
+        "CONFIG_LOG_DEFAULT_LEVEL",
+        &declared.default_level.to_string(),
+    )?;
+    ensure_config(
+        config,
+        "CONFIG_LOG_MAXIMUM_LEVEL",
+        &declared.maximum_level.to_string(),
+    )
+}
+
+/// Check that the built image runs the boot policy the manifest declares.
+fn verify_boot_policy(
+    config: &BTreeMap<String, String>,
+    declared: &BootPolicyConfiguration,
+    partitions: &[PartitionEvidence],
+) -> Result<BootPolicyEvidence> {
+    verify_psram_policy(config, &declared.psram)?;
+    verify_panic_policy(config, &declared.panic)?;
+    let core_dump = verify_core_dump_policy(config, &declared.core_dump, partitions)?;
+    verify_watchdog_policy(config, &declared.watchdog)?;
+    verify_logging_policy(config, &declared.logging)?;
+
+    Ok(BootPolicyEvidence {
+        psram: declared.psram.clone(),
+        panic: declared.panic.clone(),
+        core_dump,
+        watchdog: declared.watchdog.clone(),
+        logging: declared.logging.clone(),
+        reset_reason: None,
+    })
+}
+
 fn read_sdkconfig(path: &Path) -> Result<BTreeMap<String, String>> {
     let contents =
         fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
@@ -2012,6 +2329,67 @@ mod tests {
     fn the_descriptors_record_the_idf_release_without_its_patch_level() {
         assert_eq!(trim_patch_version("6.0.0"), "6.0");
         assert_eq!(trim_patch_version("6.0"), "6.0");
+    }
+
+    /// The `encrypted` flag must survive the CSV parser.
+    ///
+    /// It is the field the security posture rests on: `nvs_keys` holds the NVS encryption
+    /// keys and `coredump` holds task stacks. Until this task the parser dropped the column
+    /// and the decoder ignored the binary word, so the layout comparison would have passed
+    /// with the flag missing from the image.
+    #[test]
+    fn the_csv_parser_reads_the_encrypted_flag() {
+        let csv = "\
+nvs,       data, nvs,      0x11000, 0x50000,\n\
+nvs_keys,  data, nvs_keys, 0x61000, 0x1000,   encrypted\n";
+        let entries = parse_partition_layout(csv).expect("layout must parse");
+        assert_eq!(entries.len(), 2);
+        assert!(!entries[0].encrypted, "a trailing comma means no flag");
+        assert!(entries[1].encrypted, "the encrypted column must be read");
+    }
+
+    /// An unknown flag is rejected rather than dropped.
+    ///
+    /// Silently ignoring it is how a misspelled `encrytped` would disable encryption while
+    /// the file still looked like it asked for it.
+    #[test]
+    fn the_csv_parser_rejects_an_unknown_flag() {
+        let csv = "nvs_keys, data, nvs_keys, 0x61000, 0x1000, encrytped\n";
+        assert!(parse_partition_layout(csv).is_err());
+    }
+
+    /// The binary decoder must read the flag from bit 0 of the entry's flags word.
+    #[test]
+    fn the_binary_decoder_reads_the_encrypted_flag() {
+        let mut plain = partition_entry(1, 0x02, 0x11000, 24576, "nvs");
+        let mut encrypted = partition_entry(1, 0x04, 0x61000, 4096, "nvs_keys");
+        encrypted[28..32].copy_from_slice(&1_u32.to_le_bytes());
+        plain.extend(encrypted);
+
+        let entries = decode_partition_table(&plain).expect("table must decode");
+        assert_eq!(entries.len(), 2);
+        assert!(!entries[0].encrypted);
+        assert!(entries[1].encrypted);
+    }
+
+    /// A declaration and an image that disagree on the flag are not equal.
+    ///
+    /// The comparison in `verify_merged_flash_image` is a field-by-field equality, so this
+    /// pins the field that comparison newly includes.
+    #[test]
+    fn a_missing_encrypted_flag_is_a_difference() {
+        let declared =
+            parse_partition_layout("nvs_keys, data, nvs_keys, 0x61000, 0x1000, encrypted\n")
+                .expect("layout must parse");
+        let shipped = decode_partition_table(&partition_entry(1, 0x04, 0x61000, 4096, "nvs_keys"))
+            .expect("table must decode");
+
+        assert_eq!(declared[0].label, shipped[0].label);
+        assert_eq!(declared[0].bytes, shipped[0].bytes);
+        assert_ne!(
+            declared[0].encrypted, shipped[0].encrypted,
+            "the flag is the only difference, and it must be visible"
+        );
     }
 
     #[test]

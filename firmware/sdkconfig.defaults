@@ -40,6 +40,10 @@ CONFIG_COMPILER_OPTIMIZATION_PERF=y
 CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
 CONFIG_ESP32P4_REV_MIN_100=y
 
+# PSRAM allocator policy. Declared in toolchain/manifest.toml [boot_policy] and verified
+# against the resolved sdkconfig by the firmware gate. Allocations at or below the
+# always-internal threshold come from internal RAM; the reserve keeps internal RAM
+# available to callers that require it once PSRAM is in the general heap.
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_HEX=y
 CONFIG_SPIRAM_SPEED_200M=y
@@ -54,3 +58,44 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 CONFIG_FATFS_LFN_HEAP=y
 CONFIG_FATFS_MAX_LFN=255
+
+# Panic policy. Print and reboot without delay. An appliance that halts at a prompt nobody
+# reads is indistinguishable from a dead one, so diagnosis comes from the core dump.
+CONFIG_ESP_SYSTEM_PANIC_PRINT_REBOOT=y
+CONFIG_ESP_SYSTEM_PANIC_REBOOT_DELAY_SECONDS=0
+
+# Core dumps to flash. M2-013 reserved a 108 KiB `coredump` partition, and ESP-IDF defaults
+# core dumps off, so nothing ever wrote to it. The partition also carries the `encrypted`
+# flag in firmware/partitions.csv: ESP-IDF writes the dump in plain text and only logs a
+# warning when flash encryption is on and that flag is absent, and a dump contains task
+# stacks.
+#
+# DRAM capture stays off deliberately. ESP-IDF states that enabling it needs at least
+# 128 KiB reserved and the partition is 108 KiB, and the layout is effectively permanent
+# once devices ship. Task stacks fit.
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+# CONFIG_ESP_COREDUMP_CAPTURE_DRAM is not set
+CONFIG_ESP_COREDUMP_CHECK_BOOT=y
+CONFIG_ESP_COREDUMP_MAX_TASKS_NUM=64
+
+# Watchdog policy. The task watchdog panics, and therefore reboots, on timeout, because a
+# hung device that recovers itself beats one that stays hung. Both idle tasks stay
+# subscribed, so this trips on any task that monopolizes a core without yielding. The
+# emulator frame loop must yield or subscribe itself and feed the watchdog; ADR-0021
+# records that obligation rather than granting a pass by unsubscribing an idle task.
+CONFIG_ESP_TASK_WDT_EN=y
+CONFIG_ESP_TASK_WDT_INIT=y
+CONFIG_ESP_TASK_WDT_PANIC=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=5
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=y
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=y
+CONFIG_ESP_INT_WDT=y
+CONFIG_ESP_INT_WDT_TIMEOUT_MS=300
+CONFIG_BOOTLOADER_WDT_ENABLE=y
+CONFIG_BOOTLOADER_WDT_TIME_MS=9000
+
+# Logging policy. Default INFO, with DEBUG compiled in so field diagnosis can be raised at
+# runtime without a new image. VERBOSE stays out; it is compiled per call site and the gain
+# over DEBUG does not justify the size on a device that cannot be reflashed casually.
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_LOG_MAXIMUM_LEVEL_DEBUG=y

@@ -1,0 +1,111 @@
+{
+  "schema": "rumiga.change-record.v1",
+  "task_id": "M2-003",
+  "status": "implemented",
+  "title": "Declare the boot policy and check it from both sides",
+  "summary": "Declare the PSRAM allocator, panic, core-dump, watchdog, logging, and reset policy in toolchain/manifest.toml, verify it against the resolved sdkconfig in the firmware gate, mirror it in rumiga-platform-esp with a host test pinning the mirror, and report it in a boot manifest alongside what the running system observes. Turn on the core dump the flash layout already reserved space for, mark that partition encrypted, and close the layout comparison's blind spot for the encrypted flag.",
+  "scope": [
+    "Boot policy declaration and its two-sided verification",
+    "Core dumps to an encrypted flash partition",
+    "Task watchdog reset behaviour and its obligation on the future frame loop",
+    "Logging levels compiled in and defaulted",
+    "Boot manifest type, reset reason, and observed memory",
+    "Partition-layout comparison of the encrypted flag"
+  ],
+  "risk": {
+    "level": "medium",
+    "failure_mode": "The policy was entirely ESP-IDF defaults, so nothing could detect a wrong value. Three consequences were live: a 108 KiB coredump partition that nothing would ever write to, so a field panic left nothing to diagnose; a task watchdog that logged and let a hung device stay hung; and a layout comparison that claimed entry-by-entry equality while never reading the flags word, so the encrypted flag on nvs_keys, which holds the NVS encryption keys, was unverified in both directions. Enabling core dumps without the encrypted flag would have written task stacks to flash in plain text on an encrypted device, with only a log warning.",
+    "rollback": "Revert the change. The images return to ESP-IDF defaults with core dumps off, the layout returns to an unflagged coredump partition, and the boot policy is again undeclared and unchecked. No device is affected because none has been flashed."
+  },
+  "compatibility": {
+    "status": "affected",
+    "detail": "firmware/partitions.csv marks coredump as encrypted. Offsets and sizes are unchanged and no application slot moves, but the partition table binary differs, so a device flashed with the previous table would need the new one. rumiga.firmware.build.v1 gains an additive boot_policy section following the practice M0-014 set for merged_image. The partition-layout comparison now includes the encrypted flag and rejects an unrecognized flag, so a layout that relied on a misspelled flag being ignored now fails. rumiga-platform-esp gains a boot module and a toml dev-dependency. The application grew from 182,512 to 204,400 bytes."
+  },
+  "security": {
+    "status": "affected",
+    "detail": "Two changes in opposite directions, both recorded. Core dumps now persist task stacks to flash, which is memory content written to storage that previously held nothing; the partition carries the encrypted flag so this happens under flash encryption, because ESP-IDF writes an unflagged data partition in plain text and only logs a warning. And the layout comparison now verifies that flag, which was previously unchecked on nvs_keys, the partition holding the NVS encryption keys. No network transport, credential, authorization, unsafe-code, or FFI change: the reset reason is read through esp_idf_svc::hal::reset::ResetReason::get, a safe wrapper, because the workspace forbids unsafe code. The eFuse and flash-encryption posture M2-014 established is untouched and still verified on the same resolved sdkconfig."
+  },
+  "tests": [
+    {
+      "id": "boot-policy-mirror-pinned",
+      "command": "cargo +1.97.1 test --locked -p rumiga-platform-esp",
+      "proves": "The Rust policy constants equal the manifest declaration. The duplication is unavoidable because integer sdkconfig values do not reach Rust as cfgs, so the firmware cannot read them from the build it belongs to; this makes the duplication unable to drift unnoticed."
+    },
+    {
+      "id": "watchdog-reset-is-not-a-crash",
+      "command": "cargo +1.97.1 test --locked -p rumiga-platform-esp",
+      "proves": "A task watchdog reset renders distinctly from a panic. The boot policy makes a watchdog timeout panic, so the two arrive by the same route and a report that conflated them would blame the wrong thing."
+    },
+    {
+      "id": "encrypted-flag-survives-both-parsers",
+      "command": "cargo +1.97.1 test --locked -p rumiga-xtask",
+      "proves": "The CSV parser reads the flag, rejects a misspelled one rather than dropping it, the binary decoder reads bit 0 of the flags word, and a declaration and image that disagree on the flag are unequal. This is the field the layout comparison newly includes."
+    },
+    {
+      "id": "full-local-promotion",
+      "command": "cargo +1.97.1 xtask ci",
+      "proves": "All eight gates pass, with the firmware gate executing the boot policy comparison and its two cross-file checks."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "local-the-reserved-core-dump-partition-was-never-written",
+      "kind": "command",
+      "location": "2026-08-18 local execution: the resolved sdkconfig of the bundle preceding this change reads CONFIG_ESP_COREDUMP_ENABLE_TO_NONE=y at line 2509, while the table decoded from inside the merged flash image carries a coredump partition of 0x1B000 bytes at 0x65000.",
+      "proves": "M2-013 spent 108 KiB of a permanent layout on a diagnostic ESP-IDF defaults off, so a panic on a shipped device would have left nothing behind. The task's stated subject was a manifest; this was found by reading the configuration against the layout."
+    },
+    {
+      "id": "local-the-layout-comparison-ignored-the-encrypted-flag",
+      "kind": "command",
+      "location": "2026-08-18 local execution: parse_partition_layout required fields.len() >= 5 and built its entry from indices 0 through 4, and decode_partition_table read bytes 2, 3, 4..8, 8..12 and 12..28, never 28..32. The table decoded from the merged image shows espflash does set the flag: nvs_keys carries flags 0x1.",
+      "proves": "The check that claims the merged image carries the declared layout entry by entry skipped the one field the security posture rests on. The flag was correct by luck of espflash's behaviour, not because anything verified it."
+    },
+    {
+      "id": "local-gcc-safe-reset-reason-wrapper",
+      "kind": "command",
+      "location": "2026-08-18 local execution: esp_idf_hal reset.rs line 144 defines ResetReason::get as a safe fn containing the unsafe esp_reset_reason call, and esp-idf-svc re-exports the crate through pub mod hal (hal.rs is pub use esp_idf_hal::*).",
+      "proves": "The reset reason is readable without unsafe code in this workspace, which forbids it, and without adding a dependency, because the existing esp-idf-svc dependency re-exports the crate that wraps the FFI call."
+    },
+    {
+      "id": "local-integer-config-values-do-not-reach-rust",
+      "kind": "command",
+      "location": "2026-08-18 local execution: the esp-idf-sys build script output emits 979 cargo:rustc-cfg=esp_idf_* entries. Boolean and choice options appear (esp_idf_esp_system_panic_print_reboot, esp_idf_log_default_level_info) and integer options do not: no cfg matches esp_task_wdt_timeout_s or spiram_malloc_alwaysinternal, and the generated bindings define no CONFIG_ constants.",
+      "proves": "The firmware cannot read the integer policy values from the build it is part of, so the Rust mirror is a necessity rather than a convenience. That is why a pinning test exists instead of a single source of truth."
+    },
+    {
+      "id": "local-three-gate-probes-fired",
+      "kind": "command",
+      "location": "2026-08-18 local execution: removing encrypted from the coredump row produced \"flash encryption is enabled and the coredump partition is not marked encrypted, so ESP-IDF would write task stacks to flash in plain text and only log a warning\"; declaring captures_dram = true with the matching sdkconfig key produced \"whole-DRAM core dump capture needs at least 131072 bytes reserved and the coredump partition is 110592 bytes\"; declaring a 9 second watchdog period against a build configured for 5 produced \"CONFIG_ESP_TASK_WDT_TIMEOUT_S must be 9, got 5\". All three were reverted and each reversion verified by search.",
+      "proves": "Each check catches the specific case it exists for, with a message naming the cause. Notably the first probe did not trip the layout comparison, because the declaration and the image agreed with each other; the cross-check is what catches a declaration that is wrong for the security posture."
+    },
+    {
+      "id": "local-mirror-probe-fired",
+      "kind": "command",
+      "location": "2026-08-18 local execution: changing the mirrored TASK_WATCHDOG_TIMEOUT_SECONDS to 7 while the declaration read 5 failed the_mirror_matches_the_declared_boot_policy with left 5, right 7. Reverted and verified by search.",
+      "proves": "The pinning test detects drift in the direction that matters, a mirror that no longer describes the built image."
+    },
+    {
+      "id": "local-application-growth-measured",
+      "kind": "command",
+      "location": "2026-08-18 local execution: the firmware gate reported App/part. size 182,512 bytes before and 204,400 bytes after, of 6,291,456.",
+      "proves": "The core-dump component and the DEBUG call sites cost 21,888 bytes, 0.35 percentage points of the application slot. The figure is recorded rather than estimated, because the slot size is permanent once devices ship."
+    },
+    {
+      "id": "hosted-promotion",
+      "kind": "ci-artifact",
+      "location": "Pending: hosted pull-request and final main promotion evidence is required before this record moves to verified.",
+      "proves": "Nothing yet."
+    }
+  ],
+  "documentation": [
+    "CI.md",
+    "IMPLEMENTATION_PLAN.md",
+    "PROJECT_STATUS.md",
+    "docs/adr/0021-declared-boot-policy.md",
+    "docs/adr/README.md"
+  ],
+  "release_note": "docs/release-notes/unreleased/M2-003.md",
+  "architecture_decisions": [
+    "docs/adr/0021-declared-boot-policy.md"
+  ]
+}

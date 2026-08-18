@@ -1,0 +1,218 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2025 Fabian Schmieder
+
+//! Pin the boot policy mirror against the declaration it mirrors.
+//!
+//! The numbers in `boot::` are written twice, here and in `toolchain/manifest.toml`, because
+//! integer `sdkconfig` values do not reach Rust as cfgs and the firmware cannot read them
+//! from the build. Duplication that nothing checks drifts, and a boot manifest reporting a
+//! watchdog period the device does not run would be worse than reporting nothing. This test
+//! is the other half of the firmware gate's comparison: the gate pins the declaration
+//! against the resolved `sdkconfig`, and this pins the mirror against the declaration.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use rumiga_platform_esp::boot;
+
+fn manifest() -> toml::Value {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("the crate sits two levels below the workspace root")
+        .to_path_buf();
+    let path: PathBuf = root.join("toolchain/manifest.toml");
+    let text = fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+    let table: toml::Table = toml::from_str(&text)
+        .unwrap_or_else(|error| panic!("failed to parse {}: {error}", path.display()));
+    toml::Value::Table(table)
+}
+
+fn integer(policy: &toml::Value, section: &str, key: &str) -> u32 {
+    let value = policy[section][key]
+        .as_integer()
+        .unwrap_or_else(|| panic!("boot_policy.{section}.{key} must be an integer"));
+    u32::try_from(value)
+        .unwrap_or_else(|_| panic!("boot_policy.{section}.{key} does not fit in u32"))
+}
+
+fn boolean(policy: &toml::Value, section: &str, key: &str) -> bool {
+    policy[section][key]
+        .as_bool()
+        .unwrap_or_else(|| panic!("boot_policy.{section}.{key} must be a boolean"))
+}
+
+fn text<'a>(policy: &'a toml::Value, section: &str, key: &str) -> &'a str {
+    policy[section][key]
+        .as_str()
+        .unwrap_or_else(|| panic!("boot_policy.{section}.{key} must be a string"))
+}
+
+#[test]
+fn the_mirror_matches_the_declared_boot_policy() {
+    let manifest = manifest();
+    let policy = &manifest["boot_policy"];
+
+    assert_eq!(text(policy, "psram", "allocator"), boot::PSRAM_ALLOCATOR);
+    assert_eq!(
+        integer(policy, "psram", "always_internal_bytes"),
+        boot::PSRAM_ALWAYS_INTERNAL_BYTES
+    );
+    assert_eq!(
+        integer(policy, "psram", "reserve_internal_bytes"),
+        boot::PSRAM_RESERVE_INTERNAL_BYTES
+    );
+
+    assert_eq!(text(policy, "panic", "action"), boot::PANIC_ACTION);
+    assert_eq!(
+        integer(policy, "panic", "reboot_delay_seconds"),
+        boot::PANIC_REBOOT_DELAY_SECONDS
+    );
+
+    assert_eq!(text(policy, "core_dump", "target"), boot::CORE_DUMP_TARGET);
+    assert_eq!(
+        boolean(policy, "core_dump", "captures_dram"),
+        boot::CORE_DUMP_CAPTURES_DRAM
+    );
+    assert_eq!(
+        boolean(policy, "core_dump", "checked_on_boot"),
+        boot::CORE_DUMP_CHECKED_ON_BOOT
+    );
+    assert_eq!(
+        integer(policy, "core_dump", "max_tasks"),
+        boot::CORE_DUMP_MAX_TASKS
+    );
+
+    assert_eq!(
+        integer(policy, "watchdog", "task_timeout_seconds"),
+        boot::TASK_WATCHDOG_TIMEOUT_SECONDS
+    );
+    assert_eq!(
+        boolean(policy, "watchdog", "task_panics"),
+        boot::TASK_WATCHDOG_PANICS
+    );
+    assert_eq!(
+        boolean(policy, "watchdog", "task_checks_idle_cpu0"),
+        boot::TASK_WATCHDOG_CHECKS_IDLE_CPU0
+    );
+    assert_eq!(
+        boolean(policy, "watchdog", "task_checks_idle_cpu1"),
+        boot::TASK_WATCHDOG_CHECKS_IDLE_CPU1
+    );
+    assert_eq!(
+        integer(policy, "watchdog", "interrupt_timeout_millis"),
+        boot::INTERRUPT_WATCHDOG_TIMEOUT_MILLIS
+    );
+    assert_eq!(
+        integer(policy, "watchdog", "bootloader_timeout_millis"),
+        boot::BOOTLOADER_WATCHDOG_TIMEOUT_MILLIS
+    );
+
+    assert_eq!(
+        integer(policy, "logging", "default_level"),
+        boot::LOG_DEFAULT_LEVEL
+    );
+    assert_eq!(
+        integer(policy, "logging", "maximum_level"),
+        boot::LOG_MAXIMUM_LEVEL
+    );
+}
+
+/// A watchdog reset must not read as a crash.
+///
+/// The boot policy makes a task watchdog timeout panic, so the two arrive by the same route
+/// and a report that conflated them would blame the wrong thing.
+#[test]
+fn a_watchdog_reset_is_distinguishable_from_a_panic() {
+    assert_ne!(
+        boot::ResetReason::TaskWatchdog.as_str(),
+        boot::ResetReason::Panic.as_str()
+    );
+    assert!(boot::ResetReason::TaskWatchdog.is_fault());
+    assert!(boot::ResetReason::Panic.is_fault());
+}
+
+#[test]
+fn an_ordinary_start_is_not_a_fault() {
+    for reason in [
+        boot::ResetReason::PowerOn,
+        boot::ResetReason::ExternalPin,
+        boot::ResetReason::Software,
+        boot::ResetReason::DeepSleep,
+        boot::ResetReason::Sdio,
+        boot::ResetReason::UsbPeripheral,
+        boot::ResetReason::Jtag,
+        boot::ResetReason::Unknown,
+    ] {
+        assert!(
+            !reason.is_fault(),
+            "{} must not count as a fault",
+            reason.as_str()
+        );
+    }
+}
+
+/// Every reason renders to a distinct, stable name.
+#[test]
+fn reset_reason_names_are_distinct() {
+    let names = [
+        boot::ResetReason::PowerOn,
+        boot::ResetReason::ExternalPin,
+        boot::ResetReason::Software,
+        boot::ResetReason::Panic,
+        boot::ResetReason::InterruptWatchdog,
+        boot::ResetReason::TaskWatchdog,
+        boot::ResetReason::OtherWatchdog,
+        boot::ResetReason::DeepSleep,
+        boot::ResetReason::Brownout,
+        boot::ResetReason::Sdio,
+        boot::ResetReason::UsbPeripheral,
+        boot::ResetReason::Jtag,
+        boot::ResetReason::EfuseError,
+        boot::ResetReason::PowerGlitch,
+        boot::ResetReason::CpuLockup,
+        boot::ResetReason::Unknown,
+    ]
+    .map(boot::ResetReason::as_str);
+
+    let mut sorted = names.to_vec();
+    sorted.sort_unstable();
+    let count = sorted.len();
+    sorted.dedup();
+    assert_eq!(sorted.len(), count, "reset reason names must be distinct");
+}
+
+/// The rendering reports the observations separately from the policy.
+#[test]
+fn the_manifest_reports_policy_and_observation() {
+    let manifest = boot::BootManifest::new(
+        boot::ResetReason::TaskWatchdog,
+        boot::BootObservations {
+            psram_total_bytes: 33_554_432,
+            psram_free_bytes: 31_000_000,
+            internal_free_bytes: 220_000,
+        },
+    );
+    let text = manifest.to_text();
+
+    assert!(text.starts_with("schema=rumiga.boot.v1\n"));
+    assert!(text.contains("reset_reason=task-watchdog\n"));
+    assert!(text.contains("reset_is_fault=true\n"));
+    // The configured threshold and the observed total are both present, and differ, which is
+    // the point of reporting them separately.
+    assert!(text.contains("psram_always_internal_bytes=8192\n"));
+    assert!(text.contains("psram_total_bytes=33554432\n"));
+    assert!(text.contains("psram_free_bytes=31000000\n"));
+    assert!(text.contains("internal_free_bytes=220000\n"));
+    assert!(text.ends_with('\n'));
+}
+
+/// Two boots differing only in the reset reason render differently.
+#[test]
+fn the_rendering_is_sensitive_to_the_reset_reason() {
+    let observations = boot::BootObservations::default();
+    let first = boot::BootManifest::new(boot::ResetReason::PowerOn, observations).to_text();
+    let second = boot::BootManifest::new(boot::ResetReason::Panic, observations).to_text();
+    assert_ne!(first, second);
+}

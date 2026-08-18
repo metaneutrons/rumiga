@@ -10,9 +10,9 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-18 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M2-002: commit-derived firmware build stamp, verified by hosted evidence |
-| Current implementation | M2-003: PSRAM allocator, panic, watchdog, logging, and reset policy |
-| Next task | M2-004: port Vellum D1001 services into Rust-first adapters |
+| Latest completed task | M2-003: declared boot policy, hosted evidence pending |
+| Current implementation | M2-004: port Vellum D1001 services into Rust-first adapters |
+| Next task | M2-005: serial command protocol for capabilities, self-test, metrics, and reset |
 | Development host | macOS, Apple Silicon |
 | Product target | Seeed reTerminal D1001, ESP32-P4 |
 | Product maturity | Desktop compatibility prototype |
@@ -176,6 +176,20 @@ No feature is called done merely because it compiled or booted once.
   reversibility invariant, but they prove nothing about hardware: no board has
   been flashed, no eFuse has been burned, and with virtual eFuses the encryption
   is simulated rather than enforced.
+- M2-003 declared the boot policy and found three problems while reading the configuration
+  it was meant to report. M2-013 had reserved a 108 KiB core-dump partition that nothing would
+  ever write to, because ESP-IDF defaults core dumps off, so a field panic would have left
+  nothing to diagnose. The task watchdog logged and let a hung device stay hung. And the
+  layout comparison claimed entry-by-entry equality while never reading the flags word, so the
+  `encrypted` flag on `nvs_keys`, which holds the NVS encryption keys, was correct only by
+  luck of `espflash`'s behaviour. All three are closed: the policy is declared once in
+  `toolchain/manifest.toml` and checked against the built image from both sides, core dumps go
+  to an encrypted partition, a watchdog timeout reboots, and the flag is compared. Four probes
+  made the new checks fail before they were trusted. What is not delivered is anything
+  running: `firmware/src/main.rs` is still a stub, so nothing emits the boot manifest and the
+  reset reason is recorded as absent rather than measured. The watchdog decision leaves an
+  obligation nothing enforces, because the frame loop it constrains does not exist yet. Hosted
+  evidence is pending, and nothing has been flashed.
 - M2-002 closed a gap the task description did not name. The firmware bundle the
   acceptance criterion asks for already existed, and the build was already reproducible at
   a fixed revision, byte for byte on everything that gets flashed. What did not exist was
