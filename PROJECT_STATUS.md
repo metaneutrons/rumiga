@@ -10,7 +10,7 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-18 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M1-009: deterministic input replay, hosted evidence pending |
+| Latest completed task | M1-009: deterministic input replay, hosted evidence verified |
 | Current implementation | M1-010: allocation instrumentation and steady-state no-allocation assertion |
 | Next task | M1-011: 32-bit assumption, alignment, and endianness measurement |
 | Development host | macOS, Apple Silicon |
@@ -182,9 +182,11 @@ No feature is called done merely because it compiled or booted once.
   same frame digest, because the screen under test does not react, which is why the state
   digest is separate. Two defects surfaced during the work and were fixed at the cause: a
   duplicated replay path that missed the mouse counters, and a digest that could not see a
-  keystroke already consumed into CIA state. Hosted evidence is pending. Replay assumes
-  networking is disabled, carries no media reference, and the digest still omits the
-  copper and blitter shadows, audio state, MFM buffers, and IDE transfer state.
+  keystroke already consumed into CIA state. It is verified by clean pull-request and final
+  `main` evidence, with every replay and digest test passing in both runtime profiles on both
+  host operating systems. Replay assumes networking is disabled, carries no media reference,
+  and the digest still omits the copper and blitter shadows, audio state, MFM buffers, and
+  IDE transfer state.
 - M1-008 bounded the queues that exist and named their overflow policy. The guest
   keyboard queue previously dropped events past sixteen with nothing recorded, and its
   bound is reached in normal use because it drains about seventeen events per second.

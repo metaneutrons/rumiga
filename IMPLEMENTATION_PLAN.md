@@ -1068,7 +1068,33 @@ M1-009 implementation evidence (2026-08-18):
   the manifest records the media digest so a reader can notice afterwards
 - still outside the digest: the copper and blitter shadows beyond `custom_regs`, the audio
   channel state, the floppy MFM track buffers, and the IDE transfer state
-- hosted pull-request and final `main` evidence is pending promotion
+- pull-request run
+  [`32141958096`](https://github.com/metaneutrons/rumiga/actions/runs/32141958096)
+  passes all ten jobs; Linux job `95726506467`, macOS job `95726506342`, portable job
+  `95726506509`, and aggregate job `95728140474` pass
+- pull-request governance artifact `9326236047`, produced from clean merge revision
+  `dc92de4ca0964a662bbcc1efad0b32cb06d037c8`, has archive SHA-256
+  `1a4712e02eed556ae3d1b9212339b1e99db67a1347b645a50bf0aa1ba6d74b6a` as reported by
+  the Actions API. Its manifest records 15 architecture decisions, 16 release notes, and
+  16 change records, so ADR-0015 and the M1-009 record are inside the validated set
+- final `main` run
+  [`32146258140`](https://github.com/metaneutrons/rumiga/actions/runs/32146258140)
+  passes all ten jobs for clean revision
+  `bb60a24e8b27fd4a49191736383368768b8c5cb5`; Linux job `95740616196`, macOS job
+  `95740616159`, portable job `95740616185`, and aggregate job `95742459679` pass
+- final governance artifact `9327891821` has archive SHA-256
+  `42a8071589c930d880e2d27970b5d8e684f5bbd154bbf65c8d4972484a93ffd0` as reported by the
+  Actions API. The payload checksums were recomputed with two independent implementations
+  and match the artifact's own `SHA256SUMS`, the manifest records `dirty: false`, and its
+  recorded input digests match the git tree at that revision for the change record,
+  ADR-0015, the release note, `ARCHITECTURE.md`, the plan, and the status document
+- all ten replay-module tests and all ten emulator-level replay and digest tests appear
+  twice per host leg, once per explicit runtime profile. No crate-boundary caveat applies
+  here, unlike M1-007 and M1-008: every test in question lives in `rumiga-core`, which the
+  host gate's profile matrix covers
+- the archive SHA-256 values above are GitHub's reported artifact digests. The independent
+  verification covers the payload, not the archive container, because the API does not
+  serve the archive bytes to a plain token fetch
 
 ### M1 functional commits
 

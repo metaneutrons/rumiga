@@ -117,6 +117,12 @@ On the host, three replays of a hand-written scenario reach state digest
 four share frame digest `0x6d7c2de83b7b6725`, which is what makes the separate state digest
 necessary rather than decorative.
 
+Hosted promotion confirms it beyond the development host. Pull-request run `32141958096`
+and final `main` run `32146258140` passed all ten required jobs, and every replay and digest
+test appears twice per host leg, once per explicit runtime profile, on Linux x86_64 and macOS
+arm64. Everything here lives in `rumiga-core`, so unlike the two preceding tasks the
+bare-metal claim is execution rather than compilation.
+
 ## Supersession
 
 None. This closes the deterministic replay and machine-state digest entries.
