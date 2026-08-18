@@ -51,6 +51,21 @@ struct ToolchainManifest {
 struct PortableRustConfiguration {
     target: String,
     profiles: Vec<PortableRustProfile>,
+    core_graph: PortableCoreGraph,
+}
+
+/// Closed set of crates permitted in the portable core dependency graph.
+///
+/// Declared rather than derived so that adding a dependency is a reviewed edit to this
+/// manifest, not a silent consequence of a `Cargo.toml` change.
+#[derive(Debug, Deserialize)]
+struct PortableCoreGraph {
+    /// Profile whose resolution is constrained.
+    profile: String,
+    /// Package whose graph is walked.
+    root: String,
+    /// Every crate allowed to appear, including the root.
+    crates: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]

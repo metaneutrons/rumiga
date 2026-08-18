@@ -10,9 +10,9 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-18 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M1-011: portability boundaries, hosted evidence verified |
-| Current implementation | M1-012: portability contract published in the architecture docs |
-| Next task | M1 complete; M2 board bring-up begins with M2-001 |
+| Latest completed task | M1-012: published portability contract, hosted evidence pending |
+| Current implementation | M2-001: D1001 hardware manifest, once M1 is promoted |
+| Next task | M2-002: reproducible ESP-IDF/Rust firmware build |
 | Development host | macOS, Apple Silicon |
 | Product target | Seeed reTerminal D1001, ESP32-P4 |
 | Product maturity | Desktop compatibility prototype |
@@ -176,6 +176,14 @@ No feature is called done merely because it compiled or booted once.
   reversibility invariant, but they prove nothing about hardware: no board has
   been flashed, no eFuse has been burned, and with virtual eFuses the encryption
   is simulated rather than enforced.
+- M1-012 published the portability contract and enforced the one rule that nothing
+  checked: the core dependency graph is now a closed set of exactly `m68k`, `rumiga-core`,
+  and `rumiga-platform`, compared in both directions by the portable gate and pinned by the
+  manifest test. That is stricter than the acceptance criterion's allowlist wording, because
+  "approved `no_std`" is not stable across versions. Both comparison directions are
+  probe-verified, and the lockfile gate was shown to be only a partial defence. Hosted
+  evidence is pending. The contract covers `rumiga-core` and what it pulls in; the shell and
+  the ESP platform crate are outside it by design.
 - M1-011 enforced the two assumptions that separate the 64-bit hosts from the 32-bit
   device: guest values must be converted with an explicit byte order, banned in the core
   through Clippy, and `usize` must hold a guest address, asserted at compile time. Both

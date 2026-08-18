@@ -569,6 +569,93 @@ fn run_portable_gate(root: &Path, manifest: &ToolchainManifest) -> Result<()> {
             &format!("portable Rust profile {}", profile.name),
         )?;
     }
+    verify_portable_core_graph(root, manifest)?;
+    Ok(())
+}
+
+/// Hold the portable core dependency graph to the closed set the manifest declares.
+///
+/// Compiling for the bare-metal target proves the graph builds there; it does not prove
+/// the graph is the one intended. A crate that is `no_std` today can gain a `std` path,
+/// an allocator assumption, or a platform dependency in a patch release, and a dependency
+/// added deliberately would simply compile. This check makes the set itself reviewed.
+///
+/// The comparison runs both ways. An unexpected crate is the case that motivates the
+/// check; a missing one matters too, because it means the declaration has drifted from
+/// what the core actually needs and would stop catching anything.
+fn verify_portable_core_graph(root: &Path, manifest: &ToolchainManifest) -> Result<()> {
+    let graph = &manifest.portable_rust.core_graph;
+    let profile = manifest
+        .portable_rust
+        .profiles
+        .iter()
+        .find(|candidate| candidate.name == graph.profile)
+        .with_context(|| {
+            format!(
+                "core_graph names profile {:?}, which portable_rust.profiles does not define",
+                graph.profile
+            )
+        })?;
+
+    let mut arguments = vec![
+        format!("+{}", manifest.host.rust),
+        "tree".to_owned(),
+        "--locked".to_owned(),
+        "--target".to_owned(),
+        manifest.portable_rust.target.clone(),
+        // Normal edges only: build and dev dependencies do not ship in the core.
+        "--edges".to_owned(),
+        "normal".to_owned(),
+        "--prefix".to_owned(),
+        "none".to_owned(),
+        "-p".to_owned(),
+        graph.root.clone(),
+    ];
+    if !profile.default_features {
+        arguments.push("--no-default-features".to_owned());
+    }
+    if !profile.features.is_empty() {
+        arguments.push("--features".to_owned());
+        arguments.push(profile.features.join(","));
+    }
+
+    let arguments = arguments.iter().map(String::as_str).collect::<Vec<_>>();
+    let tree = capture(root, "cargo", &arguments)?;
+
+    let mut resolved: Vec<String> = tree
+        .lines()
+        .filter_map(|line| line.split_whitespace().next())
+        .filter(|name| !name.is_empty())
+        .map(ToOwned::to_owned)
+        .collect();
+    resolved.sort_unstable();
+    resolved.dedup();
+
+    let mut declared = graph.crates.clone();
+    declared.sort_unstable();
+    declared.dedup();
+
+    let unexpected: Vec<&String> = resolved
+        .iter()
+        .filter(|name| !declared.contains(name))
+        .collect();
+    ensure!(
+        unexpected.is_empty(),
+        "portable core graph contains crates the manifest does not permit: {unexpected:?}; \
+         add them to toolchain/manifest.toml [portable_rust.core_graph] only after reviewing \
+         whether the core should depend on them at all"
+    );
+
+    let missing: Vec<&String> = declared
+        .iter()
+        .filter(|name| !resolved.contains(name))
+        .collect();
+    ensure!(
+        missing.is_empty(),
+        "portable core graph no longer contains declared crates {missing:?}; \
+         the declaration has drifted and would stop catching additions"
+    );
+
     Ok(())
 }
 

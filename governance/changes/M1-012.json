@@ -1,0 +1,92 @@
+{
+  "schema": "rumiga.change-record.v1",
+  "task_id": "M1-012",
+  "status": "implemented",
+  "title": "Publish the portability contract and close the core dependency graph",
+  "summary": "Publish every portability rule in one table that names the gate, lint, or assertion enforcing it, and enforce the acceptance criterion that nothing checked before by declaring the portable core graph as a closed set of three workspace crates and comparing the resolved graph against it in the portable gate, in both directions.",
+  "scope": [
+    "Published portability contract table with per-rule enforcement",
+    "Closed core dependency graph declared in the toolchain manifest",
+    "Portable gate check comparing the resolved graph against the declaration",
+    "Manifest shape test pinning the declaration"
+  ],
+  "risk": {
+    "level": "low",
+    "failure_mode": "A published list of rules without their enforcement would be an intention that reads like a contract, which is the weakest possible result for this task. A one-directional comparison would let the declaration drift until it constrained nothing while still appearing to. Deriving the permitted set from the resolved graph would always pass, because it would compare the graph against itself.",
+    "rollback": "Revert the M1-012 commits to remove the table, the declaration, the gate check, and the test assertions. Nothing depends on them; a rollback returns the acceptance criterion to being unenforced."
+  },
+  "compatibility": {
+    "status": "affected",
+    "detail": "toolchain/manifest.toml gains a [portable_rust.core_graph] section declaring the constrained profile, the root package, and the closed crate set; the xtask toolchain manifest type requires it, so a manifest without the section fails to parse. Adding a dependency to the core now requires editing that section and the firmware manifest test that pins it. The comparison uses normal edges only, so build and dev dependencies, including the stats_alloc dev-dependency from M1-010, are outside the set by design. No public API and no behaviour changes."
+  },
+  "security": {
+    "status": "none",
+    "detail": "No network transport, credential, authorization, persistence, unsafe-code, or FFI changes. The check narrows rather than widens what passes: an unreviewed third-party crate in the core graph now fails a required gate. It complements the supply-chain gate, which holds licences, registries, sources, and advisories but does not constrain graph membership."
+  },
+  "tests": [
+    {
+      "id": "core-graph-is-closed",
+      "command": "cargo +1.97.1 xtask ci --gate portable",
+      "proves": "The resolved bare-metal graph for the stock core contains exactly the declared crates. An unexpected crate and a declared crate that is absent both fail, so the declaration cannot drift into constraining nothing."
+    },
+    {
+      "id": "declaration-is-pinned",
+      "command": "cargo +1.97.1 test --locked -p rumiga-firmware --test toolchain_manifest",
+      "proves": "The declaration's profile, root, and exact crate list are asserted, so widening the set fails in two places rather than one and appears twice in a reviewer's diff."
+    },
+    {
+      "id": "full-local-promotion",
+      "command": "cargo +1.97.1 xtask ci",
+      "proves": "All eight gates pass for the change."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "local-criterion-was-unenforced",
+      "kind": "command",
+      "location": "2026-08-18 local execution: the supply-chain policy constrains licences, registries, Git sources, and advisories, and the portable gate compiled the core for riscv32imafc-unknown-none-elf, but no gate constrained which crates may appear in the core dependency graph.",
+      "proves": "The task's acceptance criterion, that the core graph contains only approved no_std crates, was checked by nothing. Publishing a document alone would have left it that way."
+    },
+    {
+      "id": "local-graph-is-three-workspace-crates",
+      "kind": "command",
+      "location": "2026-08-18 local execution: cargo tree for rumiga-core with --no-default-features --features no_std --target riscv32imafc-unknown-none-elf --edges normal resolves to exactly m68k, rumiga-core, and rumiga-platform, all local, with no third-party crate.",
+      "proves": "A closed set is stateable and is stricter than an allowlist of approved no_std crates, which would grant permission the core does not currently need."
+    },
+    {
+      "id": "local-both-directions-probe-verified",
+      "kind": "command",
+      "location": "2026-08-18 local execution: removing rumiga-platform from the declaration produced \"portable core graph contains crates the manifest does not permit: [\\\"rumiga-platform\\\"]\"; adding serde to the declaration produced \"portable core graph no longer contains declared crates [\\\"serde\\\"]\". Both probes edited only the manifest and were reverted, leaving dependencies and Cargo.lock untouched.",
+      "proves": "Both comparison directions fire, so neither an added dependency nor a drifted declaration passes silently."
+    },
+    {
+      "id": "local-lockfile-gate-is-only-a-partial-defence",
+      "kind": "command",
+      "location": "2026-08-18 local execution: a probe adding a real dependency to rumiga-core failed at the lockfile gate with \"cannot update the lock file because --locked was passed\" before the graph check ran.",
+      "proves": "The graph check is not redundant with the lockfile gate. That gate stops an unintended resolution change; it does not stop a dependency committed deliberately together with its lockfile update, which is the case the graph check catches."
+    },
+    {
+      "id": "local-table-checked-against-its-enforcement",
+      "kind": "command",
+      "location": "2026-08-18 local execution: each published row was checked against the mechanism it names: the disallowed-types and disallowed-methods entries in crates/rumiga-core/clippy.toml with their deny attributes in the crate root, the two compile_error! guards for the runtime profiles, the two compile-time assertions, the allocation test, and the two portable-gate checks.",
+      "proves": "Every row names an enforcement that exists, so the table is a contract rather than a summary. Two rows state their own weakness: the pointer-width rules are compile-time assertions rather than execution at a 32-bit usize, and the allocation rule is enforced over a 64-frame fixture with the one-minute figure measured locally."
+    },
+    {
+      "id": "hosted-promotion",
+      "kind": "ci-artifact",
+      "location": "Pending: hosted pull-request and final main promotion evidence is required before this record moves to verified.",
+      "proves": "Nothing yet."
+    }
+  ],
+  "documentation": [
+    "ARCHITECTURE.md",
+    "IMPLEMENTATION_PLAN.md",
+    "PROJECT_STATUS.md",
+    "docs/adr/0018-published-portability-contract.md",
+    "docs/adr/README.md"
+  ],
+  "release_note": "docs/release-notes/unreleased/M1-012.md",
+  "architecture_decisions": [
+    "docs/adr/0018-published-portability-contract.md"
+  ]
+}
