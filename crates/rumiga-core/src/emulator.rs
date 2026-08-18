@@ -173,6 +173,20 @@ pub struct Emulator {
     input_recorder: Option<InputRecorder>,
     /// Optional recording being replayed, with the index of the next event to apply.
     replay: Option<(InputRecording, usize)>,
+    /// Pending guest register writes drained from the memory log.
+    ///
+    /// Retained for the same reason as `copper_writes`. This one is the larger cost: a
+    /// booting guest writes custom registers on nearly every scanline, so the previous
+    /// `collect()` allocated roughly once per scanline, which a one-minute measurement
+    /// showed as 978,521 allocations.
+    guest_reg_writes: Vec<(u16, u16)>,
+    /// Pending copper register writes for the scanline being run.
+    ///
+    /// Retained across scanlines and cleared before each use. A fresh `Vec` per scanline
+    /// allocated whenever the copper produced at least one write, which the allocation
+    /// measurement showed happening once per frame on a small copper list and more often
+    /// on a real one.
+    copper_writes: Vec<(u16, u16)>,
     /// Optional injected sink for instruction tracing.
     trace_sink: Option<Box<dyn TraceSink + Send>>,
     /// Optional trace limit (number of instructions).
@@ -270,6 +284,8 @@ impl Emulator {
             frames_run: 0,
             input_recorder: None,
             replay: None,
+            guest_reg_writes: Vec::new(),
+            copper_writes: Vec::new(),
             trace_sink: None,
             trace_limit: None,
             trace_count: 0,
@@ -412,6 +428,33 @@ impl Emulator {
     #[must_use]
     pub const fn key_queue_policy(&self) -> OverflowPolicy {
         self.key_events.policy()
+    }
+
+    /// Retained capacity of the guest register write buffer.
+    ///
+    /// This is the buffer whose absence cost roughly one allocation per scanline during a
+    /// real boot. A test that measures allocations without reaching this path passes while
+    /// the product allocates.
+    #[must_use]
+    pub fn guest_reg_writes_capacity(&self) -> usize {
+        self.guest_reg_writes.capacity()
+    }
+
+    /// Retained capacity of the copper pending-write buffer.
+    ///
+    /// Exposed for allocation measurement. A capacity that stops growing is what makes the
+    /// scanline loop allocation-free, and unlike a global allocator hook this works in the
+    /// `no_std` profile and on a device. A total allocation count says something allocated;
+    /// this says which buffer would have.
+    #[must_use]
+    pub fn copper_writes_capacity(&self) -> usize {
+        self.copper_writes.capacity()
+    }
+
+    /// Retained capacity of the early-scanline diagnostic buffer.
+    #[must_use]
+    pub fn early_video_scanlines_capacity(&self) -> usize {
+        self.early_video_scanlines.capacity()
     }
 
     /// Accumulate mouse movement deltas.
@@ -676,11 +719,20 @@ impl Emulator {
             // Sync beam position so CPU reads of VHPOSR see advancing hpos
             self.memory.custom_regs[(custom::VHPOSR / 2) as usize] =
                 (self.chipset.vpos << 8) | (self.chipset.hpos & 0xFF);
-            // Dispatch register writes immediately
-            let writes: Vec<(u16, u16)> = self.memory.drain_reg_writes().collect();
-            for (offset, value) in writes {
+            // Dispatch register writes immediately. The buffer is moved out so the drain
+            // of the memory log does not overlap the dispatch calls, then put back with
+            // its capacity, which is what keeps this loop allocation-free.
+            let mut writes = core::mem::take(&mut self.guest_reg_writes);
+            writes.clear();
+            writes.extend(self.memory.drain_reg_writes());
+            #[allow(
+                clippy::iter_with_drain,
+                reason = "into_iter would consume the buffer and reintroduce the per-scanline allocation this retains"
+            )]
+            for (offset, value) in writes.drain(..) {
                 self.dispatch_register_write(offset, value);
             }
+            self.guest_reg_writes = writes;
             // Handle CIA-B PRB writes (disk drive selection/motor/step)
             if self.memory.cia_b_prb_dirty {
                 self.memory.cia_b_prb_dirty = false;
@@ -703,7 +755,11 @@ impl Emulator {
         // Run copper for this scanline
         if self.copper.enabled {
             let chip_ram = self.memory.chip_ram();
-            let mut copper_writes = Vec::new();
+            // Reuse the retained buffer. `core::mem::take` moves it out so the borrow of
+            // chip RAM below does not conflict with holding `&mut self`; the buffer is put
+            // back before this block ends, keeping its capacity.
+            let mut copper_writes = core::mem::take(&mut self.copper_writes);
+            copper_writes.clear();
             for h in 0u16..227 {
                 if let Some(action) = self.copper.cycle(chip_ram, vpos, h) {
                     match action {
@@ -720,10 +776,17 @@ impl Emulator {
                     }
                 }
             }
-            for (offset, value) in copper_writes {
+            // Drain rather than consume, so the buffer survives to be put back with its
+            // capacity intact.
+            #[allow(
+                clippy::iter_with_drain,
+                reason = "into_iter would consume the buffer and reintroduce the per-scanline allocation this retains"
+            )]
+            for (offset, value) in copper_writes.drain(..) {
                 self.memory.custom_regs[(offset / 2) as usize] = value;
                 self.dispatch_register_write(offset, value);
             }
+            self.copper_writes = copper_writes;
         }
 
         // Sync playfield state from shadow registers (copper has updated them)

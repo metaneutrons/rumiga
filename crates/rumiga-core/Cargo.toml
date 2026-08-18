@@ -22,6 +22,7 @@ rumiga-platform = { workspace = true }
 
 [dev-dependencies]
 m68000 = { workspace = true }
+stats_alloc = { workspace = true }
 
 [lints]
 workspace = true

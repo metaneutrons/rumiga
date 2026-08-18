@@ -502,7 +502,7 @@ local promotion result.
 | M1-007 | DONE | Version platform capabilities and typed error model | Unsupported and backpressure states are explicit and tested |
 | M1-008 | DONE | Add bounded video/audio/input/event queue contracts | Overflow policy and high-water marks have tests |
 | M1-009 | DONE | Add deterministic input replay and machine-state digest | Same replay yields same digest on repeated host runs |
-| M1-010 | PLANNED | Add allocation instrumentation and steady-state no-allocation assertion | One-minute host run has no scanline-loop allocations |
+| M1-010 | DONE | Add allocation instrumentation and steady-state no-allocation assertion | One-minute host run has no scanline-loop allocations |
 | M1-011 | PLANNED | Measure 32-bit assumptions, alignment, endianness, and `usize` conversions | Miri/sanitizer/property fixtures cover critical boundaries |
 | M1-012 | PLANNED | Publish portability contract in architecture docs | Core dependency graph contains only approved `no_std` crates |
 | M1-013 | DONE | Make the video standard selectable and model NTSC geometry, colour clock, and Agnus identification | An NTSC Kickstart boots, detects the standard, and produces a stable screenshot digest; conformance to documented constants is asserted |
@@ -1096,6 +1096,50 @@ M1-009 implementation evidence (2026-08-18):
   verification covers the payload, not the archive container, because the API does not
   serve the archive bytes to a plain token fetch
 
+M1-010 implementation evidence (2026-08-18):
+
+- the measurement was built before any fix, and that order changed the outcome twice
+- reading the source suggested the copper path allocated up to 312 times per frame.
+  Measured, the 64-frame fixture reported 64 allocations, one per frame, because
+  `Vec::new` does not allocate until the first push and the fixture's copper list
+  produced writes on one scanline per frame. The source figure was an upper bound
+- the counting allocator comes from outside the workspace. `unsafe_code = "forbid"` is
+  set at the workspace root and cannot be relaxed per crate or per target, while a
+  counting `#[global_allocator]` needs `unsafe impl GlobalAlloc`. `stats_alloc` is a
+  test-only dev-dependency pinned at `=0.1.10`, MIT, inside the supply-chain allowlist
+- the emulator also reports its own buffer capacities. A count says something allocated;
+  a capacity that stops growing names the buffer, and the accessors work in the `no_std`
+  profile and on a device where an allocator hook does not
+- after retaining the copper buffer the fixture reported zero allocations while one
+  minute of Kickstart 46.143, 3005 frames, still reported 978,521 allocations and
+  3,949,644 bytes. The source was `drain_reg_writes().collect()` once per scanline: a
+  booting guest writes custom registers on nearly every line, and the ROM-free fixture
+  never reached that path
+- that is the failure mode this task exists to prevent, and it survived the first round
+  of work. A passing allocation test is not an allocation-free loop
+- the fixture was strengthened rather than accepted. It now runs a two-instruction 68k
+  loop in the guest that writes COLOR00, so guest register writes occur on every
+  scanline. With the fix reverted the test fails on the allocation count itself at
+  658,944 allocations over 64 frames, not only on the capacity guard
+- both capacity guards are load-bearing: the test asserts each buffer is non-zero after
+  warmup, so a change that stops reaching a path fails loudly instead of measuring a
+  quieter loop
+- Clippy suggests `into_iter()` in place of `drain(..)` at both sites. Following it would
+  consume the retained buffer and reintroduce the allocation, so the lint is allowed with
+  that reason stated at each site
+- one minute of PAL, 3005 frames after a 600-frame warmup, now allocates nothing.
+  Retained capacities settle at 64 copper entries and 32 early-scanline entries
+- behaviour is unchanged: the state digest after 3605 frames is `0xc2d77aefee1ec32c`
+  before and after, and the 1200-frame capture keeps digest
+  `b190d54b1bbf1e6a9bba3f36d34b74c95ab8fc6fe7796f2f6c694b70165ea1aa`
+- two evidence tiers, and the gate enforces the weaker one. The one-minute run needs a
+  real Kickstart and ROMs are not committed, so CI runs the 64-frame test and the minute
+  figure is recorded from a local run
+- not measured: the desktop shell's own per-frame allocations in presentation and
+  screenshot paths, which are not the loop a device runs; and peak resident memory, since
+  this counts allocation calls rather than footprint
+- hosted pull-request and final `main` evidence is pending promotion
+
 ### M1 functional commits
 
 1. `refactor(core): define std and no-std runtime profiles`
@@ -1123,6 +1167,7 @@ M1-009 implementation evidence (2026-08-18):
 23. `feat(platform): version capabilities and type the error model`
 24. `feat(platform): bound queues with a named overflow policy`
 25. `feat(core): record and replay input against emulated frames`
+26. `perf(core): stop allocating in the scanline loop`
 
 ## M2 Backlog: D1001 Board Bring-Up
 

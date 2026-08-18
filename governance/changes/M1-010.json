@@ -1,0 +1,98 @@
+{
+  "schema": "rumiga.change-record.v1",
+  "task_id": "M1-010",
+  "status": "implemented",
+  "title": "Instrument allocations and remove the frame loop's steady-state allocations",
+  "summary": "Measure allocations before changing anything, using a third-party counting allocator because the workspace forbids unsafe code, then retain the two buffers the scanline loop rebuilt on every line, expose emulator buffer capacities so a count can be attributed and so the same property is observable in the no_std profile, and strengthen the fixture until it reaches both allocation paths.",
+  "scope": [
+    "Allocation measurement through a test-only counting allocator",
+    "Emulator buffer capacity accessors for attribution and no_std observability",
+    "Retained copper pending-write buffer",
+    "Retained guest register write buffer",
+    "Fixture that reaches both allocation paths, with guards"
+  ],
+  "risk": {
+    "level": "medium",
+    "failure_mode": "A fixture that does not reach a path measures a quieter loop and passes while the product allocates, which happened: after the first fix the test reported zero while a real boot still allocated 978,521 times per minute. Following Clippy's suggestion to replace drain with into_iter at either site would consume the retained buffer and reintroduce the allocation. Retaining buffers also risks unbounded growth if a scanline could produce unbounded work.",
+    "rollback": "Revert the M1-010 commits to restore the per-scanline allocations and drop the dev-dependency. Emulated behaviour is identical either way, so a rollback costs the property rather than changing results."
+  },
+  "compatibility": {
+    "status": "affected",
+    "detail": "Emulator gains guest_reg_writes_capacity, copper_writes_capacity, and early_video_scanlines_capacity for measurement; they work in the no_std profile where a global allocator hook does not. rumiga-core gains a stats_alloc dev-dependency pinned at =0.1.10, MIT licensed and test-only, which does not enter any shipped binary. No public behaviour changes: the state digest after 3605 frames of a real Kickstart boot is 0xc2d77aefee1ec32c before and after, and the 1200-frame A1200 capture keeps digest b190d54b1bbf1e6a9bba3f36d34b74c95ab8fc6fe7796f2f6c694b70165ea1aa."
+  },
+  "security": {
+    "status": "none",
+    "detail": "No network transport, credential, authorization, persistence, or FFI changes, and no unsafe code: the workspace forbids it, which is why the counting allocator is a third-party dev-dependency rather than a local wrapper. stats_alloc is MIT licensed, inside the supply-chain policy's allowlist, and enters only test binaries. Retaining two buffers slightly reduces allocator churn rather than widening any surface."
+  },
+  "tests": [
+    {
+      "id": "steady-state-no-allocation",
+      "command": "cargo +1.97.1 test --locked -p rumiga-core --test allocation_test",
+      "proves": "64 frames with the copper active and a guest 68k loop writing a colour register allocate and reallocate zero times. The test occupies its own binary because a global allocator counts every thread in the process."
+    },
+    {
+      "id": "fixture-reaches-both-paths",
+      "command": "cargo +1.97.1 test --locked -p rumiga-core --test allocation_test",
+      "proves": "Two guards assert that the copper and guest register write buffers both have non-zero capacity after warmup, so a change that stops reaching a path fails loudly instead of measuring a quieter loop."
+    },
+    {
+      "id": "behaviour-unchanged",
+      "command": "cargo +1.97.1 test --locked -p rumiga-core --lib",
+      "proves": "All 200 core unit tests pass unchanged in both runtime profiles, including the pinned blit fixture digest, so retaining the buffers altered no emulated state."
+    },
+    {
+      "id": "full-local-promotion",
+      "command": "cargo +1.97.1 xtask ci",
+      "proves": "All eight gates pass for the change."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "local-measurement-corrected-a-source-reading",
+      "kind": "command",
+      "location": "2026-08-18 local execution: reading the source suggested the copper path allocated up to 312 times per frame. Measured, the 64-frame fixture reported 64 allocations, one per frame, because Vec::new does not allocate until the first push and the fixture's copper list produced writes on one scanline per frame.",
+      "proves": "The source-level figure was an upper bound rather than a measurement, which is why the measurement was built before the fix rather than after it."
+    },
+    {
+      "id": "local-first-fix-was-insufficient-and-the-test-said-otherwise",
+      "kind": "host-scenario",
+      "location": "2026-08-18 local execution: after retaining the copper buffer the 64-frame fixture reported zero allocations, while one minute of Kickstart 46.143 on an A1200 profile, 3005 frames, still reported 978,521 allocations and 3,949,644 bytes. The source was drain_reg_writes().collect() once per scanline, a path the ROM-free fixture never reached.",
+      "proves": "A passing allocation test is not the same as an allocation-free loop. This is the failure mode the task exists to prevent, and it survived the first round of work; only the ROM-based measurement exposed it."
+    },
+    {
+      "id": "local-fixture-strengthened-and-probed",
+      "kind": "command",
+      "location": "2026-08-18 local execution: the fixture now runs a two-instruction 68k loop in the guest that writes COLOR00, so guest register writes occur on every scanline. With the guest register write buffer reverted, the test fails on the allocation count itself at 658,944 allocations over 64 frames, not only on the capacity guard.",
+      "proves": "The CI test would now catch the defect that the ROM-based measurement had to find, so the gate enforces the property rather than a weaker proxy."
+    },
+    {
+      "id": "local-one-minute-is-allocation-free",
+      "kind": "host-scenario",
+      "location": "2026-08-18 local execution: 3005 frames, one minute of PAL, after a 600-frame warmup on Kickstart 46.143 report 0 allocations, 0 reallocations, 0 bytes. Retained capacities settle at 64 copper entries and 32 early-scanline entries and do not grow further.",
+      "proves": "The plan's acceptance criterion holds on a real boot, and the retained buffers do not grow without bound."
+    },
+    {
+      "id": "local-behaviour-unchanged",
+      "kind": "host-scenario",
+      "location": "2026-08-18 local execution: the state digest after 3605 frames is 0xc2d77aefee1ec32c before and after the fixes, and a 1200-frame A1200 capture keeps SHA-256 b190d54b1bbf1e6a9bba3f36d34b74c95ab8fc6fe7796f2f6c694b70165ea1aa.",
+      "proves": "Removing the allocations changed no emulated state and no rendered output."
+    },
+    {
+      "id": "hosted-promotion",
+      "kind": "ci-artifact",
+      "location": "Pending: hosted pull-request and final main promotion evidence is required before this record moves to verified.",
+      "proves": "Nothing yet."
+    }
+  ],
+  "documentation": [
+    "ARCHITECTURE.md",
+    "IMPLEMENTATION_PLAN.md",
+    "PROJECT_STATUS.md",
+    "docs/adr/0016-allocation-instrumentation.md",
+    "docs/adr/README.md"
+  ],
+  "release_note": "docs/release-notes/unreleased/M1-010.md",
+  "architecture_decisions": [
+    "docs/adr/0016-allocation-instrumentation.md"
+  ]
+}
