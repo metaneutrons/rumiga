@@ -1,0 +1,102 @@
+{
+  "schema": "rumiga.change-record.v1",
+  "task_id": "M1-007",
+  "title": "Version platform capabilities and introduce a typed error model",
+  "status": "implemented",
+  "summary": "Version the platform contract set and reject a mismatched backend at startup, describe what a backend supports through a capability descriptor whose absent services are structurally absent, replace the parallel storage error with one typed platform error whose Unsupported variant is explicit, and report backpressure on the success path so a dropped frame or a partly accepted audio buffer cannot be confused with a fault.",
+  "scope": [
+    "Contract version and its enforcement at startup",
+    "Capability descriptor for video, audio, input, and storage",
+    "One typed platform error model replacing the parallel storage error",
+    "Explicit presentation and queue outcomes for backpressure",
+    "Desktop backend capability report and result handling"
+  ],
+  "risk": {
+    "level": "medium",
+    "failure_mode": "Modelling backpressure as an error would make every caller treat one error variant as success and would make error logging report normal flow control as a fault. A capability descriptor that overstates a backend is worse than none, because a shell would then trust it. Changing present_frame to return a Result also means a caller that discards the result reintroduces exactly the silence this task removes.",
+    "rollback": "Revert the M1-007 commits to restore the unit-returning video and audio contracts and the separate StorageError. No persisted format depends on the change; capabilities are not published over any control surface yet."
+  },
+  "compatibility": {
+    "status": "affected",
+    "detail": "rumiga-platform gains CONTRACT_VERSION, PlatformError, PlatformCapabilities with per-service descriptors, the CapabilityReport trait, FramePresentation, and SamplesQueued. VideoOutput::present_frame returns Result<FramePresentation, PlatformError> and AudioOutput::queue_samples returns Result<SamplesQueued, PlatformError>, so implementors must report presentation and acceptance rather than returning unit. StorageError is removed and the Storage trait uses PlatformError, which covers the same cases plus ReadOnly; no backend implemented Storage, so nothing needs porting, and the desktop shell's own storage::StorageError is a REST-layer type that is unaffected. A backend must implement CapabilityReport; DesktopBackend::new supplies the desktop report and takes the framebuffer bounds so the reported maxima cannot drift from the allocated buffer. Rendered output is unchanged: a 1200-frame A1200 capture keeps the digest recorded for M1-013."
+  },
+  "security": {
+    "status": "none",
+    "detail": "No network transport, credential, authorization, persistence, unsafe-code, or FFI behavior changes. Two failure paths that were previously discarded are now surfaced, and present_frame gained an explicit bound check that rejects a framebuffer too small for the stated dimensions rather than relying on a truncating iterator."
+  },
+  "tests": [
+    {
+      "id": "unsupported-is-explicit",
+      "command": "cargo +1.97.1 test --locked -p rumiga-platform",
+      "proves": "An absent service is None in the descriptor rather than zeroed limits, and calling it anyway returns PlatformError::Unsupported, so a caller that ignored the descriptor is still told plainly."
+    },
+    {
+      "id": "backpressure-is-not-an-error",
+      "command": "cargo +1.97.1 test --locked -p rumiga-platform",
+      "proves": "A refused frame is returned as Ok(DroppedForBackpressure), is distinguishable from Presented, and is distinguishable from the InvalidArgument a short buffer produces. A partly accepted audio buffer reports the accepted and rejected split rather than requiring the caller to compare counts."
+    },
+    {
+      "id": "contract-version-is-enforced",
+      "command": "cargo +1.97.1 test --locked -p rumiga-platform",
+      "proves": "A matching version validates and a mismatch returns ContractVersionMismatch naming both versions, so a disagreement surfaces at startup rather than inside an unrelated call."
+    },
+    {
+      "id": "desktop-report-matches-the-adapter",
+      "command": "cargo +1.97.1 test --locked -p rumiga-platform-desktop",
+      "proves": "The desktop report states this contract version, the bounds the caller supplied, no audio, no platform storage, keyboard-only input, and that it cannot report backpressure. Each claim matches what the adapter implements."
+    },
+    {
+      "id": "capture-path-unaffected",
+      "command": "cargo +1.97.1 run --locked --release -p rumiga-desktop -- --model a1200 --cpu 68020 --capture <png> --capture-frames 1200 assets/kick.a1200.46.143.rom",
+      "proves": "Handling the presentation result changes no rendered output: the capture digest is the value recorded for M1-013."
+    },
+    {
+      "id": "full-local-promotion",
+      "command": "cargo +1.97.1 xtask ci",
+      "proves": "All eight gates pass for the change."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "local-defects-closed",
+      "kind": "command",
+      "location": "2026-08-18 local execution: before this task VideoOutput::present_frame returned unit and crates/rumiga-platform-desktop/src/lib.rs discarded the window update result with let _ =, so a failed presentation was invisible to the caller. AudioOutput::queue_samples likewise returned unit, so a backend had no way to report partial acceptance.",
+      "proves": "The contract could not express either a failed presentation or backpressure, which is the defect this task closes rather than a feature it adds."
+    },
+    {
+      "id": "local-contract-states-exercised-by-a-double",
+      "kind": "command",
+      "location": "2026-08-18 local execution: 14 contract tests pass in rumiga-platform. The desktop backend can produce neither state under test, since it implements no audio and minifb either presents or fails, so a backend double reports audio None, returns Unsupported when called anyway, and refuses a frame.",
+      "proves": "Both states named in the acceptance criterion are reachable and distinguishable rather than only documented, and the double exists because no real backend can currently produce them."
+    },
+    {
+      "id": "local-version-rejection-verified-against-a-probe",
+      "kind": "command",
+      "location": "2026-08-18 local execution: DesktopBackend was temporarily changed to report CONTRACT_VERSION + 7. The shell exited with status 1, printed \"platform contract version mismatch: this build defines 1, the backend reported 8\", and wrote no capture. The probe was removed and the capture digest re-checked afterwards.",
+      "proves": "The version check stops the shell before it builds anything on the backend, on the capture path as well as the interactive one, rather than being a documented intention."
+    },
+    {
+      "id": "local-capture-unchanged",
+      "kind": "host-scenario",
+      "location": "2026-08-18 local execution: a 1200-frame A1200 Kickstart 46.143 capture has SHA-256 b190d54b1bbf1e6a9bba3f36d34b74c95ab8fc6fe7796f2f6c694b70165ea1aa, the value recorded for M1-013, both before and after the probe was applied and removed.",
+      "proves": "Making failure and backpressure explicit changed no rendered output."
+    },
+    {
+      "id": "hosted-promotion",
+      "kind": "ci-artifact",
+      "location": "Pending: hosted pull-request and final main promotion evidence is required before this record moves to verified.",
+      "proves": "Nothing yet."
+    }
+  ],
+  "documentation": [
+    "ARCHITECTURE.md",
+    "IMPLEMENTATION_PLAN.md",
+    "PROJECT_STATUS.md",
+    "docs/adr/0013-platform-capabilities-and-typed-errors.md",
+    "docs/adr/README.md"
+  ],
+  "release_note": "docs/release-notes/unreleased/M1-007.md",
+  "architecture_decisions": [
+    "docs/adr/0013-platform-capabilities-and-typed-errors.md"
+  ]
+}

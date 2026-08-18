@@ -15,7 +15,11 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use minifb::{Key, Scale, Window, WindowOptions};
-use rumiga_platform::{Clock, InputSource, InputState, KeyEvent, TraceSink, VideoOutput};
+use rumiga_platform::{
+    CONTRACT_VERSION, CapabilityReport, Clock, FramePresentation, InputCapabilities, InputSource,
+    InputState, KeyEvent, PixelFormat, PlatformCapabilities, PlatformError, TraceSink,
+    VideoCapabilities, VideoOutput,
+};
 
 /// Convert an RGB565 pixel to u32 ARGB (`0xFF_RR_GG_BB`).
 #[must_use]
@@ -80,17 +84,78 @@ impl DesktopVideo {
 }
 
 impl VideoOutput for DesktopVideo {
-    fn present_frame(&mut self, framebuffer: &[u16], width: u32, height: u32) {
+    fn present_frame(
+        &mut self,
+        framebuffer: &[u16],
+        width: u32,
+        height: u32,
+    ) -> Result<FramePresentation, PlatformError> {
         let count = width as usize * height as usize;
+        if framebuffer.len() < count {
+            return Err(PlatformError::InvalidArgument);
+        }
         self.buffer.resize(count, 0);
         for (i, &pixel) in framebuffer.iter().take(count).enumerate() {
             self.buffer[i] = rgb565_to_argb(pixel);
         }
-        let _ = self.window.borrow_mut().update_with_buffer(
-            &self.buffer,
-            width as usize,
-            height as usize,
-        );
+        // minifb has no notion of a display that is not ready: it either updates or
+        // fails, and its own rate limiting blocks instead of refusing. A transport
+        // failure was previously discarded here, so a dead window looked like a
+        // healthy one to the caller.
+        self.window
+            .borrow_mut()
+            .update_with_buffer(&self.buffer, width as usize, height as usize)
+            .map(|()| FramePresentation::Presented)
+            .map_err(|_| PlatformError::Io)
+    }
+}
+
+/// Capability report for the desktop backend.
+///
+/// Constructed with the framebuffer bounds the shell actually uses, so the reported
+/// maxima cannot drift from the buffer the shell allocates.
+#[derive(Clone, Copy, Debug)]
+pub struct DesktopBackend {
+    max_width: u32,
+    max_height: u32,
+}
+
+impl DesktopBackend {
+    /// Describe a desktop backend presenting frames up to `max_width` by `max_height`.
+    #[must_use]
+    pub const fn new(max_width: u32, max_height: u32) -> Self {
+        Self {
+            max_width,
+            max_height,
+        }
+    }
+}
+
+impl CapabilityReport for DesktopBackend {
+    fn capabilities(&self) -> PlatformCapabilities {
+        PlatformCapabilities {
+            contract_version: CONTRACT_VERSION,
+            video: Some(VideoCapabilities {
+                max_width: self.max_width,
+                max_height: self.max_height,
+                pixel_format: PixelFormat::Rgb565,
+                // minifb either presents or fails, so a dropped-frame counter on this
+                // backend would stay at zero. Reporting false keeps a shell from
+                // reading that zero as evidence of health.
+                reports_backpressure: false,
+            }),
+            // This adapter implements no AudioOutput at all. Reporting None rather
+            // than plausible-looking numbers keeps the descriptor truthful.
+            audio: None,
+            input: InputCapabilities {
+                keyboard: true,
+                mouse: false,
+                joysticks: 0,
+            },
+            // The desktop shell serves files through its own REST storage layer,
+            // which is not this platform contract.
+            storage: None,
+        }
     }
 }
 

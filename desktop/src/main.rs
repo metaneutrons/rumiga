@@ -31,8 +31,8 @@ use rumiga_core::memory::MemoryConfig;
 use rumiga_core::playfield::{DISPLAY_HEIGHT, DISPLAY_LEFT_HPOS, DISPLAY_WIDTH, PlayfieldState};
 use rumiga_core::video::VideoStandard;
 use rumiga_platform::Clock;
-use rumiga_platform::VideoOutput;
-use rumiga_platform_desktop::{DesktopClock, DesktopVideo, FileTraceSink};
+use rumiga_platform::{CapabilityReport, FramePresentation, VideoOutput};
+use rumiga_platform_desktop::{DesktopBackend, DesktopClock, DesktopVideo, FileTraceSink};
 use sha2::{Digest, Sha256};
 use std::sync::{Arc, Mutex};
 use storage::{
@@ -1402,6 +1402,33 @@ fn main() {
         emulator.insert_hdf(hdf_data);
     }
 
+    // Check the platform contract before building anything on top of it. A version
+    // disagreement should stop the shell here rather than surface later inside an
+    // unrelated call.
+    let backend = DesktopBackend::new(
+        u32::try_from(WIDTH).unwrap_or(u32::MAX),
+        u32::try_from(HEIGHT).unwrap_or(u32::MAX),
+    );
+    let capabilities = backend.capabilities();
+    if let Err(error) = capabilities.validate() {
+        eprintln!("Platform backend rejected: {error}");
+        process::exit(1);
+    }
+    eprintln!(
+        "  Platform:       contract v{}, video {}x{} (backpressure reported: {}), audio {}",
+        capabilities.contract_version,
+        capabilities.video.map_or(0, |video| video.max_width),
+        capabilities.video.map_or(0, |video| video.max_height),
+        capabilities
+            .video
+            .is_some_and(|video| video.reports_backpressure),
+        if capabilities.audio.is_some() {
+            "present"
+        } else {
+            "absent"
+        }
+    );
+
     if let Some(ref capture_path) = launch_args.capture_path {
         if let Err(e) = capture_evidence(
             &mut emulator,
@@ -1556,6 +1583,9 @@ fn main() {
     let mut clock = DesktopClock::new();
     let frame_period = emulator.frame_period();
     let mut frames_since_sample = 0_u32;
+    // Frames the display refused. This backend reports no backpressure, so a
+    // non-zero count would mean the contract changed under the shell.
+    let mut frames_dropped = 0_u64;
     let mut sample_started = clock.now();
 
     while video.is_open() {
@@ -1724,11 +1754,18 @@ fn main() {
             last_y_start = frame.source_y_start;
             last_y_end = frame.source_y_end;
             last_presented_height = frame.height;
-            video.present_frame(
+            match video.present_frame(
                 &frame.pixels,
                 u32::try_from(frame.width).unwrap_or(u32::MAX),
                 u32::try_from(frame.height).unwrap_or(u32::MAX),
-            );
+            ) {
+                Ok(FramePresentation::Presented) => {}
+                Ok(FramePresentation::DroppedForBackpressure) => frames_dropped += 1,
+                Err(error) => {
+                    eprintln!("Failed to present video frame: {error}");
+                    break;
+                }
+            }
 
             {
                 let mut s = shared_state.lock().unwrap();
@@ -1760,6 +1797,10 @@ fn main() {
             frames_since_sample = 0;
             sample_started = clock.now();
         }
+    }
+
+    if frames_dropped > 0 {
+        eprintln!("Display refused {frames_dropped} frames under backpressure.");
     }
 
     // Durability of the trace file is explicit, not a side effect of drop order.
