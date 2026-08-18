@@ -41,3 +41,4 @@ Numbering is contiguous; `0000-template.md` is reserved and is not a decision.
 | [ADR-0011](0011-emulated-time-and-host-pacing.md) | Accepted | M1-006 | Own host time in the shell behind a Clock contract and lint the core against host clock types |
 | [ADR-0012](0012-selectable-video-standard.md) | Accepted | M1-013 | Make the video standard selectable through one type that owns every PAL/NTSC difference |
 | [ADR-0013](0013-platform-capabilities-and-typed-errors.md) | Accepted | M1-007 | Version the platform contracts, describe capabilities, and separate typed failure from backpressure |
+| [ADR-0014](0014-bounded-queues-and-overflow-policy.md) | Accepted | M1-008 | Bound queues with a per-queue overflow policy and counters that make saturation visible |

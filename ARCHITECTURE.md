@@ -179,6 +179,14 @@ either into the error type would make normal operation indistinguishable from a
 fault. The video, audio, input, and storage rows have capability fields; the
 remaining rows are later milestones and have none yet.
 
+Queues are bounded with a stated policy as of M1-008. `BoundedQueue` fixes its
+capacity at construction, names its `OverflowPolicy`, returns a `QueueAdmission`
+that shows what the policy did with each item, and counts both the deepest depth
+reached and everything lost. The policy is chosen per queue because keyboard input
+and audio want opposite answers, which ADR-0014 records. The guest keyboard queue
+uses it; the audio bound in `AudioCapabilities` is still declared rather than
+enforced, because no audio backend exists to enforce it.
+
 ### Product shell
 
 The desktop and firmware shells own:
