@@ -10,9 +10,9 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-18 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M1-013: selectable video standard, hosted evidence verified |
-| Current implementation | M1-007: versioned platform capabilities and typed error model |
-| Next task | M1-008: bounded video, audio, input, and event queue contracts |
+| Latest completed task | M1-007: platform capabilities and typed errors, hosted evidence pending |
+| Current implementation | M1-008: bounded video, audio, input, and event queue contracts |
+| Next task | M1-009: deterministic input replay and machine-state digest |
 | Development host | macOS, Apple Silicon |
 | Product target | Seeed reTerminal D1001, ESP32-P4 |
 | Product maturity | Desktop compatibility prototype |
@@ -176,6 +176,13 @@ No feature is called done merely because it compiled or booted once.
   reversibility invariant, but they prove nothing about hardware: no board has
   been flashed, no eFuse has been burned, and with virtual eFuses the encryption
   is simulated rather than enforced.
+- M1-007 versioned the platform contracts and separated typed failure from
+  backpressure. A display failure was previously discarded, so a dead window looked
+  like a healthy one; the shell now reports it and stops. An absent service is `None`
+  in the capability descriptor and `Unsupported` when called anyway. Hosted evidence is
+  pending. `AudioOutput` and `Storage` still have no backend, the bound that
+  `AudioCapabilities::max_queued_frames` describes is not enforced yet, and
+  capabilities are not published over REST or serial.
 - M1-013 made the video standard selectable. An NTSC machine runs 262 lines at
   3,579,545 Hz with a 243-line active height, and the guest detects the standard: under
   `--ntsc`, Kickstart 46.143 sets a display window from line 21 to line 262 against

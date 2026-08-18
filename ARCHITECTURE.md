@@ -165,6 +165,20 @@ must cover:
 Methods that can fail or block return explicit results. Queue overflow and
 device removal policies are part of the contract, not implementation details.
 
+The mechanism is in place as of M1-007. `CONTRACT_VERSION` versions the contract
+set and a shell rejects a backend that reports a different one.
+`PlatformCapabilities` describes what a backend offers before anything is called,
+with an absent service represented as `None` rather than as zeroed limits.
+`PlatformError` is the one failure model, with `Unsupported` as the explicit answer
+for a service a backend does not implement.
+
+Failure and flow control stay separate. A display that was not ready and a full
+audio queue are working as designed, so they are reported on the success path
+through `FramePresentation` and `SamplesQueued`. ADR-0013 records why folding
+either into the error type would make normal operation indistinguishable from a
+fault. The video, audio, input, and storage rows have capability fields; the
+remaining rows are later milestones and have none yet.
+
 ### Product shell
 
 The desktop and firmware shells own:

@@ -499,7 +499,7 @@ local promotion result.
 | M1-004 | DONE | Introduce injected trace/log sink and remove core file creation | Golden records captured from the file-writing implementation are reproduced byte for byte by an in-memory sink under both runtime profiles |
 | M1-005 | DONE | Remove core thread spawning and affinity; restore deterministic single-owner blitter | Both runtime profiles reach a pinned fixture digest, and a host capture is byte-identical before and after |
 | M1-006 | DONE | Introduce emulated clock, host yield, and monotonic scheduling contracts | The core cannot name a host clock type, emulated frame duration comes from the colour clock, and the shell paces against it with a measured frame rate |
-| M1-007 | PLANNED | Version platform capabilities and typed error model | Unsupported and backpressure states are explicit and tested |
+| M1-007 | DONE | Version platform capabilities and typed error model | Unsupported and backpressure states are explicit and tested |
 | M1-008 | PLANNED | Add bounded video/audio/input/event queue contracts | Overflow policy and high-water marks have tests |
 | M1-009 | PLANNED | Add deterministic input replay and machine-state digest | Same replay yields same digest on repeated host runs |
 | M1-010 | PLANNED | Add allocation instrumentation and steady-state no-allocation assertion | One-minute host run has no scanline-loop allocations |
@@ -866,6 +866,57 @@ M1-013 implementation evidence (2026-08-18):
   independent verification covers the payload, not the archive container, because the
   API does not serve the archive bytes to a plain token fetch
 
+M1-007 implementation evidence (2026-08-18):
+
+- `ARCHITECTURE.md` already required versioned, capability-driven contracts and
+  explicit results from methods that can fail or block. None of the three held: there
+  was no version, no way to ask what a backend supports, and
+  `VideoOutput::present_frame` returned unit while the desktop adapter discarded the
+  window update result with `let _ =`. A dead window was indistinguishable from a
+  healthy one, and the shell kept measuring a frame rate for frames that reached no
+  display
+- failure and flow control are now separate contracts, because they answer different
+  questions. `PlatformError` reports that something could not be done, with
+  `Unsupported` explicit. A display that was not ready or a full audio queue is
+  working as designed, so backpressure is reported on the success path through
+  `FramePresentation` and `SamplesQueued`
+- a `Backpressure` variant on the error type was rejected deliberately. Every caller
+  would have to treat one error variant as success, and any code that logs errors
+  would report normal flow control as a fault
+- absence is representable twice on purpose. `PlatformCapabilities` uses `Option` per
+  service, so a caller cannot mistake "no audio" for "audio at 0 Hz on 0 channels",
+  and a caller that ignores the descriptor and calls anyway still receives
+  `Unsupported`. The descriptor is the polite path; the error is the backstop
+- `StorageError` is removed. It duplicated variants a platform-wide error needs
+  anyway, and no backend implemented `Storage`, so the migration cost was zero now and
+  would have grown with every backend added later
+- a backend states whether it can report backpressure at all. The desktop reports
+  `false`, because minifb either presents or fails and its own rate limiting blocks
+  rather than refusing. Without the flag a shell would read a dropped-frame count of
+  zero as evidence of health when it is evidence of nothing
+- `DesktopBackend::new` takes the framebuffer bounds the shell uses, so the reported
+  maxima cannot drift from the buffer that is allocated
+- the two states named in the acceptance criterion are exercised against a backend
+  double, because the desktop backend can produce neither. 14 contract tests pass: an
+  absent service is `None`, calling it returns `Unsupported`, a refused frame is
+  `Ok(DroppedForBackpressure)` and is distinguishable both from a presented frame and
+  from the `InvalidArgument` a short buffer produces, and a partly accepted audio
+  buffer reports the split
+- the version rejection was verified against a probe rather than asserted. A desktop
+  backend temporarily reporting `CONTRACT_VERSION + 7` made the shell exit with status
+  1, name both versions, and write no capture. The check runs on the capture path as
+  well as the interactive one
+- rendered output is unchanged: a 1200-frame A1200 capture keeps digest
+  `b190d54b1bbf1e6a9bba3f36d34b74c95ab8fc6fe7796f2f6c694b70165ea1aa`, the value
+  recorded for M1-013
+- not implemented: `AudioOutput` and `Storage` still have no backend. They now
+  describe their failures in the shared error model, which is a smaller claim than
+  being implemented
+- deferred: the bound `AudioCapabilities::max_queued_frames` describes is not enforced
+  by anything yet, which is M1-008; publishing capabilities over REST or serial is
+  M8-008
+- hosted pull-request and final `main` evidence is pending promotion
+
 ### M1 functional commits
 
 1. `refactor(core): define std and no-std runtime profiles`
@@ -890,6 +941,7 @@ M1-013 implementation evidence (2026-08-18):
 20. `feat(platform): add capabilities errors and bounded queues`
 21. `test(core): add deterministic replay and state digests`
 22. `feat(core): make the video standard selectable`
+23. `feat(platform): version capabilities and type the error model`
 
 ## M2 Backlog: D1001 Board Bring-Up
 
