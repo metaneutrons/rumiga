@@ -46,3 +46,4 @@ Numbering is contiguous; `0000-template.md` is reserved and is not a decision.
 | [ADR-0016](0016-allocation-instrumentation.md) | Accepted | M1-010 | Measure allocations before fixing them, from outside the workspace, and retain the two per-scanline buffers |
 | [ADR-0017](0017-portability-boundaries.md) | Accepted | M1-011 | Enforce guest byte order and pointer-width assumptions instead of reaching for Miri, which cannot see either failure |
 | [ADR-0018](0018-published-portability-contract.md) | Accepted | M1-012 | Publish the portability contract with its enforcement, and close the core dependency graph rather than allowlisting crates |
+| [ADR-0019](0019-hardware-manifest-provenance.md) | Accepted | M2-001 | Source every hardware value, separate schematic record from product claim, and record the gaps rather than resolving them by inference |

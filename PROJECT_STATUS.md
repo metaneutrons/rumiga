@@ -10,9 +10,9 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-18 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M1-012: published portability contract, hosted evidence verified. M1 complete |
-| Current implementation | M2-001: D1001 hardware manifest |
-| Next task | M2-002: reproducible ESP-IDF/Rust firmware build |
+| Latest completed task | M2-001: D1001 hardware manifest, hosted evidence pending. M1 complete |
+| Current implementation | M2-002: reproducible ESP-IDF/Rust firmware build |
+| Next task | M2-003: PSRAM allocator, panic, watchdog, logging, and reset policy |
 | Development host | macOS, Apple Silicon |
 | Product target | Seeed reTerminal D1001, ESP32-P4 |
 | Product maturity | Desktop compatibility prototype |
@@ -176,6 +176,15 @@ No feature is called done merely because it compiled or booted once.
   reversibility invariant, but they prove nothing about hardware: no board has
   been flashed, no eFuse has been burned, and with virtual eFuses the encryption
   is simulated rather than enforced.
+- M2-001 documented the target board. Eleven connectors with designators and parts, the
+  schematic revision V01 dated 2025-10-15, and the BSP commit are recorded under
+  `docs/hardware`, each value naming its source. Reading the schematic rather than the
+  specification table produced the connector inventory, which no vendor overview lists, and
+  contradicted the vendor overview twice: the advertised GPIO expansion interfaces are not a
+  connector in this revision, and an unmentioned LoRa module is. Both are left open on
+  purpose. One existing claim turned out weaker than it read: the 32 MiB PSRAM figure the
+  memory budget rests on is a vendor claim, not a schematic fact. Hosted evidence is pending,
+  and nothing is verified against a physical board.
 - M1-012 published the portability contract and enforced the one rule that nothing
   checked: the core dependency graph is now a closed set of exactly `m68k`, `rumiga-core`,
   and `rumiga-platform`, compared in both directions by the portable gate and pinned by the
