@@ -1276,7 +1276,29 @@ M1-012 implementation evidence (2026-08-18):
   covered by the `foundation` portable profile. Build and dev dependencies are excluded
   because they do not ship in the core, which is why M1-010's `stats_alloc` is not part of
   the set
-- hosted pull-request and final `main` evidence is pending promotion
+- pull-request run
+  [`32178866587`](https://github.com/metaneutrons/rumiga/actions/runs/32178866587)
+  passes all ten jobs for the rebased head; governance artifact `9340030504` from clean
+  merge revision `d2e2ad4fe5edfc18942e27cb0f16acbd0813216a` has archive SHA-256
+  `a584a05a9267dd62a79b406677c8839b445e66314c7a6daf1b7fd0ddf08188fc`
+- final `main` run
+  [`32179481741`](https://github.com/metaneutrons/rumiga/actions/runs/32179481741)
+  passes all ten jobs for clean revision
+  `aab34af87fb0f7a7f8c2f44e03833d78507d84bf`; Linux job `95848904724`, macOS job
+  `95848904723`, portable job `95848904975`, and aggregate job `95850617417` pass
+- final governance artifact `9340243763` has archive SHA-256
+  `363cc760b8e0cbe44fdf8d0c525bf42e20b1070c62066a1f70236b8373f18f92` as reported by the
+  Actions API. The payload checksums were recomputed with two independent implementations
+  and match the artifact's own `SHA256SUMS`, the manifest records `dirty: false`, and its
+  recorded input digests match the git tree at that revision for the change record,
+  ADR-0018, the release note, `ARCHITECTURE.md`, the plan, and the status document
+- the portable job executes the graph comparison in CI, so the closed set resolves the same
+  way there as locally rather than being a property of the development host, and both host
+  legs run `pins_match_their_consuming_manifests`, whose `assert_target_baseline` helper
+  pins the declared profile, root, and crate list. The two mechanisms are independent: the
+  gate compares the resolved graph, the test pins what the manifest claims
+- the archive SHA-256 values above are GitHub's reported artifact digests; the independent
+  verification covers the payload rather than the archive container
 
 ### M1 functional commits
 

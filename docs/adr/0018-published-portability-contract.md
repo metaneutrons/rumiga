@@ -86,6 +86,12 @@ Clippy configurations in `crates/rumiga-core/clippy.toml` with their `deny` attr
 the crate root, the `compile_error!` pair for the feature profiles, the two compile-time
 assertions, the allocation test, and the two portable-gate checks.
 
+Hosted promotion confirms the check runs where it matters. Pull-request run `32178866587`
+and final `main` run `32179481741` passed all ten required jobs, the portable job executed
+the graph comparison, and both host legs pinned the declaration. The closed set therefore
+resolves the same way in CI as on the development host, which is the claim a gate has to
+make to be worth having.
+
 ## Supersession
 
 None. This closes the portability contract entry and, with it, milestone M1.
