@@ -10,7 +10,7 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-18 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M2-003: declared boot policy, hosted evidence pending |
+| Latest completed task | M2-003: declared boot policy, verified by hosted evidence |
 | Current implementation | M2-004: port Vellum D1001 services into Rust-first adapters |
 | Next task | M2-005: serial command protocol for capabilities, self-test, metrics, and reset |
 | Development host | macOS, Apple Silicon |
@@ -188,8 +188,9 @@ No feature is called done merely because it compiled or booted once.
   made the new checks fail before they were trusted. What is not delivered is anything
   running: `firmware/src/main.rs` is still a stub, so nothing emits the boot manifest and the
   reset reason is recorded as absent rather than measured. The watchdog decision leaves an
-  obligation nothing enforces, because the frame loop it constrains does not exist yet. Hosted
-  evidence is pending, and nothing has been flashed.
+  obligation nothing enforces, because the frame loop it constrains does not exist yet. It is
+  verified by clean pull-request and final `main` evidence, with the cross-file checks running
+  in CI. Nothing has been flashed.
 - M2-002 closed a gap the task description did not name. The firmware bundle the
   acceptance criterion asks for already existed, and the build was already reproducible at
   a fixed revision, byte for byte on everything that gets flashed. What did not exist was
