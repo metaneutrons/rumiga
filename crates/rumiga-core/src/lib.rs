@@ -23,6 +23,8 @@
 #![deny(clippy::std_instead_of_alloc, clippy::std_instead_of_core)]
 // Emulated time must never come from the host clock, in either profile.
 #![deny(clippy::disallowed_types)]
+// Guest values must be converted with an explicit byte order; see `clippy.toml`.
+#![deny(clippy::disallowed_methods)]
 
 #[cfg(all(feature = "std", feature = "no_std"))]
 compile_error!("features `std` and `no_std` are mutually exclusive");
@@ -31,6 +33,26 @@ compile_error!("features `std` and `no_std` are mutually exclusive");
 compile_error!("select exactly one runtime feature: `std` or `no_std`");
 
 extern crate alloc;
+
+/// A guest address is 32 bits wide, so `usize` must hold one without truncation.
+///
+/// The product target is a 32-bit RISC-V core, where this holds exactly. It is asserted
+/// rather than assumed because the failure mode on a narrower target is silent: every
+/// `guest_address as usize` would truncate, the host tests would still pass, and the
+/// device would read the wrong memory. A build for such a target fails here instead.
+const _: () = assert!(
+    core::mem::size_of::<usize>() >= core::mem::size_of::<u32>(),
+    "rumiga-core requires usize to be at least 32 bits: guest addresses are u32"
+);
+
+/// The largest chip RAM this core models is 2 MiB, so a RAM length fits in `u32`.
+///
+/// Several sites narrow a slice length to `u32` to mask a guest pointer against the RAM
+/// size. That is sound only while the length fits, which this states.
+const _: () = assert!(
+    2 * 1024 * 1024 <= u32::MAX as usize,
+    "chip RAM length must fit in u32 for guest pointer masking"
+);
 
 pub mod a2065;
 pub mod audio;

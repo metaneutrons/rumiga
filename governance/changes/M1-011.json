@@ -1,0 +1,100 @@
+{
+  "schema": "rumiga.change-record.v1",
+  "task_id": "M1-011",
+  "status": "implemented",
+  "title": "Enforce guest byte order and pointer-width assumptions at the portability boundaries",
+  "summary": "Ban native-endian conversions in the core through Clippy disallowed_methods, assert at compile time that usize is wide enough for a guest address and that a chip RAM length fits in u32, and cover the conversion boundaries with property fixtures; Miri is answered rather than adopted, because the workspace forbids unsafe code and neither silent truncation nor a wrong byte order is undefined behaviour.",
+  "scope": [
+    "Enforced ban on native-endian conversions in the core",
+    "Compile-time pointer-width and RAM-length assertions",
+    "Property fixtures for guest address, byte order, and index bounds",
+    "Audit of the explicit lossy-cast allow sites"
+  ],
+  "risk": {
+    "level": "low",
+    "failure_mode": "An invariant that is documented rather than enforced does not survive a future contributor, which is why both are probe-verified. Adopting Miri because the plan names it would add a CI leg that cannot detect either failure mode while looking like coverage. Asserting the host's own byte order would fail builds on a big-endian host that is in fact equally correct.",
+    "rollback": "Revert the M1-011 commits to remove the ban, the assertions, and the fixtures. No behaviour depends on them; a rollback costs the enforcement rather than changing results."
+  },
+  "compatibility": {
+    "status": "none",
+    "detail": "No public API and no behaviour changes. crates/rumiga-core/clippy.toml gains disallowed-methods entries for from_ne_bytes and to_ne_bytes on the integer types and lib.rs denies clippy::disallowed_methods, so core code must state an explicit byte order; nothing in the crate needed changing, because it already used 35 explicit big-endian conversions and no native-endian ones. lib.rs gains two compile-time assertions that hold on every supported target."
+  },
+  "security": {
+    "status": "none",
+    "detail": "No network transport, credential, authorization, persistence, unsafe-code, or FFI changes. The additions are two compile-time assertions, a lint configuration, and a test file. The pointer-width assertion narrows rather than widens what builds: a target where a guest address would truncate is now rejected."
+  },
+  "tests": [
+    {
+      "id": "guest-address-round-trip",
+      "command": "cargo +1.97.1 test --locked -p rumiga-core --test portability_boundaries",
+      "proves": "A guest address survives conversion through usize across the whole 32-bit range including 0, 0xFFFFFFFF, and the chip, slow, and expansion boundaries."
+    },
+    {
+      "id": "byte-order-through-the-cpu-bus",
+      "command": "cargo +1.97.1 test --locked -p rumiga-core --test portability_boundaries",
+      "proves": "Word and long access through the AddressBus the CPU itself uses is big-endian in both directions, with the individual bytes in memory checked rather than only the round trip; a round trip alone passes under a consistent host-endian implementation, which is the bug."
+    },
+    {
+      "id": "index-space-bounds",
+      "command": "cargo +1.97.1 test --locked -p rumiga-core --test portability_boundaries",
+      "proves": "Every modelled RAM length fits in u32, which several guest pointer masking sites assume, and the framebuffer index space fits in 32 bits."
+    },
+    {
+      "id": "native-endian-ban-in-both-profiles",
+      "command": "cargo +1.97.1 clippy --locked -p rumiga-core --all-targets --no-default-features --features no_std -- -D warnings",
+      "proves": "The core rejects from_ne_bytes and to_ne_bytes in the bare-metal profile as well as the desktop one."
+    },
+    {
+      "id": "pointer-width-assertion",
+      "command": "cargo +1.97.1 build --locked -p rumiga-core",
+      "proves": "The compile-time assertions are evaluated as part of an ordinary build, so a narrower target fails to build rather than truncating guest addresses."
+    },
+    {
+      "id": "full-local-promotion",
+      "command": "cargo +1.97.1 xtask ci",
+      "proves": "All eight gates pass for the change."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "local-miri-would-not-help",
+      "kind": "command",
+      "location": "2026-08-18 local analysis: the workspace root sets unsafe_code = \"forbid\", confirmed at Cargo.toml line 27, so no crate contains raw pointer arithmetic. The two failure modes that separate the 64-bit hosts from the 32-bit device, a truncating usize and a native-endian conversion, are both well-defined behaviour.",
+      "proves": "Miri, which the plan names as one option, cannot detect either failure mode. Adopting it would add a CI leg that looks like coverage and provides none; the plan's property-fixture option is used instead."
+    },
+    {
+      "id": "local-endianness-property-already-held-but-was-unenforced",
+      "kind": "command",
+      "location": "2026-08-18 local execution: a workspace-wide search found zero uses of from_ne_bytes or to_ne_bytes and 35 explicit big-endian conversions across nine core modules.",
+      "proves": "The property held by convention rather than by construction, so the task's contribution is enforcement rather than repair. A single native-endian conversion would have passed every host test and produced a wrong machine on the device."
+    },
+    {
+      "id": "local-both-invariants-probe-verified",
+      "kind": "command",
+      "location": "2026-08-18 local execution: a temporary u32::from_ne_bytes added to the core was rejected with \"use of a disallowed method u32::from_ne_bytes\"; a temporary assertion requiring size_of::<usize>() >= 16 failed the build with \"rumiga-core requires usize to be at least 32 bits: guest addresses are u32\". Both probes were removed and the tree re-checked clean.",
+      "proves": "Both invariants are enforced rather than declared, verified the same way the M1-006 clock ban was."
+    },
+    {
+      "id": "local-cast-audit-found-no-production-defect",
+      "kind": "command",
+      "location": "2026-08-18 local execution: the workspace denies clippy::pedantic, which includes cast_possible_truncation, so every lossy cast already carries an explicit allow. There are 26 such sites, 25 in rumiga-core and one in the desktop shell. All are narrowings between fixed-width types such as u32 to u16, which behave identically at either pointer width; the single site that multiplies before casting to usize is a test helper in ide.rs.",
+      "proves": "There is no production defect in this class, and the allow sites were the right audit list: 26 marked sites rather than the 166 `as usize` occurrences a naive search returns, of which the u32-to-usize majority is lossless at every supported width."
+    },
+    {
+      "id": "hosted-promotion",
+      "kind": "ci-artifact",
+      "location": "Pending: hosted pull-request and final main promotion evidence is required before this record moves to verified.",
+      "proves": "Nothing yet."
+    }
+  ],
+  "documentation": [
+    "IMPLEMENTATION_PLAN.md",
+    "PROJECT_STATUS.md",
+    "docs/adr/0017-portability-boundaries.md",
+    "docs/adr/README.md"
+  ],
+  "release_note": "docs/release-notes/unreleased/M1-011.md",
+  "architecture_decisions": [
+    "docs/adr/0017-portability-boundaries.md"
+  ]
+}

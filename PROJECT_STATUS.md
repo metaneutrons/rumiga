@@ -10,9 +10,9 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-18 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M1-010: allocation instrumentation, hosted evidence pending |
-| Current implementation | M1-011: 32-bit assumption, alignment, and endianness measurement |
-| Next task | M1-012: portability contract published in the architecture docs |
+| Latest completed task | M1-011: portability boundaries, hosted evidence pending |
+| Current implementation | M1-012: portability contract published in the architecture docs |
+| Next task | M1 complete; M2 board bring-up begins with M2-001 |
 | Development host | macOS, Apple Silicon |
 | Product target | Seeed reTerminal D1001, ESP32-P4 |
 | Product maturity | Desktop compatibility prototype |
@@ -176,6 +176,13 @@ No feature is called done merely because it compiled or booted once.
   reversibility invariant, but they prove nothing about hardware: no board has
   been flashed, no eFuse has been burned, and with virtual eFuses the encryption
   is simulated rather than enforced.
+- M1-011 enforced the two assumptions that separate the 64-bit hosts from the 32-bit
+  device: guest values must be converted with an explicit byte order, banned in the core
+  through Clippy, and `usize` must hold a guest address, asserted at compile time. Both
+  were probe-verified. Miri was answered rather than adopted, because the workspace forbids
+  unsafe code and neither truncation nor a wrong byte order is undefined behaviour. The
+  cast audit found no production defect. Hosted evidence is pending. Execution with a
+  32-bit `usize` is not claimed, and alignment is not separately instrumented.
 - M1-010 made the core's frame loop allocation-free in steady state, measured rather than
   asserted. One minute of a real Kickstart boot allocated 978,521 times and now allocates
   nothing. The first fix was insufficient and the synthetic test passed anyway, so the
