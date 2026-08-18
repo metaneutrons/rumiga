@@ -753,7 +753,37 @@ M1-006 implementation evidence (2026-08-18):
 - not measured: whether the desktop sustains the paced rate under load. The loop now
   requests the correct period and reports what it achieves, which is the
   precondition for that measurement rather than the measurement itself
-- hosted pull-request and final `main` evidence is pending promotion
+- pull-request run
+  [`32107349807`](https://github.com/metaneutrons/rumiga/actions/runs/32107349807)
+  passes all ten jobs; Linux job `95619373576`, macOS job `95619373631`, portable
+  job `95619373640`, and aggregate job `95620531593` pass. Both host legs run the
+  four `DesktopClock` contract tests and the frame period test in both runtime
+  profiles, so the monotonicity and pacing assertions hold on two operating systems
+  and two architectures rather than on the development host alone
+- pull-request governance artifact `9313620696`, produced from clean merge revision
+  `01668e33584a4ccb0138659659b6f2909f77f873`, has archive SHA-256
+  `414bcd7c6463b495071a6b5b8089abe778b75d854e194bbbc6eda290993fd09d` as reported by
+  the Actions API; all payload checksums and the M1-006 traceability record were
+  independently verified
+- final `main` run
+  [`32108657023`](https://github.com/metaneutrons/rumiga/actions/runs/32108657023)
+  passes all ten jobs for clean revision
+  `e00264421c36a3d96eec9b98a491cd75df63ce8c`; Linux job `95623225417`, macOS job
+  `95623225438`, portable job `95623225387`, and aggregate job `95624446734` pass
+- final governance artifact `9314060110` has archive SHA-256
+  `69990cdd57cf0b86f3091c41229459bc9bcb6c54527a7ead4667cd0e0aa908ff` as reported by
+  the Actions API. The payload checksums were recomputed with two independent
+  implementations and match the artifact's own `SHA256SUMS`, the manifest records
+  `dirty: false`, and its recorded input digests match the git tree at that revision
+  for the change record, ADR-0011, the release note, and
+  `crates/rumiga-platform/src/lib.rs`
+- the Clippy ban on host clock types is hosted-verified rather than local only: the
+  host gate runs `rumiga-core` Clippy separately under the explicit `std` and
+  `no_std` profiles with `-D warnings`, and both legs pass, so the
+  `disallowed_types` configuration is enforced in CI in both profiles
+- the archive SHA-256 values above are GitHub's reported artifact digests. The
+  independent verification covers the payload, not the archive container, because
+  the API does not serve the archive bytes to a plain token fetch
 
 ### M1 functional commits
 

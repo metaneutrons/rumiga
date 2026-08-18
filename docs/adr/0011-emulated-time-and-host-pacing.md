@@ -86,6 +86,19 @@ monotonicity, that `pace` never reports less than requested, that a zero request
 yields, and that `now` advances across a `pace` call. `cargo +1.97.1 xtask ci` passes
 all eight gates. The 60-frame capture digest is unchanged from before the task.
 
+Hosted promotion confirms the contract beyond the development host. Pull-request run
+`32107349807` and final `main` run `32108657023` passed all ten required jobs, and both
+host legs ran the four `DesktopClock` contract tests together with the frame period test
+in both runtime profiles. This matters for two of the assertions in particular: `now`
+monotonicity and `pace` never reporting less than requested are properties of the host
+clock, so seeing them hold on Linux x86_64 and macOS arm64 under CI load is stronger
+evidence than a single-machine run.
+
+The ban on host clock types is enforced in CI rather than only locally. The host gate
+runs `rumiga-core` Clippy separately under the explicit `std` and `no_std` profiles with
+`-D warnings`, so a future `#[cfg(feature = "std")]` clock in the core fails a required
+job rather than a developer's local habit.
+
 ## Supersession
 
 None. This closes the clock and yield entry in the platform contract table and leaves
