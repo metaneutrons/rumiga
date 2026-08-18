@@ -1449,7 +1449,15 @@ M2-002 implementation evidence (2026-08-18):
 - one pre-existing defect was fixed in passing. `CI.md` carried a garbled fragment,
   "and leaves the application within its slot, and emits / rejects any configuration that
   could burn an eFuse, and emits", left by an earlier edit
-- hosted pull-request and final `main` evidence is pending promotion
+- verified by hosted evidence. Pull-request run [`32191111802`](https://github.com/metaneutrons/rumiga/actions/runs/32191111802)
+  and final `main` run [`32192393642`](https://github.com/metaneutrons/rumiga/actions/runs/32192393642)
+  pass all ten required jobs. Both governance artifacts were checksum verified with two
+  independent implementations against the artifact's own `SHA256SUMS`, both record `dirty`
+  false, and the recorded document digests match the git tree at the promoted revision
+- the hosted firmware job is what settles the one environment-dependent check. The
+  descriptor version comes from CMake's `git describe` helper, which searches upward from
+  `IDF_PATH` for a `.git`; that it resolves to this repository rather than to the ESP-IDF
+  checkout was observed locally and is now enforced in CI as well
 
 ## M2 Backlog: D1001 Board Bring-Up
 

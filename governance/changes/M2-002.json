@@ -1,7 +1,7 @@
 {
   "schema": "rumiga.change-record.v1",
   "task_id": "M2-002",
-  "status": "implemented",
+  "status": "verified",
   "title": "Pin the firmware build stamp to the commit and prove the rebuild",
   "summary": "Enforce on every run that the application and bootloader descriptors record the HEAD commit time rather than the build clock, that the descriptor version is the git description, and that the merged image's recorded ELF digest is the packaged ELF's. Record the linker map's one non-deterministic component, and add an on-demand rebuild comparison that proves byte equality for the artifacts that get flashed.",
   "scope": [
@@ -85,10 +85,22 @@
       "proves": "The comparison would otherwise have needed a normalization wide enough to hide a genuine environmental difference. The design constraint was found by the check failing, not by reasoning about it in advance."
     },
     {
-      "id": "hosted-promotion",
+      "id": "hosted-pr-m2-002",
       "kind": "ci-artifact",
-      "location": "Pending: hosted pull-request and final main promotion evidence is required before this record moves to verified.",
-      "proves": "Nothing yet."
+      "location": "GitHub Actions pull-request run 32191111802 for merge revision b7e10556ddd5fe11214e5de045dc45ddde991b82, artifact 9344221829 governance-b7e10556ddd5fe11214e5de045dc45ddde991b82, archive sha256:577a75158e075ddfb51e06f4dcc41f4b292eeec809d530b8a864ac4513f270e2 as reported by the Actions API.",
+      "proves": "All ten required quality jobs pass for the clean pull-request merge revision. The payload checksums were recomputed with two independent implementations and match the artifact's own SHA256SUMS, the manifest records dirty false, and all 75 document digests the governance report records match the git tree. The merge commit is not in the local repository, so the comparison used the squashed commit on main after confirming both carry tree ff79f3a592b28244dcd0c88231c31b0eb6554922."
+    },
+    {
+      "id": "hosted-firmware-manifest-confirms-the-stamp-in-ci",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions pull-request run 32191111802, artifact firmware-esp32p4-b7e10556ddd5fe11214e5de045dc45ddde991b82: the evidence manifest records stamp_date Aug 18 2026, stamp_time 22:06:10, image_version b7e1055, app_elf_sha256_matches_artifact true, random_link_paths_in_map 19, source_dirty false, and claims commit-derived-build-stamp with rebuild-not-compared. The committer date of that merge revision, read through the API, is Aug 18 2026 22:06:10 UTC.",
+      "proves": "The new checks execute in CI and pass there, not only on the development host. Two of the results matter beyond the pass: the stamp equals the revision's commit time to the second, and image_version resolves to this repository rather than to the ESP-IDF checkout under IDF_PATH, which depends on how CMake's git describe helper finds a .git and was previously only observed rather than enforced. The map's random link path count is 19 on the hosted Linux runner as well as on the macOS development host, so that figure is not host-specific. rebuild-not-compared appears because the rebuild comparison is deliberately outside the gate."
+    },
+    {
+      "id": "hosted-main-m2-002",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions final main run 32192393642, artifact 9344668667 governance-eab6d129eb4e584fd038572887af48c0edae956f, archive sha256:5cdfe7534d9847ecdb3054e50b8ed66ba0448535be44c6591ccea5450c888bf8 as reported by the Actions API.",
+      "proves": "All ten required quality jobs pass for clean main revision eab6d129eb4e584fd038572887af48c0edae956f. The payload checksums were recomputed with two independent implementations and match the artifact's own SHA256SUMS, the manifest records dirty false, and all 75 document digests the governance report records match the git tree at that revision, including this change record, ADR-0020, the release note, the plan, and the status document. That run's firmware manifest records stamp Aug 18 2026 22:22:18 and image_version eab6d12, which are the promoted revision's commit time to the second and its git description, with app_elf_sha256_matches_artifact true and 19 random link paths."
     }
   ],
   "documentation": [
