@@ -12,9 +12,10 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 use minifb::{Key, Scale, Window, WindowOptions};
-use rumiga_platform::{InputSource, InputState, KeyEvent, TraceSink, VideoOutput};
+use rumiga_platform::{Clock, InputSource, InputState, KeyEvent, TraceSink, VideoOutput};
 
 /// Convert an RGB565 pixel to u32 ARGB (`0xFF_RR_GG_BB`).
 #[must_use]
@@ -178,5 +179,46 @@ impl TraceSink for FileTraceSink {
 
     fn flush(&mut self) {
         let _ = self.writer.flush();
+    }
+}
+
+/// Host clock and pacing for the desktop shell.
+///
+/// The epoch is the moment of construction, which keeps `now` monotonic and small.
+pub struct DesktopClock {
+    origin: Instant,
+}
+
+impl Default for DesktopClock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DesktopClock {
+    /// Create a clock whose epoch is now.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            origin: Instant::now(),
+        }
+    }
+}
+
+impl Clock for DesktopClock {
+    fn now(&self) -> Duration {
+        self.origin.elapsed()
+    }
+
+    fn pace(&mut self, requested: Duration) -> Duration {
+        let started = Instant::now();
+        if requested.is_zero() {
+            std::thread::yield_now();
+        } else {
+            std::thread::sleep(requested);
+        }
+        // Report what the host did, not what was asked for; sleep routinely
+        // overshoots and a pacing caller must correct against the measurement.
+        started.elapsed()
     }
 }

@@ -16,6 +16,27 @@ extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
+use core::time::Duration;
+
+/// Monotonic clock and pacing trait — owns host time on behalf of the shell.
+///
+/// The emulator core never reads host time; it advances in emulated cycles. This
+/// contract exists so a product shell can decide when to run the next frame and
+/// measure what the host actually did, without the core learning about wall time.
+///
+/// `now` must be monotonic: it may stall but must never go backwards. Its epoch is
+/// unspecified, so only differences are meaningful.
+pub trait Clock {
+    /// Monotonic time since an unspecified epoch.
+    fn now(&self) -> Duration;
+
+    /// Wait for at most `requested`, returning the time actually spent.
+    ///
+    /// The return value is the measurement, not the request. Hosts routinely
+    /// oversleep, so a caller that needs to pace must use what it is told rather
+    /// than what it asked for.
+    fn pace(&mut self, requested: Duration) -> Duration;
+}
 
 /// Trace sink trait — transports diagnostic records emitted by the core.
 ///

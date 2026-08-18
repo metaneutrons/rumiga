@@ -29,8 +29,9 @@ use rumiga_core::floppy::{
 };
 use rumiga_core::memory::MemoryConfig;
 use rumiga_core::playfield::{DISPLAY_HEIGHT, DISPLAY_LEFT_HPOS, DISPLAY_WIDTH, PlayfieldState};
+use rumiga_platform::Clock;
 use rumiga_platform::VideoOutput;
-use rumiga_platform_desktop::{DesktopVideo, FileTraceSink};
+use rumiga_platform_desktop::{DesktopClock, DesktopVideo, FileTraceSink};
 use sha2::{Digest, Sha256};
 use std::sync::{Arc, Mutex};
 use storage::{
@@ -877,6 +878,9 @@ async fn post_wifi_connect() -> axum::response::Json<serde_json::Value> {
 const WIDTH: usize = DISPLAY_WIDTH as usize;
 const HEIGHT: usize = DISPLAY_HEIGHT as usize;
 const DEFAULT_SCALE: usize = 1;
+/// Window over which the reported frame rate is measured.
+const FPS_SAMPLE_WINDOW: std::time::Duration = std::time::Duration::from_millis(500);
+
 const DEFAULT_CAPTURE_FRAMES: u64 = 300;
 const VERTICAL_STRETCH_FACTOR: usize = 2;
 const ROM_SIZE_256K: usize = 256 * 1024;
@@ -1537,7 +1541,15 @@ fn main() {
     let mut last_y_end = initial_rect.height;
     let mut last_presented_height = initial_height;
 
+    // Pacing and frame-rate measurement own host time here, not in the core.
+    let mut clock = DesktopClock::new();
+    let frame_period = emulator.frame_period();
+    let mut frames_since_sample = 0_u32;
+    let mut sample_started = clock.now();
+
     while video.is_open() {
+        let frame_started = clock.now();
+
         // Check ESC to quit
         if window_handle.borrow().is_key_down(Key::Escape) {
             break;
@@ -1717,8 +1729,24 @@ fn main() {
                 s.network_status = network_status;
             }
             emulator.clear_frame_ready();
-        } else {
-            std::thread::sleep(std::time::Duration::from_millis(16));
+        }
+
+        // Pace to the emulated frame period. `pace` reports what the host actually
+        // spent, which is what the frame-rate measurement below uses.
+        let spent = clock.now().saturating_sub(frame_started);
+        clock.pace(frame_period.saturating_sub(spent));
+
+        frames_since_sample += 1;
+        let sample_elapsed = clock.now().saturating_sub(sample_started);
+        if sample_elapsed >= FPS_SAMPLE_WINDOW {
+            #[allow(
+                clippy::cast_precision_loss,
+                reason = "a frame count and a sample window are far below f32 precision limits"
+            )]
+            let measured = frames_since_sample as f32 / sample_elapsed.as_secs_f32();
+            shared_state.lock().unwrap().fps = measured;
+            frames_since_sample = 0;
+            sample_started = clock.now();
         }
     }
 

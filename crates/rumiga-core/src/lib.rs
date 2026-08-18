@@ -21,6 +21,8 @@
 // Primitive types with `core` or `alloc` equivalents must remain portable even
 // when their callers select the desktop runtime profile.
 #![deny(clippy::std_instead_of_alloc, clippy::std_instead_of_core)]
+// Emulated time must never come from the host clock, in either profile.
+#![deny(clippy::disallowed_types)]
 
 #[cfg(all(feature = "std", feature = "no_std"))]
 compile_error!("features `std` and `no_std` are mutually exclusive");

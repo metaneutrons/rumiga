@@ -17,7 +17,10 @@ use m68k::CpuCore;
 use m68k::{NoOpHleHandler, StepResult};
 use rumiga_platform::TraceSink;
 
+use core::time::Duration;
+
 use crate::digest::StateDigest;
+use crate::events;
 
 use crate::audio::AudioState;
 use crate::blitter::BlitterState;
@@ -1136,6 +1139,20 @@ impl Emulator {
         &self.framebuffer
     }
 
+    /// Duration of one emulated frame.
+    ///
+    /// Derived from the colour clock and the scanline count rather than from a
+    /// rounded frame rate, so a PAL frame is 19.968 ms. This is emulated time, not
+    /// host time: the core never reads a host clock. A product shell paces against
+    /// this value, so pacing follows automatically when the video standard becomes
+    /// selectable.
+    #[must_use]
+    pub const fn frame_period(&self) -> Duration {
+        let cycles = events::CYCLES_PER_SCANLINE * SCANLINES_PAL;
+        let nanos = cycles * 1_000_000_000 / events::COLOUR_CLOCK_PAL_HZ;
+        Duration::from_nanos(nanos)
+    }
+
     /// Digest of the rendered frame.
     ///
     /// Not cryptographic; see [`crate::digest`]. Use it to compare two runs, not
@@ -1613,6 +1630,21 @@ mod tests {
             0,
             "BBUSY must read clear once the blit is complete"
         );
+    }
+
+    #[test]
+    fn frame_period_follows_the_colour_clock_not_a_rounded_rate() {
+        let emu = Emulator::new(MemoryConfig::a500());
+        let period = emu.frame_period();
+
+        // 227 colour clocks x 312 lines at 3,546,895 Hz is 19.968 ms, so the naive
+        // 20 ms would be wrong by 32 microseconds per frame.
+        assert_eq!(period.as_nanos(), 19_967_887);
+        assert_ne!(period, core::time::Duration::from_millis(20));
+
+        // The implied rate is PAL's 50.08 Hz rather than a flat 50.
+        let rate = 1.0 / period.as_secs_f64();
+        assert!((rate - 50.08).abs() < 0.01, "implied rate was {rate}");
     }
 
     #[test]
