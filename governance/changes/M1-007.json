@@ -2,7 +2,7 @@
   "schema": "rumiga.change-record.v1",
   "task_id": "M1-007",
   "title": "Version platform capabilities and introduce a typed error model",
-  "status": "implemented",
+  "status": "verified",
   "summary": "Version the platform contract set and reject a mismatched backend at startup, describe what a backend supports through a capability descriptor whose absent services are structurally absent, replace the parallel storage error with one typed platform error whose Unsupported variant is explicit, and report backpressure on the success path so a dropped frame or a partly accepted audio buffer cannot be confused with a fault.",
   "scope": [
     "Contract version and its enforcement at startup",
@@ -82,10 +82,22 @@
       "proves": "Making failure and backpressure explicit changed no rendered output."
     },
     {
-      "id": "hosted-promotion",
+      "id": "hosted-pr-m1-007",
       "kind": "ci-artifact",
-      "location": "Pending: hosted pull-request and final main promotion evidence is required before this record moves to verified.",
-      "proves": "Nothing yet."
+      "location": "GitHub Actions pull-request run 32130769524, artifact 9322086217 governance-963803a704756f83fbe257998cb0526c0538dd1c, archive sha256:62c3747e03d0ebbe3c4667c8ee3b7b7adc61b7fd8c9d62122233e6cfe4d74f6f as reported by the Actions API.",
+      "proves": "All ten required quality jobs pass for the clean pull-request merge revision. The manifest records dirty false and a bundle of 13 architecture decisions, 14 release notes, and 14 change records, so ADR-0013 and the M1-007 record are inside the validated set."
+    },
+    {
+      "id": "hosted-main-m1-007",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions final main run 32132116892, artifact 9322578190 governance-407483750b6f10382f66e904403a592dd95af2c0, archive sha256:aafc5d29f2888fa237c8f872d7a9138b0b2e4288a9ca1f10538c3d7aa2b17437 as reported by the Actions API.",
+      "proves": "All ten required quality jobs pass for clean main revision 407483750b6f10382f66e904403a592dd95af2c0. The payload checksums were recomputed with two independent implementations and match the artifact's own SHA256SUMS, the manifest records dirty false, and its recorded input digests match the git tree at that revision for the change record, ADR-0013, the release note, ARCHITECTURE.md, the plan, the status document, and the platform contract source."
+    },
+    {
+      "id": "hosted-contract-tests-and-portable-compile",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions final main run 32132116892: the 14 rumiga-platform contract tests and the 5 rumiga-platform-desktop capability tests pass once per host leg on Linux job 95695335410 and macOS job 95695335441, and portable job 95695335380 checks rumiga-platform for riscv32imafc-unknown-none-elf in the foundation profile declared by toolchain/manifest.toml.",
+      "proves": "The capability descriptor, the typed error model, and the two backpressure outcomes hold on Linux x86_64 and macOS arm64, and the new types compile for bare-metal RISC-V. The contract tests are not run under a second runtime profile: the host gate's explicit std and no_std matrix covers rumiga-core and m68k, so the portable claim here is compilation rather than execution."
     }
   ],
   "documentation": [
