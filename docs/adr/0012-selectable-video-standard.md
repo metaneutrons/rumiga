@@ -123,6 +123,14 @@ captures, and the recorded manifest shows the guest's own display window changin
 the standard. A PAL capture from the pre-change revision is byte-identical to one
 taken after it.
 
+Hosted promotion confirms the model beyond the development host. Pull-request run
+`32127572185` and final `main` run `32128162254` passed all ten required jobs, and every
+`video::tests` case together with every standard-related `emulator::tests` case appears
+twice in each host job log, once per explicit runtime profile. The beam wrap agreement in
+particular is a property of the frame loop rather than of one host, so seeing it hold on
+Linux x86_64 and macOS arm64 under both profiles is what makes the single-owner design
+worth its cost.
+
 ## Supersession
 
 None. This closes the video standard entry that ADR-0011 left open. Agnus revision

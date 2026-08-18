@@ -2,7 +2,7 @@
   "schema": "rumiga.change-record.v1",
   "task_id": "M1-013",
   "title": "Make the video standard selectable with NTSC geometry, colour clock, and beam identification",
-  "status": "implemented",
+  "status": "verified",
   "summary": "Introduce one type that owns every PAL/NTSC difference, select the standard through the machine configuration, derive the frame length, colour clock, active height, and beam wrap from it, report it in VPOSR and BEAMCON0 so the guest detects it, and crop presentation to the active height while keeping the framebuffer PAL-sized.",
   "scope": [
     "Video standard type and its sourced constants",
@@ -89,10 +89,22 @@
       "proves": "The pinned values rest on a citable source and an independent computation rather than on the implementation's own output."
     },
     {
-      "id": "hosted-promotion",
+      "id": "hosted-pr-m1-013",
       "kind": "ci-artifact",
-      "location": "Pending: hosted pull-request and final main promotion evidence is required before this record moves to verified.",
-      "proves": "Nothing yet."
+      "location": "GitHub Actions pull-request run 32127572185 for the rebased head, artifact 9320942928 governance-f6692b20c53107966467a7278c462b32e177b2b0, archive sha256:f3c4ec001cd7bf1d495db5d2ee7c18ac1828753800abcb016905b4e3469b14b9 as reported by the Actions API.",
+      "proves": "All ten required quality jobs pass for the clean pull-request merge revision after the branch was rebased onto the M1-006 closure. The manifest records dirty false and a bundle of 12 architecture decisions, 13 release notes, and 13 change records, so ADR-0012 and the M1-013 record are inside the validated set rather than alongside it."
+    },
+    {
+      "id": "hosted-main-m1-013",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions final main run 32128162254, artifact 9321149701 governance-764cf9cf583ae5debb2bdbc40c1d778737e97e1a, archive sha256:db8b036cb976c0f45f98b0e7d4b2aa776fdb2995905537b8513c71f0aa906090 as reported by the Actions API.",
+      "proves": "All ten required quality jobs pass for clean main revision 764cf9cf583ae5debb2bdbc40c1d778737e97e1a. The payload checksums were recomputed with two independent implementations and match the artifact's own SHA256SUMS, the manifest records dirty false, and its recorded input digests match the git tree at that revision for the change record, ADR-0012, the release note, the plan, and the status document."
+    },
+    {
+      "id": "hosted-standard-tests-on-both-host-legs",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions final main run 32128162254, Linux job 95683225319 and macOS job 95683225329: every video::tests and standard-related emulator::tests case appears twice per leg, once per explicit runtime profile.",
+      "proves": "The sourced constants, the beam wrap agreement, the register reporting, and the digest separation hold on Linux x86_64 and macOS arm64 in both the std and no_std profiles, not only on the development host."
     }
   ],
   "documentation": [

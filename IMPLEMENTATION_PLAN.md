@@ -837,7 +837,34 @@ M1-013 implementation evidence (2026-08-18):
 - not compared against a reference emulator. The constants come from `WinUAE` sources
   and the guest behaviour is self-consistent, but no frame has been diffed against
   `WinUAE` or FS-UAE output. That comparison is deliberately deferred
-- hosted pull-request and final `main` evidence is pending promotion
+- pull-request run
+  [`32127572185`](https://github.com/metaneutrons/rumiga/actions/runs/32127572185)
+  passes all ten jobs for the rebased head; Linux job `95681428540`, macOS job
+  `95681428603`, portable job `95681428496`, and aggregate job `95683119327` pass
+- pull-request governance artifact `9320942928`, produced from clean merge revision
+  `f6692b20c53107966467a7278c462b32e177b2b0`, has archive SHA-256
+  `f3c4ec001cd7bf1d495db5d2ee7c18ac1828753800abcb016905b4e3469b14b9` as reported by
+  the Actions API. Its manifest records a bundle of 12 architecture decisions, 13
+  release notes, and 13 change records, so ADR-0012 and the M1-013 record are inside
+  the validated set rather than alongside it
+- final `main` run
+  [`32128162254`](https://github.com/metaneutrons/rumiga/actions/runs/32128162254)
+  passes all ten jobs for clean revision
+  `764cf9cf583ae5debb2bdbc40c1d778737e97e1a`; Linux job `95683225319`, macOS job
+  `95683225329`, portable job `95683225532`, and aggregate job `95684641723` pass
+- final governance artifact `9321149701` has archive SHA-256
+  `db8b036cb976c0f45f98b0e7d4b2aa776fdb2995905537b8513c71f0aa906090` as reported by
+  the Actions API. The payload checksums were recomputed with two independent
+  implementations and match the artifact's own `SHA256SUMS`, the manifest records
+  `dirty: false`, and its recorded input digests match the git tree at that revision
+  for the change record, ADR-0012, the release note, the plan, and the status document
+- every `video::tests` case and every standard-related `emulator::tests` case appears
+  twice in each host job log, once per explicit runtime profile, so the sourced
+  constants, the beam wrap agreement, the register reporting, and the digest separation
+  hold on Linux x86_64 and macOS arm64 in both profiles
+- the archive SHA-256 values above are GitHub's reported artifact digests. The
+  independent verification covers the payload, not the archive container, because the
+  API does not serve the archive bytes to a plain token fetch
 
 ### M1 functional commits
 
