@@ -36,6 +36,39 @@ const PARTITION_ENTRY_MAGIC: [u8; 2] = [0xAA, 0x50];
 /// Repository-owned product partition layout applied to the flashable image.
 const PARTITION_LAYOUT_PATH: &str = "firmware/partitions.csv";
 
+/// Second evidence tree the rebuild comparison packages into, never uploaded as evidence.
+const REBUILD_EVIDENCE_DIRECTORY: &str = "m0-008-firmware-rebuild-evidence";
+
+/// `esp_app_desc_t` magic word, from ESP-IDF
+/// `components/esp_app_format/include/esp_app_desc.h`.
+const APP_DESCRIPTOR_MAGIC: u32 = 0xABCD_5432;
+
+/// `esp_app_desc_t` field offsets and lengths, from the same header. The struct is
+/// stable ABI, so reading it by offset is the documented way to inspect an image.
+const APP_DESCRIPTOR_VERSION: (usize, usize) = (16, 32);
+const APP_DESCRIPTOR_TIME: (usize, usize) = (80, 16);
+const APP_DESCRIPTOR_DATE: (usize, usize) = (96, 16);
+const APP_DESCRIPTOR_ELF_SHA256: (usize, usize) = (144, 32);
+const APP_DESCRIPTOR_BYTES: usize = 256;
+
+/// `esp_bootloader_desc_t` magic byte and layout, from
+/// `components/esp_bootloader_format/include/esp_bootloader_desc.h`. A single byte is a
+/// weak signature, so [`locate_bootloader_descriptor`] also requires the IDF version
+/// field to match the pinned release.
+const BOOTLOADER_DESCRIPTOR_MAGIC: u8 = 80;
+const BOOTLOADER_DESCRIPTOR_IDF_VERSION: (usize, usize) = (8, 32);
+const BOOTLOADER_DESCRIPTOR_DATE_TIME: (usize, usize) = (40, 24);
+const BOOTLOADER_DESCRIPTOR_BYTES: usize = 80;
+
+/// Prefix and suffix of the temporary directory rustc creates for the `symbols.o` it
+/// synthesizes for the panic and allocator shims. The middle component is random, which
+/// is the one thing in the bundle that differs between two builds of one revision.
+const RANDOM_LINK_PATH_PREFIX: &str = "/deps/rustc";
+const RANDOM_LINK_PATH_SUFFIX: &str = "/symbols.o";
+
+/// Length of the random component in that directory name.
+const RANDOM_LINK_PATH_STEM: usize = 6;
+
 #[derive(Debug, Deserialize)]
 struct ToolchainManifest {
     target: TargetConfiguration,
@@ -133,6 +166,7 @@ struct EvidenceManifest {
     elf: ElfMetadata,
     board_configuration: BoardConfigurationEvidence,
     reversibility: ReversibilityEvidence,
+    determinism: DeterminismEvidence,
     merged_image: MergedImageEvidence,
     esp_idf: EspIdfEvidence,
     tools: ToolEvidence,
@@ -247,6 +281,40 @@ struct InputEvidence {
     sdkconfig_defaults_sha256: String,
 }
 
+/// What makes two builds of one revision produce the same bytes.
+///
+/// The images embed a compile date and time. ESP-IDF fills them from the C preprocessor's
+/// `__DATE__` and `__TIME__`, and GCC derives those from `SOURCE_DATE_EPOCH` when it is
+/// set, which [`run_firmware_build`] sets to the HEAD commit time. The stamp is therefore
+/// a function of the revision rather than of the wall clock, and this evidence pins that
+/// rather than assuming it: without the variable the stamp would be the builder's local
+/// time, which is not merely non-deterministic but misleading.
+#[derive(Debug, Serialize)]
+struct DeterminismEvidence {
+    stamp_source: String,
+    stamp_date: String,
+    stamp_time: String,
+    image_version: String,
+    image_version_source: String,
+    app_descriptor_offset: String,
+    bootloader_descriptor_offset: String,
+    app_elf_sha256_matches_artifact: bool,
+    random_link_paths_in_map: usize,
+    rebuild: Option<RebuildEvidence>,
+}
+
+/// Result of building the same revision twice and comparing the two bundles.
+///
+/// Absent unless `--verify-rebuild` was passed, because a second build roughly doubles
+/// the task's runtime. When absent, the determinism claim rests on the stamp checks
+/// above, which pin the known variable without proving byte equality.
+#[derive(Debug, Serialize)]
+struct RebuildEvidence {
+    identical: Vec<String>,
+    identical_after_normalizing_link_paths: Vec<String>,
+    differing: Vec<String>,
+}
+
 #[derive(Debug, Serialize)]
 struct ArtifactEvidence {
     name: String,
@@ -276,7 +344,14 @@ fn main() -> Result<()> {
             let arguments = arguments.collect::<Vec<_>>();
             commit_policy::run(&arguments)
         }
-        Some("firmware-evidence") if arguments.next().is_none() => build_firmware_evidence(),
+        Some("firmware-evidence") => {
+            let arguments = arguments.collect::<Vec<_>>();
+            match arguments.as_slice() {
+                [] => build_firmware_evidence(false),
+                [flag] if flag == "--verify-rebuild" => build_firmware_evidence(true),
+                _ => bail!("usage: cargo xtask firmware-evidence [--verify-rebuild]"),
+            }
+        }
         Some("compatibility-evidence") if arguments.next().is_none() => {
             compatibility::build_evidence()
         }
@@ -290,7 +365,7 @@ fn main() -> Result<()> {
     }
 }
 
-fn build_firmware_evidence() -> Result<()> {
+fn build_firmware_evidence(verify_rebuild: bool) -> Result<()> {
     let root = workspace_root()?;
     let manifest = read_toolchain_manifest(&root)?;
     ensure!(
@@ -336,6 +411,16 @@ fn build_firmware_evidence() -> Result<()> {
         &board_configuration,
     )?;
     artifacts.sort_by(|left, right| left.name.cmp(&right.name));
+    let determinism = collect_determinism(
+        &root,
+        &target_root,
+        &evidence_root,
+        &outputs,
+        &manifest,
+        source_date_epoch,
+        &idf_evidence.version,
+        verify_rebuild,
+    )?;
     let merged_image = verify_merged_flash_image(
         &root,
         &evidence_root.join("rumiga-firmware.flash.bin"),
@@ -355,6 +440,7 @@ fn build_firmware_evidence() -> Result<()> {
         elf: elf_metadata,
         board_configuration,
         reversibility,
+        determinism,
         merged_image,
         esp_idf: idf_evidence,
         tools: tool_evidence,
@@ -363,19 +449,8 @@ fn build_firmware_evidence() -> Result<()> {
             sdkconfig_defaults_sha256: sha256_file(&root.join("firmware/sdkconfig.defaults"))?,
         },
         artifacts,
-        claims: vec![
-            "compile-and-link".to_owned(),
-            "esp32p4-image-generation".to_owned(),
-            "pinned-idf-source".to_owned(),
-        ],
-        exclusions: vec![
-            "not-flashed".to_owned(),
-            "not-boot-tested".to_owned(),
-            "no-peripheral-hil".to_owned(),
-            "no-performance-claim".to_owned(),
-            "no-efuse-burn".to_owned(),
-            "encryption-not-enforced".to_owned(),
-        ],
+        claims: evidence_claims(verify_rebuild),
+        exclusions: evidence_exclusions(),
     };
     write_manifest_and_checksums(&evidence_root, &evidence)?;
 
@@ -1166,6 +1241,387 @@ fn verify_reversible_security_posture(
     })
 }
 
+/// Render `SOURCE_DATE_EPOCH` the way GCC renders `__DATE__` and `__TIME__` from it.
+///
+/// GCC formats the date as `MMM D YYYY` with the day space padded to two columns, and
+/// both fields in UTC. `%e` is that padding.
+fn source_date_stamp(epoch: u64) -> Result<(String, String)> {
+    let seconds = i64::try_from(epoch).context("SOURCE_DATE_EPOCH does not fit in i64")?;
+    let stamp = chrono::DateTime::from_timestamp(seconds, 0)
+        .context("SOURCE_DATE_EPOCH is not a representable instant")?;
+    Ok((
+        stamp.format("%b %e %Y").to_string(),
+        stamp.format("%H:%M:%S").to_string(),
+    ))
+}
+
+/// Read a NUL-terminated descriptor field as ASCII.
+fn descriptor_field(
+    bytes: &[u8],
+    base: usize,
+    field: (usize, usize),
+    name: &str,
+) -> Result<String> {
+    let (offset, length) = field;
+    let start = base + offset;
+    let raw = bytes
+        .get(start..start + length)
+        .with_context(|| format!("descriptor field {name} is outside the image"))?;
+    let text = raw.split(|byte| *byte == 0).next().unwrap_or_default();
+    ensure!(
+        text.iter()
+            .all(|byte| byte.is_ascii_graphic() || *byte == b' '),
+        "descriptor field {name} is not printable ASCII"
+    );
+    String::from_utf8(text.to_vec())
+        .with_context(|| format!("descriptor field {name} is not valid UTF-8"))
+}
+
+/// Locate the single `esp_app_desc_t` in an application image.
+///
+/// The magic word is a full `u32` and the descriptor is word aligned, so one hit is
+/// expected. More than one would mean the image carries two descriptors and the fields
+/// read below would be ambiguous.
+fn locate_app_descriptor(bytes: &[u8]) -> Result<usize> {
+    let mut found = Vec::new();
+    let mut offset = 0;
+    while offset + APP_DESCRIPTOR_BYTES <= bytes.len() {
+        let word = u32::from_le_bytes(
+            bytes[offset..offset + 4]
+                .try_into()
+                .expect("a four byte window is four bytes"),
+        );
+        if word == APP_DESCRIPTOR_MAGIC {
+            found.push(offset);
+        }
+        offset += 4;
+    }
+    match found.as_slice() {
+        [single] => Ok(*single),
+        [] => bail!("image carries no esp_app_desc_t"),
+        many => bail!("image carries {} application descriptors", many.len()),
+    }
+}
+
+/// Locate the single `esp_bootloader_desc_t` in a bootloader image.
+///
+/// The magic is one byte, so it is paired with the IDF version field: the candidate must
+/// carry the pinned release, which makes an accidental hit on ordinary data implausible.
+fn locate_bootloader_descriptor(bytes: &[u8], idf_version: &str) -> Result<usize> {
+    let expected = format!("v{}", trim_patch_version(idf_version));
+    let mut found = Vec::new();
+    for offset in 0..bytes.len().saturating_sub(BOOTLOADER_DESCRIPTOR_BYTES) {
+        if bytes[offset] != BOOTLOADER_DESCRIPTOR_MAGIC {
+            continue;
+        }
+        let version = descriptor_field(
+            bytes,
+            offset,
+            BOOTLOADER_DESCRIPTOR_IDF_VERSION,
+            "bootloader idf_ver",
+        );
+        if version.is_ok_and(|value| value == expected) {
+            found.push(offset);
+        }
+    }
+    match found.as_slice() {
+        [single] => Ok(*single),
+        [] => bail!("bootloader carries no esp_bootloader_desc_t naming ESP-IDF {expected}"),
+        many => bail!("bootloader carries {} descriptors", many.len()),
+    }
+}
+
+/// Reduce `6.0.0` to `6.0`, which is what the descriptors record.
+fn trim_patch_version(version: &str) -> String {
+    version.split('.').take(2).collect::<Vec<_>>().join(".")
+}
+
+/// Offsets of rustc's random temporary link directory inside a linker map.
+///
+/// The scan is anchored on the full path shape. A loose search for `rustc` followed by six
+/// characters also matches stable text elsewhere in the map, and normalizing those would
+/// hide real differences.
+fn random_link_paths(map: &str) -> Vec<usize> {
+    let stem = RANDOM_LINK_PATH_PREFIX.len() + RANDOM_LINK_PATH_STEM;
+    let mut found = Vec::new();
+    let mut search = 0;
+    while let Some(relative) = map[search..].find(RANDOM_LINK_PATH_PREFIX) {
+        let start = search + relative;
+        search = start + RANDOM_LINK_PATH_PREFIX.len();
+        let Some(random) = map.get(start + RANDOM_LINK_PATH_PREFIX.len()..start + stem) else {
+            continue;
+        };
+        if !random
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric())
+        {
+            continue;
+        }
+        if map[start + stem..].starts_with(RANDOM_LINK_PATH_SUFFIX) {
+            found.push(start);
+        }
+    }
+    found
+}
+
+/// Replace the random component so two maps of one revision can be compared.
+fn normalize_random_link_paths(map: &str) -> String {
+    let stem = RANDOM_LINK_PATH_PREFIX.len() + RANDOM_LINK_PATH_STEM;
+    let mut normalized = String::with_capacity(map.len());
+    let mut copied = 0;
+    for start in random_link_paths(map) {
+        normalized.push_str(&map[copied..start + RANDOM_LINK_PATH_PREFIX.len()]);
+        normalized.push_str("<random>");
+        copied = start + stem;
+    }
+    normalized.push_str(&map[copied..]);
+    normalized
+}
+
+/// Pin the fields that decide whether two builds of one revision agree.
+fn verify_build_determinism(
+    root: &Path,
+    evidence_root: &Path,
+    outputs: &BuildOutputs,
+    source_date_epoch: u64,
+    idf_version: &str,
+) -> Result<DeterminismEvidence> {
+    let (expected_date, expected_time) = source_date_stamp(source_date_epoch)?;
+
+    let elf = fs::read(&outputs.elf)
+        .with_context(|| format!("failed to read {}", outputs.elf.display()))?;
+    let application = locate_app_descriptor(&elf)?;
+    let date = descriptor_field(&elf, application, APP_DESCRIPTOR_DATE, "app date")?;
+    let time = descriptor_field(&elf, application, APP_DESCRIPTOR_TIME, "app time")?;
+    ensure!(
+        date == expected_date && time == expected_time,
+        "the application descriptor records {date} {time}, but the HEAD commit time is \
+         {expected_date} {expected_time}. SOURCE_DATE_EPOCH is what keeps the build clock \
+         out of the image; without it the stamp is the builder's local time"
+    );
+
+    let version = descriptor_field(&elf, application, APP_DESCRIPTOR_VERSION, "app version")?;
+    let described = capture_git(root, &["describe", "--always", "--tags", "--dirty"])?;
+    ensure!(
+        version == described,
+        "the application descriptor records version {version}, but git describes HEAD as \
+         {described}. The image would then not name the source it was built from"
+    );
+
+    let bootloader = fs::read(&outputs.bootloader)
+        .with_context(|| format!("failed to read {}", outputs.bootloader.display()))?;
+    let boot_descriptor = locate_bootloader_descriptor(&bootloader, idf_version)?;
+    let boot_stamp = descriptor_field(
+        &bootloader,
+        boot_descriptor,
+        BOOTLOADER_DESCRIPTOR_DATE_TIME,
+        "bootloader date_time",
+    )?;
+    ensure!(
+        boot_stamp == format!("{expected_date} {expected_time}"),
+        "the bootloader descriptor records {boot_stamp}, but the HEAD commit time is \
+         {expected_date} {expected_time}"
+    );
+
+    // The merged image carries the ELF's digest in app_elf_sha256, which esptool patches
+    // in. Comparing it against the packaged ELF ties the two artifacts together, so a
+    // bundle cannot pair one revision's image with another revision's ELF.
+    let flash_image = evidence_root.join("rumiga-firmware.flash.bin");
+    let merged = fs::read(&flash_image)
+        .with_context(|| format!("failed to read {}", flash_image.display()))?;
+    let merged_descriptor = locate_app_descriptor(&merged)?;
+    let (offset, length) = APP_DESCRIPTOR_ELF_SHA256;
+    let recorded = merged
+        .get(merged_descriptor + offset..merged_descriptor + offset + length)
+        .context("app_elf_sha256 is outside the merged image")?;
+    let elf_digest = Sha256::digest(&elf);
+    let matches = recorded == elf_digest.as_slice();
+    ensure!(
+        matches,
+        "the merged image records an ELF digest that is not the packaged ELF's"
+    );
+
+    let map = fs::read_to_string(&outputs.map)
+        .with_context(|| format!("failed to read {}", outputs.map.display()))?;
+
+    Ok(DeterminismEvidence {
+        stamp_source: "source-date-epoch".to_owned(),
+        stamp_date: date,
+        stamp_time: time,
+        image_version: version,
+        image_version_source: "git describe --always --tags --dirty".to_owned(),
+        app_descriptor_offset: format!("{application:#x}"),
+        bootloader_descriptor_offset: format!("{boot_descriptor:#x}"),
+        app_elf_sha256_matches_artifact: matches,
+        random_link_paths_in_map: random_link_paths(&map).len(),
+        rebuild: None,
+    })
+}
+
+/// What the firmware bundle asserts.
+///
+/// `rebuild-byte-identical` appears only when a second build was actually compared, so a
+/// bundle cannot read as proving reproducibility when it merely pinned the build stamp.
+fn evidence_claims(verify_rebuild: bool) -> Vec<String> {
+    vec![
+        "compile-and-link".to_owned(),
+        "esp32p4-image-generation".to_owned(),
+        "pinned-idf-source".to_owned(),
+        "commit-derived-build-stamp".to_owned(),
+        if verify_rebuild {
+            "rebuild-byte-identical".to_owned()
+        } else {
+            "rebuild-not-compared".to_owned()
+        },
+    ]
+}
+
+/// What the firmware bundle deliberately does not assert.
+fn evidence_exclusions() -> Vec<String> {
+    vec![
+        "linker-map-carries-a-random-link-path".to_owned(),
+        "not-flashed".to_owned(),
+        "not-boot-tested".to_owned(),
+        "no-peripheral-hil".to_owned(),
+        "no-performance-claim".to_owned(),
+        "no-efuse-burn".to_owned(),
+        "encryption-not-enforced".to_owned(),
+    ]
+}
+
+/// Pin the determinism fields, and optionally prove byte equality by rebuilding.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "this exists only to keep build_firmware_evidence under the line cap, so \
+              splitting its arguments further would move the noise rather than remove it"
+)]
+fn collect_determinism(
+    root: &Path,
+    target_root: &Path,
+    evidence_root: &Path,
+    outputs: &BuildOutputs,
+    manifest: &ToolchainManifest,
+    source_date_epoch: u64,
+    idf_version: &str,
+    verify_rebuild: bool,
+) -> Result<DeterminismEvidence> {
+    let mut determinism =
+        verify_build_determinism(root, evidence_root, outputs, source_date_epoch, idf_version)?;
+    if verify_rebuild {
+        determinism.rebuild = Some(rebuild_and_compare(
+            root,
+            target_root,
+            evidence_root,
+            manifest,
+            source_date_epoch,
+        )?);
+    }
+    Ok(determinism)
+}
+
+/// Build the same revision a second time from an empty tree and compare the bundles.
+///
+/// The second build reuses the first build's directory, emptied. That matters: a
+/// differently named directory would put different absolute paths into the linker map, and
+/// the comparison would then need a normalization wide enough to hide a genuine
+/// environmental difference. Reusing the path leaves rustc's random link directory as the
+/// only variable.
+///
+/// It is a genuine rebuild rather than a relink, because the directory is emptied first, so
+/// ESP-IDF is reconfigured and its sources recompiled. That is what lets the comparison see
+/// a compile-time stamp at all. The first bundle survives in its own evidence directory.
+fn rebuild_and_compare(
+    root: &Path,
+    target_root: &Path,
+    evidence_root: &Path,
+    manifest: &ToolchainManifest,
+    source_date_epoch: u64,
+) -> Result<RebuildEvidence> {
+    let build_root = target_root.join(BUILD_DIRECTORY);
+    let rebuild_evidence = target_root.join(REBUILD_EVIDENCE_DIRECTORY);
+    reset_generated_directory(target_root, &build_root)?;
+    reset_generated_directory(target_root, &rebuild_evidence)?;
+
+    run_firmware_build(root, &build_root, manifest, source_date_epoch)?;
+    let outputs = locate_build_outputs(&build_root, &manifest.target.rust)?;
+    let board_configuration =
+        verify_board_configuration(&outputs.sdkconfig, &outputs.flasher_args, manifest)?;
+    let (_, _, size_tool) = verify_native_build_inputs(&outputs.cmake_cache, manifest)?;
+    package_outputs(
+        root,
+        &rebuild_evidence,
+        &outputs,
+        manifest,
+        &size_tool,
+        &board_configuration,
+    )?;
+
+    compare_rebuild(evidence_root, &rebuild_evidence)
+}
+
+/// Compare two bundles of the same revision artifact by artifact.
+///
+/// The linker map is compared twice, once byte for byte and once after normalizing
+/// rustc's random link directory, so the report states which of the two it needed. The
+/// evidence manifest is excluded because it records the map's digest, so it cannot agree
+/// while the map differs, and comparing it would report a consequence as a second finding.
+fn compare_rebuild(first: &Path, second: &Path) -> Result<RebuildEvidence> {
+    let mut identical = Vec::new();
+    let mut normalized = Vec::new();
+    let mut differing = Vec::new();
+
+    let mut names = Vec::new();
+    for entry in
+        fs::read_dir(first).with_context(|| format!("failed to read {}", first.display()))?
+    {
+        let name = entry?.file_name();
+        let name = name.to_string_lossy().into_owned();
+        if name == "manifest.json" || name == "SHA256SUMS" {
+            continue;
+        }
+        names.push(name);
+    }
+    names.sort();
+
+    for name in names {
+        let left = fs::read(first.join(&name))
+            .with_context(|| format!("failed to read {name} from the first build"))?;
+        let Ok(right) = fs::read(second.join(&name)) else {
+            differing.push(format!("{name} (missing from the rebuild)"));
+            continue;
+        };
+        if left == right {
+            identical.push(name);
+            continue;
+        }
+        // `str::from_utf8` as an associated function is newer than the pinned MSRV, so
+        // this uses the module function.
+        let both_text = std::str::from_utf8(&left)
+            .ok()
+            .zip(std::str::from_utf8(&right).ok());
+        match both_text {
+            Some((left, right))
+                if normalize_random_link_paths(left) == normalize_random_link_paths(right) =>
+            {
+                normalized.push(name);
+            }
+            _ => differing.push(name),
+        }
+    }
+
+    ensure!(
+        differing.is_empty(),
+        "rebuilding the same revision produced different artifacts: {}",
+        differing.join(", ")
+    );
+
+    Ok(RebuildEvidence {
+        identical,
+        identical_after_normalizing_link_paths: normalized,
+        differing,
+    })
+}
+
 fn read_sdkconfig(path: &Path) -> Result<BTreeMap<String, String>> {
     let contents =
         fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
@@ -1453,9 +1909,11 @@ mod tests {
     use std::path::Path;
 
     use super::{
-        decode_partition_table, espflash_flash_frequency, espflash_flash_mode, espflash_flash_size,
-        image_region, inspect_elf_data, parse_partition_layout, read_partition_layout,
-        sha256_bytes, verify_reversible_security_posture,
+        APP_DESCRIPTOR_MAGIC, decode_partition_table, espflash_flash_frequency,
+        espflash_flash_mode, espflash_flash_size, image_region, inspect_elf_data,
+        locate_app_descriptor, normalize_random_link_paths, parse_partition_layout,
+        random_link_paths, read_partition_layout, sha256_bytes, source_date_stamp,
+        trim_patch_version, verify_reversible_security_posture,
     };
 
     /// Build one 32-byte partition-table entry.
@@ -1468,6 +1926,92 @@ mod tests {
         entry[8..12].copy_from_slice(&size.to_le_bytes());
         entry[12..12 + label.len()].copy_from_slice(label.as_bytes());
         entry
+    }
+
+    /// One line of a linker map naming rustc's temporary link directory.
+    fn map_line(random: &str) -> String {
+        format!("    LOAD /work/target/release/deps/rustc{random}/symbols.o\n")
+    }
+
+    #[test]
+    fn the_build_stamp_is_rendered_the_way_gcc_renders_it() {
+        // 1787084520 is 2026-08-18T20:22:00Z, and the pinned riscv32-esp-elf-gcc emits
+        // exactly this for __DATE__ and __TIME__ when SOURCE_DATE_EPOCH names that second.
+        let (date, time) = source_date_stamp(1_787_084_520).expect("epoch must render");
+        assert_eq!(date, "Aug 18 2026");
+        assert_eq!(time, "20:22:00");
+    }
+
+    #[test]
+    fn a_single_digit_day_is_space_padded_like_gcc() {
+        // 1778033600 is 2026-05-06T02:13:20Z. GCC pads the day to two columns with a
+        // space, so a naive %d would render "May 06 2026" and disagree with the image.
+        let (date, time) = source_date_stamp(1_778_033_600).expect("epoch must render");
+        assert_eq!(date, "May  6 2026");
+        assert_eq!(time, "02:13:20");
+    }
+
+    #[test]
+    fn the_link_path_scan_is_anchored_on_the_whole_shape() {
+        let map = format!(
+            "{}{}{}",
+            map_line("9rFquh"),
+            // Near misses that a loose search for rustc plus six characters would take.
+            "    note: librustc10rustc is not a link path\n",
+            "    LOAD /work/target/release/deps/rustc9rFquh/other.o\n",
+        );
+        assert_eq!(random_link_paths(&map).len(), 1);
+    }
+
+    #[test]
+    fn two_maps_differing_only_in_the_random_directory_normalize_equal() {
+        let left = map_line("9rFquh");
+        let right = map_line("w0v93v");
+        assert_ne!(left, right);
+        assert_eq!(
+            normalize_random_link_paths(&left),
+            normalize_random_link_paths(&right)
+        );
+    }
+
+    #[test]
+    fn normalizing_does_not_hide_a_difference_elsewhere() {
+        let left = format!("{}    .text 0x1000\n", map_line("9rFquh"));
+        let right = format!("{}    .text 0x2000\n", map_line("w0v93v"));
+        assert_ne!(
+            normalize_random_link_paths(&left),
+            normalize_random_link_paths(&right),
+            "a section address change must survive normalization"
+        );
+    }
+
+    #[test]
+    fn normalizing_leaves_a_map_without_link_paths_untouched() {
+        let map = "    .text 0x1000\n    .rodata 0x2000\n";
+        assert_eq!(normalize_random_link_paths(map), map);
+    }
+
+    #[test]
+    fn an_image_must_carry_exactly_one_application_descriptor() {
+        let mut none = vec![0_u8; 512];
+        assert!(locate_app_descriptor(&none).is_err());
+
+        none[64..68].copy_from_slice(&APP_DESCRIPTOR_MAGIC.to_le_bytes());
+        assert_eq!(locate_app_descriptor(&none).expect("one hit"), 64);
+
+        let mut two = vec![0_u8; 1024];
+        two[64..68].copy_from_slice(&APP_DESCRIPTOR_MAGIC.to_le_bytes());
+        two[512..516].copy_from_slice(&APP_DESCRIPTOR_MAGIC.to_le_bytes());
+        assert!(
+            locate_app_descriptor(&two).is_err(),
+            "two descriptors make the fields read from them ambiguous"
+        );
+    }
+
+    #[test]
+    fn the_descriptors_record_the_idf_release_without_its_patch_level() {
+        assert_eq!(trim_patch_version("6.0.0"), "6.0");
+        assert_eq!(trim_patch_version("6.0"), "6.0");
     }
 
     #[test]

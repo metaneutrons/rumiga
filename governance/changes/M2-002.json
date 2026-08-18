@@ -1,0 +1,105 @@
+{
+  "schema": "rumiga.change-record.v1",
+  "task_id": "M2-002",
+  "status": "implemented",
+  "title": "Pin the firmware build stamp to the commit and prove the rebuild",
+  "summary": "Enforce on every run that the application and bootloader descriptors record the HEAD commit time rather than the build clock, that the descriptor version is the git description, and that the merged image's recorded ELF digest is the packaged ELF's. Record the linker map's one non-deterministic component, and add an on-demand rebuild comparison that proves byte equality for the artifacts that get flashed.",
+  "scope": [
+    "Application and bootloader descriptor stamp verification",
+    "Image version provenance against git describe",
+    "Merged image to ELF digest binding",
+    "Linker map random link path accounting",
+    "On-demand rebuild comparison and its manifest evidence",
+    "Firmware evidence manifest determinism section"
+  ],
+  "risk": {
+    "level": "medium",
+    "failure_mode": "The build stamp was already commit-derived and nothing checked it, so removing the SOURCE_DATE_EPOCH export would have put the builder's local wall clock into both descriptors with no gate noticing. The field reads as UTC, so the result would have been misleading rather than merely non-deterministic. A map normalization written loosely would hide real differences instead of one known random component, which would make the rebuild comparison report agreement it had not established.",
+    "rollback": "Revert the xtask change. The images are unaffected because no build input changed; the checks and the manifest section disappear and the build returns to asserting reproducibility without testing it."
+  },
+  "compatibility": {
+    "status": "none",
+    "detail": "No image content changes, because no build input changed. The rumiga.firmware.build.v1 manifest gains an additive determinism section, which follows the practice M0-014 set when it added merged_image without a version bump. New claims commit-derived-build-stamp and one of rebuild-byte-identical or rebuild-not-compared appear, plus the exclusion linker-map-carries-a-random-link-path. cargo xtask firmware-evidence gains an optional --verify-rebuild flag and is otherwise unchanged."
+  },
+  "security": {
+    "status": "none",
+    "detail": "No network transport, credential, authorization, persistence, unsafe-code, or FFI changes. The flash encryption and eFuse posture is untouched, and the reversibility check that M2-014 added still runs on the same resolved sdkconfig. Binding the merged image to the packaged ELF's digest makes a mismatched bundle fail rather than ship, which is a provenance property and not a security control."
+  },
+  "tests": [
+    {
+      "id": "stamp-rendering-matches-gcc",
+      "command": "cargo +1.97.1 test --locked -p rumiga-xtask",
+      "proves": "The commit time is rendered the way GCC renders SOURCE_DATE_EPOCH, including the space-padded single-digit day that a naive format directive would render as a leading zero and so disagree with every image built on such a day."
+    },
+    {
+      "id": "link-path-scan-is-anchored",
+      "command": "cargo +1.97.1 test --locked -p rumiga-xtask",
+      "proves": "The scan matches the full path shape and not near misses a loose search would take, normalization does not hide a section-address change, and a map without link paths is returned unchanged. This is what keeps the rebuild comparison from reporting agreement it has not established."
+    },
+    {
+      "id": "one-application-descriptor",
+      "command": "cargo +1.97.1 test --locked -p rumiga-xtask",
+      "proves": "An image with no descriptor and an image with two are both rejected, so the fields read by offset are never read from an ambiguous location."
+    },
+    {
+      "id": "full-local-promotion",
+      "command": "cargo +1.97.1 xtask ci",
+      "proves": "All eight gates pass for the change, with the firmware gate executing the new stamp, version, and digest checks."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "local-first-diagnosis-was-wrong",
+      "kind": "command",
+      "location": "2026-08-18 local execution: two hosted bundles whose firmware inputs were byte-identical, main bc47bb5 run 32181848745 and PR merge 6abfb978 run 32182892039, differed in ELF, bootloader, merged image, and map. The differing strings 20:22:00 and 20:33:16 are the two revisions' commit timestamps, read with git show -s --format=%ct, not a build clock.",
+      "proves": "The obvious reading of the measurement, that the build embeds the wall clock and is not reproducible, was wrong. Acting on it would have enabled CONFIG_APP_REPRODUCIBLE_BUILD and deleted a working provenance field to fix a problem that does not exist."
+    },
+    {
+      "id": "local-gcc-honours-source-date-epoch",
+      "kind": "command",
+      "location": "2026-08-18 local execution: riscv32-esp-elf-gcc from esp-15.2.0_20251204 compiled a file containing __DATE__ \" \" __TIME__ and produced Aug 18 2026 20:22:00 for SOURCE_DATE_EPOCH=1787084520, Aug 18 2026 20:42:09 for 1787085729, and the builder's local wall clock with the variable unset.",
+      "proves": "The stamp is a function of the revision because xtask exports the HEAD commit time, and the mechanism was probed with the pinned compiler rather than inferred from documentation. Without the variable the stamp is local time, which reads as a UTC field and is therefore misleading."
+    },
+    {
+      "id": "local-same-revision-rebuild-is-byte-identical",
+      "kind": "command",
+      "location": "2026-08-18 local execution: cargo +1.97.1 xtask firmware-evidence --verify-rebuild on a clean tracked worktree built one revision twice from an emptied build tree and reported bootloader.bin, partition-table.bin, rumiga-firmware.elf, rumiga-firmware.flash.bin, rumiga-firmware.size.txt, sdkconfig, and flasher_args.json identical, rumiga-firmware.map identical after the anchored normalization, and nothing differing. The stamp both runs recorded equalled that commit's timestamp to the second. The rebuild is genuine rather than a relink, confirmed by esp_app_desc.c.obj being recompiled between the two builds.",
+      "proves": "Everything that gets flashed is byte-reproducible for one revision on one machine. The map is the only artifact that is not, and its one variable component is named."
+    },
+    {
+      "id": "local-the-check-was-proved-to-fire",
+      "kind": "command",
+      "location": "2026-08-18 local execution: removing the SOURCE_DATE_EPOCH export from run_firmware_build made the task stop with \"the application descriptor records Aug 18 2026 23:51:13, but the HEAD commit time is Aug 18 2026 21:35:22\". The export was restored by exact-string replacement and the restoration verified by search.",
+      "proves": "The check catches the specific regression it exists for, and the failure message names the cause rather than reporting a digest mismatch. A check that had never been made to fail would be an assumption with a test around it."
+    },
+    {
+      "id": "local-two-implementations-agree-on-the-map",
+      "kind": "command",
+      "location": "2026-08-18 local execution: the Rust scan in the evidence task and an independent Python scan both count 19 random link paths in the map, and both report the two maps byte-identical after substituting only the anchored pattern. A loose rustc plus six characters pattern additionally matches rustc10rust and rustc17rust elsewhere in the same file, which are stable.",
+      "proves": "The normalization is narrow enough that it cannot hide a real difference, and the count in the manifest was cross-checked rather than self-reported."
+    },
+    {
+      "id": "local-rebuild-directory-reuse-was-necessary",
+      "kind": "command",
+      "location": "2026-08-18 local execution: the first implementation built the second copy in a separate directory, and the comparison failed reporting rumiga-firmware.map as differing, because the map records absolute build paths. Reusing the emptied first directory left rustc's random link directory as the only variable.",
+      "proves": "The comparison would otherwise have needed a normalization wide enough to hide a genuine environmental difference. The design constraint was found by the check failing, not by reasoning about it in advance."
+    },
+    {
+      "id": "hosted-promotion",
+      "kind": "ci-artifact",
+      "location": "Pending: hosted pull-request and final main promotion evidence is required before this record moves to verified.",
+      "proves": "Nothing yet."
+    }
+  ],
+  "documentation": [
+    "CI.md",
+    "IMPLEMENTATION_PLAN.md",
+    "PROJECT_STATUS.md",
+    "docs/adr/0020-commit-derived-build-stamp.md",
+    "docs/adr/README.md"
+  ],
+  "release_note": "docs/release-notes/unreleased/M2-002.md",
+  "architecture_decisions": [
+    "docs/adr/0020-commit-derived-build-stamp.md"
+  ]
+}

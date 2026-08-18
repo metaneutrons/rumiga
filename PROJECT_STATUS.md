@@ -10,9 +10,9 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-18 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M2-001: D1001 hardware manifest, verified by hosted evidence. M1 complete |
-| Current implementation | M2-002: reproducible ESP-IDF/Rust firmware build |
-| Next task | M2-003: PSRAM allocator, panic, watchdog, logging, and reset policy |
+| Latest completed task | M2-002: commit-derived firmware build stamp, hosted evidence pending |
+| Current implementation | M2-003: PSRAM allocator, panic, watchdog, logging, and reset policy |
+| Next task | M2-004: port Vellum D1001 services into Rust-first adapters |
 | Development host | macOS, Apple Silicon |
 | Product target | Seeed reTerminal D1001, ESP32-P4 |
 | Product maturity | Desktop compatibility prototype |
@@ -176,6 +176,19 @@ No feature is called done merely because it compiled or booted once.
   reversibility invariant, but they prove nothing about hardware: no board has
   been flashed, no eFuse has been burned, and with virtual eFuses the encryption
   is simulated rather than enforced.
+- M2-002 closed a gap the task description did not name. The firmware bundle the
+  acceptance criterion asks for already existed, and the build was already reproducible at
+  a fixed revision, byte for byte on everything that gets flashed. What did not exist was
+  any check that it stays that way. The application and bootloader descriptors are now
+  required to record the HEAD commit time rather than the build clock, the descriptor
+  version to be the git description, and the merged image's recorded ELF digest to be the
+  packaged ELF's. The check was made to fail before being trusted: removing the
+  `SOURCE_DATE_EPOCH` export puts the builder's local clock in the image and stops the
+  build. A first diagnosis of this task was wrong and is recorded, because acting on it
+  would have deleted working provenance. The rebuild comparison that proves byte equality
+  runs on demand rather than in the gate, which is a weaker guarantee than a gate and is
+  recorded as one, and the manifest distinguishes a bundle that was compared from one that
+  was not. Hosted evidence is pending, and nothing here has been flashed.
 - M2-001 documented the target board. Eleven connectors with designators and parts, the
   schematic revision V01 dated 2025-10-15, and the BSP commit are recorded under
   `docs/hardware`, each value naming its source. Reading the schematic rather than the

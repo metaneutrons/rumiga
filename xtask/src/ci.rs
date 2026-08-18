@@ -661,7 +661,11 @@ fn verify_portable_core_graph(root: &Path, manifest: &ToolchainManifest) -> Resu
 
 fn run_firmware_gate(root: &Path, manifest: &ToolchainManifest) -> Result<()> {
     verify_host_tools(root, manifest, false)?;
-    super::build_firmware_evidence()?;
+    // The gate does not rebuild. A second build roughly doubles this job, and the stamp
+    // checks inside the evidence task already fail if the build clock reaches the image,
+    // which is the regression that would break reproducibility. The direct proof is
+    // `cargo xtask firmware-evidence --verify-rebuild`, run out of band.
+    super::build_firmware_evidence(false)?;
     verify_checksum_manifest(&root.join(FIRMWARE_EVIDENCE_DIRECTORY))
 }
 

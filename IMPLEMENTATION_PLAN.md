@@ -1330,6 +1330,7 @@ M1-012 implementation evidence (2026-08-18):
 26. `perf(core): stop allocating in the scanline loop`
 27. `test(core): enforce byte order and pointer-width boundaries`
 28. `ci(core): close the portable core dependency graph`
+29. `build(firmware): pin the build stamp to the commit`
 
 M2-001 implementation evidence (2026-08-18):
 
@@ -1386,12 +1387,76 @@ M2-001 implementation evidence (2026-08-18):
   passed on re-run. Nothing in the change is implicated, and the eight other jobs are from
   the first attempt
 
+M2-002 implementation evidence (2026-08-18):
+
+- the acceptance criterion as written was already met. M0-008 produces the ELF, merged
+  image, linker map, size report, and `SHA256SUMS`, and every run since has published
+  them. The open word was "reproducible"
+- the first diagnosis was wrong and is recorded because acting on it would have made the
+  build worse. Two hosted bundles with byte-identical firmware inputs differed in ELF,
+  bootloader, merged image, and map, and the differing `20:22:00` / `20:33:16` strings
+  read as a build clock. They are the commit timestamps of `bc47bb5` and `6abfb978`
+- `xtask` already exported `SOURCE_DATE_EPOCH` from the HEAD commit, and GCC derives
+  `__DATE__` and `__TIME__` from it. Probed with the pinned `riscv32-esp-elf-gcc`:
+  epoch `1787084520` yields `Aug 18 2026 20:22:00`, `1787085729` yields
+  `20:42:09`, and with the variable unset the builder's **local** wall clock. The field
+  reads as UTC, so without the variable it is misleading rather than merely non-deterministic
+- had the first reading stood, the fix would have been `CONFIG_APP_REPRODUCIBLE_BUILD`,
+  which deletes the date and time from both descriptors. That would have removed working
+  provenance to fix a problem that does not exist. It stays off
+- measured on a clean tracked worktree, two builds of one revision from an emptied build
+  tree agree byte for byte on `bootloader.bin`, `partition-table.bin`,
+  `rumiga-firmware.elf`, `rumiga-firmware.flash.bin`, `rumiga-firmware.size.txt`,
+  `sdkconfig`, and `flasher_args.json`, and the stamp both runs recorded equals that
+  commit's timestamp to the second. The rebuild is genuine rather than a relink, confirmed
+  by `esp_app_desc.c.obj` being recompiled between the two
+- so reproducibility largely held. What did not exist was any check that it holds, which
+  is the actual gap this task closes
+- every run now requires the application descriptor's `date` and `time` to equal the HEAD
+  commit time as GCC renders it, the bootloader descriptor's `date_time` to equal the two
+  joined, the descriptor `version` to equal `git describe --always --tags --dirty`, and
+  the merged image's `app_elf_sha256` to equal the packaged ELF's digest
+- the descriptors are located by their documented magic values, not by searching for a
+  date-shaped string. The bootloader's magic is a single byte, so it is paired with the
+  recorded ESP-IDF release; the scan rejects an image carrying zero or two descriptors,
+  because the fields are read by offset
+- the check was proved to fire. Removing the export made the task stop with the descriptor
+  reporting `Aug 18 2026 23:51:13` against a commit time of `21:35:22`. The export was
+  restored by exact-string replacement and the restoration verified by search
+- the linker map is the one artifact that is not byte-reproducible. It embeds rustc's
+  random temporary directory for the synthesized `symbols.o` nineteen times, and the
+  manifest records the count rather than ignoring it
+- the normalization is anchored on `/deps/rustc` plus six alphanumeric characters plus
+  `/symbols.o`. A loose pattern also matches `rustc10rust` and `rustc17rust` elsewhere in
+  the same file, which are stable, so a loose normalization would hide real differences.
+  Two implementations, the Rust scan and an independent Python scan, agree on nineteen
+- the rebuild reuses the first build's emptied directory. The first implementation used a
+  second directory and the comparison failed on the map, because it records absolute build
+  paths; the constraint was found by the check failing, not foreseen
+- the full proof is not continuous, deliberately. `--verify-rebuild` roughly doubles the
+  firmware job, from about 6m25s to twelve minutes, on every pull request, to re-derive a
+  property whose one known input the cheap check already pins. The manifest claims
+  `rebuild-byte-identical` only when the comparison ran, `rebuild-not-compared` otherwise
+- not established: that two different machines, or the same machine after a toolchain
+  update, produce identical bytes. The claim is one machine rebuilding one revision
+- noted while measuring: the manifest's `source_dirty` and the descriptor's `-dirty` suffix
+  count different things. `git status --porcelain` counts untracked files and
+  `git describe --dirty` does not, so a tree carrying only untracked files reports
+  `source_dirty` true with a version that has no suffix. Both are accurate about what they
+  measure, and CI never sees the case because it rejects a dirty tree
+- `rumiga.firmware.build.v1` gains an additive `determinism` section without a version
+  bump, following the practice M0-014 set for `merged_image`
+- one pre-existing defect was fixed in passing. `CI.md` carried a garbled fragment,
+  "and leaves the application within its slot, and emits / rejects any configuration that
+  could burn an eFuse, and emits", left by an earlier edit
+- hosted pull-request and final `main` evidence is pending promotion
+
 ## M2 Backlog: D1001 Board Bring-Up
 
 | Task | Status | Deliverable | Acceptance evidence |
 | --- | --- | --- | --- |
 | M2-001 | DONE | Record D1001 schematic revision, board revision, BSP SHA, and connector inventory | Reviewed hardware manifest under `docs/hardware` |
-| M2-002 | PLANNED | Create reproducible ESP-IDF/Rust firmware build using `riscv32imafc-esp-espidf` | CI produces ELF, binary, map, size report, and checksums |
+| M2-002 | DONE | Create reproducible ESP-IDF/Rust firmware build using `riscv32imafc-esp-espidf` | CI produces ELF, binary, map, size report, and checksums, and rejects a build stamp that is not the commit's |
 | M2-003 | PLANNED | Define PSRAM allocator, panic, watchdog, logging, and reset policy | Boot manifest reports all values and reset reason |
 | M2-004 | PLANNED | Port proven Vellum D1001 services into Rust-first adapters and establish the safety/provenance contract | Exact source-transfer records, narrowly scoped unsafe code, host mocks, and third-party license audit pass |
 | M2-005 | PLANNED | Add serial command protocol for capabilities, self-test, metrics, and reset | Versioned protocol test and captured cold-boot log |
