@@ -8,9 +8,9 @@ ordered work; this file records what is actually proven now.
 
 | Field | Value |
 | --- | --- |
-| Status date | 2026-08-17 |
+| Status date | 2026-08-18 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M1-006: emulated clock and pacing contract, hosted evidence pending |
+| Latest completed task | M1-006: emulated clock and pacing contract, hosted evidence verified |
 | Current implementation | M1-007: versioned platform capabilities and typed error model |
 | Next task | M1-013: selectable video standard with NTSC geometry and colour clock |
 | Development host | macOS, Apple Silicon |
@@ -182,12 +182,18 @@ No feature is called done merely because it compiled or booted once.
   the blitter interrupt was never raised under `no_std`, the guest-visible BBUSY bit
   reported host thread state, and a state digest taken during a blit read an empty
   chip RAM slice. It is verified by clean pull-request and final `main` evidence, with the pinned digest confirmed on both host operating systems.
+- M1-006 moved host time into a platform `Clock` contract owned by the shell, so the
+  core declares an emulated frame period derived from the colour clock and cannot name
+  a host clock type in either runtime profile. It is verified by clean pull-request and
+  final `main` evidence, with the four contract tests and the frame period test passing
+  on both host operating systems. Whether the desktop sustains the paced rate under
+  load is not measured; the loop requests the correct period and reports what it
+  achieves.
 - M1-004 is verified by clean pull-request and final `main` promotion evidence.
   It removed core-owned trace files, so CPU tracing now runs through an injected
   sink in both runtime profiles, and a differential capture proves the desktop
   trace bytes are unchanged. `std::thread`, `JoinHandle`, and `core_affinity`
-  still exist in the default core profile; M1-005 must replace them with
-  deterministic single-owner execution.
+  no longer exist in either core profile; M1-005 removed them.
 - `rumiga-platform-esp` and `firmware` are host-checkable workspace members, but
   every ESP platform module and the firmware entry point remain stubs. Their
   toolchain and SDK inputs now cross-build, but there is no flash, boot,

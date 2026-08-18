@@ -2,7 +2,7 @@
   "schema": "rumiga.change-record.v1",
   "task_id": "M1-006",
   "title": "Introduce emulated clock, host yield, and monotonic pacing contracts",
-  "status": "implemented",
+  "status": "verified",
   "summary": "Move host time into a platform Clock contract owned by the product shell, derive emulated frame duration in the core from the colour clock rather than a rounded rate, pace the desktop loop against that declared period, measure the reported frame rate, and lint the core so it cannot name a host clock type in either runtime profile.",
   "scope": [
     "Platform clock and pacing contract",
@@ -71,10 +71,16 @@
       "proves": "Pacing touches only the interactive loop; the headless evidence path is unaffected."
     },
     {
-      "id": "hosted-promotion",
+      "id": "hosted-pr-m1-006",
       "kind": "ci-artifact",
-      "location": "Pending: hosted pull-request and final main promotion evidence is required before this record moves to verified.",
-      "proves": "Nothing yet."
+      "location": "GitHub Actions pull-request run 32107349807, artifact 9313620696 governance-01668e33584a4ccb0138659659b6f2909f77f873, archive sha256:414bcd7c6463b495071a6b5b8089abe778b75d854e194bbbc6eda290993fd09d as reported by the Actions API.",
+      "proves": "All ten required quality jobs pass for the clean pull-request merge revision. Both host legs run the four DesktopClock contract tests and the frame period test in both runtime profiles, so the monotonicity and pacing assertions hold on Linux x86_64 and macOS arm64 rather than on the development host alone."
+    },
+    {
+      "id": "hosted-main-m1-006",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions final main run 32108657023, artifact 9314060110 governance-e00264421c36a3d96eec9b98a491cd75df63ce8c, archive sha256:69990cdd57cf0b86f3091c41229459bc9bcb6c54527a7ead4667cd0e0aa908ff as reported by the Actions API.",
+      "proves": "All ten required quality jobs pass for clean main revision e00264421c36a3d96eec9b98a491cd75df63ce8c. The payload checksums were recomputed with two independent implementations and match the artifact's own SHA256SUMS, the manifest records dirty false, and its recorded input digests match the git tree at that revision for the change record, the ADR, the release note, and the platform contract source."
     }
   ],
   "documentation": [
