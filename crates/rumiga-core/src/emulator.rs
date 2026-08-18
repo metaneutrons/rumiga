@@ -35,6 +35,8 @@ use crate::sprites::SpriteEngine;
 use crate::video::VideoStandard;
 use rumiga_platform::{BoundedQueue, OverflowPolicy, QueueAdmission};
 
+use crate::replay::{InputEvent, InputRecorder, InputRecording, ReplayError};
+
 /// CPU cycles per scanline (227 color clocks × 2).
 const CYCLES_PER_LINE: usize = 227 * 2;
 
@@ -162,6 +164,15 @@ pub struct Emulator {
     pub framebuffer: Vec<u16>,
     /// Video standard the chipset runs at.
     video_standard: VideoStandard,
+    /// Frames completed since construction.
+    ///
+    /// This is the replay clock. It lives in the machine rather than in a shell so
+    /// that a recording's frame indices mean the same thing to every caller.
+    frames_run: u64,
+    /// Optional recorder capturing input as it is delivered.
+    input_recorder: Option<InputRecorder>,
+    /// Optional recording being replayed, with the index of the next event to apply.
+    replay: Option<(InputRecording, usize)>,
     /// Optional injected sink for instruction tracing.
     trace_sink: Option<Box<dyn TraceSink + Send>>,
     /// Optional trace limit (number of instructions).
@@ -256,6 +267,9 @@ impl Emulator {
             sprites: SpriteEngine::new(),
             framebuffer: vec![0; FRAMEBUFFER_SIZE],
             video_standard,
+            frames_run: 0,
+            input_recorder: None,
+            replay: None,
             trace_sink: None,
             trace_limit: None,
             trace_count: 0,
@@ -351,6 +365,18 @@ impl Emulator {
     /// event and counts it; a caller that ignores the result gets the previous
     /// behaviour, but the loss is now recorded rather than invisible.
     pub fn key_event(&mut self, keycode: u8, pressed: bool) -> QueueAdmission {
+        if let Some(recorder) = self.input_recorder.as_mut() {
+            recorder.key(self.frames_run, keycode, pressed);
+        }
+        self.apply_key_event(keycode, pressed)
+    }
+
+    /// Apply a key event without recording it.
+    ///
+    /// Replay goes through here rather than reimplementing the effect. A second
+    /// implementation drifts: the first version of this replay path updated the
+    /// mouse deltas but not the mouse counters, and the determinism test caught it.
+    fn apply_key_event(&mut self, keycode: u8, pressed: bool) -> QueueAdmission {
         self.key_events.push((keycode, pressed))
     }
 
@@ -390,6 +416,15 @@ impl Emulator {
 
     /// Accumulate mouse movement deltas.
     pub fn mouse_move(&mut self, dx: i16, dy: i16) {
+        if let Some(recorder) = self.input_recorder.as_mut() {
+            recorder.mouse_move(self.frames_run, dx, dy);
+        }
+        self.apply_mouse_move(dx, dy);
+    }
+
+    /// Apply pointer motion without recording it.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn apply_mouse_move(&mut self, dx: i16, dy: i16) {
         self.mouse_dx = self.mouse_dx.saturating_add(dx);
         self.mouse_dy = self.mouse_dy.saturating_add(dy);
         self.mouse_x_counter = self.mouse_x_counter.wrapping_add(dx as u8);
@@ -398,6 +433,14 @@ impl Emulator {
 
     /// Set mouse button state.
     pub fn mouse_button(&mut self, left: bool, right: bool) {
+        if let Some(recorder) = self.input_recorder.as_mut() {
+            recorder.mouse_buttons(self.frames_run, left, right);
+        }
+        self.apply_mouse_buttons(left, right);
+    }
+
+    /// Apply pointer button state without recording it.
+    fn apply_mouse_buttons(&mut self, left: bool, right: bool) {
         self.mouse_left = left;
         self.mouse_right = right;
         self.memory.mouse_left = left;
@@ -407,12 +450,104 @@ impl Emulator {
     ///
     /// 312 scanlines under PAL, 262 under NTSC.
     pub fn run_frame(&mut self) {
+        // Replayed input is applied here rather than by the caller, so the ordering
+        // between input and emulation is a property of the machine. A shell that
+        // applied it itself could get the order wrong and would produce a different
+        // digest for the same recording.
+        self.apply_replayed_input();
         self.frame_ready = false;
         self.first_video_scanline = None;
         self.early_video_scanlines.clear();
         for _ in 0..self.video_standard.scanlines() {
             self.run_scanline();
         }
+        self.frames_run = self.frames_run.saturating_add(1);
+    }
+
+    /// Deliver every recorded event scheduled for the current frame.
+    ///
+    /// Events are consumed in order from a cursor, so a recording is walked once
+    /// rather than searched per frame.
+    fn apply_replayed_input(&mut self) {
+        let frame = self.frames_run;
+        let Some((recording, cursor)) = self.replay.take() else {
+            return;
+        };
+        let mut cursor = cursor;
+        while let Some(recorded) = recording.events().get(cursor) {
+            if recorded.frame != frame {
+                break;
+            }
+            cursor += 1;
+            match recorded.event {
+                InputEvent::Key { keycode, pressed } => {
+                    // A replayed event that the queue refuses is itself deterministic,
+                    // and the queue's counters record the loss.
+                    let _ = self.apply_key_event(keycode, pressed);
+                }
+                InputEvent::MouseMove { dx, dy } => self.apply_mouse_move(dx, dy),
+                InputEvent::MouseButtons { left, right } => {
+                    self.apply_mouse_buttons(left, right);
+                }
+            }
+        }
+        self.replay = Some((recording, cursor));
+    }
+
+    /// Frames completed since construction.
+    ///
+    /// This is the clock a recording is stamped against.
+    #[must_use]
+    pub const fn frames_run(&self) -> u64 {
+        self.frames_run
+    }
+
+    /// Start recording input as it is delivered.
+    ///
+    /// Recording happens inside the three input entry points, so a recording is
+    /// complete by construction: there is no other way input reaches the machine.
+    pub fn start_input_recording(&mut self) {
+        self.input_recorder = Some(InputRecorder::new());
+    }
+
+    /// Stop recording and return what was captured.
+    ///
+    /// Returns `None` if no recording was running.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReplayError::FramesOutOfOrder`] if frames went backwards, which
+    /// would mean the caller drove the machine backwards.
+    pub fn finish_input_recording(&mut self) -> Option<Result<InputRecording, ReplayError>> {
+        self.input_recorder.take().map(InputRecorder::finish)
+    }
+
+    /// Whether input is being recorded.
+    #[must_use]
+    pub const fn is_recording_input(&self) -> bool {
+        self.input_recorder.is_some()
+    }
+
+    /// Replay `recording` from the current frame onwards.
+    ///
+    /// Events whose frame index is already behind the machine are never applied, so
+    /// attach a recording before running any frames.
+    pub fn attach_input_replay(&mut self, recording: InputRecording) {
+        self.replay = Some((recording, 0));
+    }
+
+    /// Recording currently being replayed, if any.
+    #[must_use]
+    pub fn replayed_recording(&self) -> Option<&InputRecording> {
+        self.replay.as_ref().map(|(recording, _)| recording)
+    }
+
+    /// Whether every event of an attached recording has been applied.
+    #[must_use]
+    pub fn replay_exhausted(&self) -> bool {
+        self.replay
+            .as_ref()
+            .is_none_or(|(recording, cursor)| *cursor >= recording.len())
     }
 
     /// Attach a trace sink and enable CPU execution tracing.
@@ -1249,7 +1384,74 @@ impl Emulator {
         digest.write_u16(self.chipset.vpos);
         digest.write_u16(self.chipset.hpos);
         digest.write_u16(self.video_standard.digest_tag());
+        digest.write_u64(self.frames_run);
+        // Pending input is machine state. Without it two runs that differ only in a
+        // queued keystroke would be reported as identical, which would make the
+        // replay determinism claim vacuous.
+        digest.write_u64(self.key_events.dropped());
+        for (keycode, pressed) in self.key_events.iter() {
+            digest.write_u16(u16::from(*keycode));
+            digest.write_u16(u16::from(*pressed));
+        }
+        // Big-endian bytes rather than a cast: the digest must not depend on host
+        // byte order, and this needs no MSRV-sensitive conversion.
+        digest.write_bytes(&self.mouse_dx.to_be_bytes());
+        digest.write_bytes(&self.mouse_dy.to_be_bytes());
+        digest.write_u16(u16::from(self.mouse_x_counter));
+        digest.write_u16(u16::from(self.mouse_y_counter));
+        digest.write_u16(u16::from(self.mouse_left));
+        digest.write_u16(u16::from(self.mouse_right));
+        {
+            let cia = self.memory.cia.borrow();
+            cia.cia_a.write_digest(&mut digest);
+            cia.cia_b.write_digest(&mut digest);
+        }
         digest.write_bytes(self.memory.chip_ram());
+        // Slow and fast RAM were previously outside the digest, so two runs could
+        // differ there and still be reported as the same state.
+        digest.write_bytes(self.memory.slow_ram_bytes());
+        digest.write_bytes(self.memory.fast_ram_bytes());
+        for drive in &self.floppy.drives {
+            digest.write_u16(u16::from(drive.cyl));
+            digest.write_u16(u16::from(drive.motor));
+            digest.write_u32(drive.mfm_pos);
+            digest.write_u16(u16::from(drive.dskready));
+            digest.write_u16(u16::from(drive.disk_changed));
+            digest.write_u16(u16::from(drive.dirty));
+            // Drive metadata only. Media contents are in media_digest, which costs
+            // far more to compute and is therefore a separate question.
+            digest.write_u64(drive.data.as_ref().map_or(0, |data| data.len() as u64));
+        }
+        digest.finish()
+    }
+
+    /// Digest of loaded media contents.
+    ///
+    /// Kept apart from [`Self::state_digest`] because hashing a hardfile can cost
+    /// gigabytes of reads, which a caller comparing machine state after every frame
+    /// should not pay. Not cryptographic; see [`crate::digest`].
+    ///
+    /// Covers floppy images and the Gayle IDE hardfile. It does not cover the ROM,
+    /// which does not change, or MFM track buffers, which are derived from the image.
+    #[must_use]
+    pub fn media_digest(&self) -> u64 {
+        let mut digest = StateDigest::new();
+        for drive in &self.floppy.drives {
+            match drive.data.as_ref() {
+                Some(data) => {
+                    digest.write_u16(1);
+                    digest.write_bytes(data);
+                }
+                None => digest.write_u16(0),
+            }
+        }
+        match self.memory.ide.borrow().disk_data.as_ref() {
+            Some(data) => {
+                digest.write_u16(1);
+                digest.write_bytes(data);
+            }
+            None => digest.write_u16(0),
+        }
         digest.finish()
     }
 
@@ -1625,10 +1827,11 @@ mod tests {
     /// Both runtime profiles must reach this exact value, so the portable and
     /// desktop blitter paths cannot diverge silently.
     ///
-    /// The state digest changed when M1-013 added the video standard to the
-    /// digested fields. The frame digest did not, because the fixture renders no
-    /// frame and the two standards therefore produce identical pixels here.
-    const BLIT_FIXTURE_DIGEST: (u64, u64) = (0x08e6_ace7_2721_e3cd, 0x42a5_a130_53f1_6d25);
+    /// The state digest moves whenever a field joins the digest, which has happened
+    /// twice: M1-013 added the video standard, and M1-009 added the frame counter,
+    /// pending input, CIA state, slow and fast RAM, and per-drive metadata. The frame
+    /// digest has not moved, because the fixture renders no frame.
+    const BLIT_FIXTURE_DIGEST: (u64, u64) = (0xa0f3_bdef_f8fc_a20f, 0x42a5_a130_53f1_6d25);
 
     #[test]
     fn both_runtime_profiles_reach_the_pinned_state() {
@@ -1804,6 +2007,161 @@ mod tests {
         let ntsc_beam = ntsc.memory.custom_regs[(custom::BEAMCON0 / 2) as usize];
         assert_eq!(pal_beam, custom::BEAMCON0_PAL);
         assert_eq!(ntsc_beam & custom::BEAMCON0_PAL, 0);
+    }
+
+    /// Run `frames` frames of a fresh machine under `recording` and digest the result.
+    fn replay_fixture(recording: &InputRecording, frames: u64) -> (u64, u64) {
+        let mut emu = Emulator::new(MemoryConfig::a500());
+        emu.memory.overlay = false;
+        emu.attach_input_replay(recording.clone());
+        for _ in 0..frames {
+            emu.run_frame();
+        }
+        (emu.state_digest(), emu.frame_digest())
+    }
+
+    /// A recording exercising all three event kinds across several frames.
+    fn input_fixture() -> InputRecording {
+        InputRecording::parse(
+            "rumiga.input-recording.v1\n             0 buttons 0 0\n             1 key 40 down\n             2 mouse 5 -3\n             3 key 40 up\n             4 buttons 1 0\n             5 mouse -2 7\n",
+        )
+        .expect("fixture parses")
+    }
+
+    #[test]
+    fn the_same_replay_reaches_the_same_state_twice() {
+        let recording = input_fixture();
+
+        let first = replay_fixture(&recording, 8);
+        let second = replay_fixture(&recording, 8);
+
+        // This is the acceptance criterion for M1-009: same replay, same digest.
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn a_different_recording_reaches_a_different_state() {
+        let baseline = replay_fixture(&input_fixture(), 8);
+        let shifted = InputRecording::parse(
+            "rumiga.input-recording.v1\n             0 buttons 0 0\n             1 key 41 down\n             2 mouse 5 -3\n             3 key 41 up\n             4 buttons 1 0\n             5 mouse -2 7\n",
+        )
+        .expect("variant parses");
+
+        // A digest that could not tell these apart would make the equality above
+        // meaningless.
+        assert_ne!(baseline.0, replay_fixture(&shifted, 8).0);
+    }
+
+    #[test]
+    fn replay_delivers_each_event_on_its_own_frame() {
+        let recording =
+            InputRecording::parse("rumiga.input-recording.v1\n0 buttons 1 0\n2 buttons 0 1\n")
+                .expect("fixture parses");
+        let mut emu = Emulator::new(MemoryConfig::a500());
+        emu.memory.overlay = false;
+        emu.attach_input_replay(recording);
+
+        emu.run_frame();
+        assert!(emu.mouse_left && !emu.mouse_right);
+        emu.run_frame();
+        // Frame 1 has no events, so the state from frame 0 persists.
+        assert!(emu.mouse_left && !emu.mouse_right);
+        emu.run_frame();
+        assert!(!emu.mouse_left && emu.mouse_right);
+        assert!(emu.replay_exhausted());
+    }
+
+    #[test]
+    fn recording_captures_what_was_delivered() {
+        let mut emu = Emulator::new(MemoryConfig::a500());
+        emu.memory.overlay = false;
+        emu.start_input_recording();
+        assert!(emu.is_recording_input());
+
+        emu.mouse_button(false, false);
+        emu.key_event(0x40, true);
+        emu.run_frame();
+        emu.mouse_move(3, -1);
+        emu.mouse_button(true, false);
+        emu.run_frame();
+
+        let recording = emu
+            .finish_input_recording()
+            .expect("a recording was running")
+            .expect("frames only advance");
+        assert!(!emu.is_recording_input());
+
+        // Frame stamps come from the machine, so the second frame's events carry 1.
+        assert_eq!(recording.len(), 4);
+        assert_eq!(recording.events()[0].frame, 0);
+        assert_eq!(recording.events()[2].frame, 1);
+        assert_eq!(recording.last_frame(), Some(1));
+    }
+
+    #[test]
+    fn a_recording_replays_to_the_state_it_was_captured_from() {
+        let mut recorded = Emulator::new(MemoryConfig::a500());
+        recorded.memory.overlay = false;
+        recorded.start_input_recording();
+        recorded.mouse_button(false, false);
+        recorded.key_event(0x40, true);
+        recorded.run_frame();
+        recorded.mouse_move(3, -1);
+        recorded.run_frame();
+        recorded.key_event(0x40, false);
+        recorded.run_frame();
+        let expected = (recorded.state_digest(), recorded.frame_digest());
+        let recording = recorded
+            .finish_input_recording()
+            .expect("recording ran")
+            .expect("ordered");
+
+        // Round trip through the text form as well, so the format is on the path.
+        let reparsed = InputRecording::parse(&recording.to_text()).expect("round trip");
+        assert_eq!(replay_fixture(&reparsed, 3), expected);
+    }
+
+    #[test]
+    fn the_frame_counter_advances_with_the_machine() {
+        let mut emu = Emulator::new(MemoryConfig::a500());
+        emu.memory.overlay = false;
+        assert_eq!(emu.frames_run(), 0);
+
+        emu.run_frame();
+        emu.run_frame();
+
+        assert_eq!(emu.frames_run(), 2);
+    }
+
+    #[test]
+    fn the_state_digest_covers_slow_and_fast_ram() {
+        let config = MemoryConfig {
+            slow_ram_size: 512 * 1024,
+            fast_ram_size: 1024 * 1024,
+            ..MemoryConfig::a500()
+        };
+        let mut baseline = Emulator::new(config.clone());
+        let mut mutated = Emulator::new(config);
+        baseline.memory.overlay = false;
+        mutated.memory.overlay = false;
+
+        mutated.memory.slow_ram[0] ^= 0xFF;
+
+        // Before M1-009 these two would have digested identically.
+        assert_ne!(baseline.state_digest(), mutated.state_digest());
+    }
+
+    #[test]
+    fn the_media_digest_is_separate_from_the_state_digest() {
+        let mut without = Emulator::new(MemoryConfig::a500());
+        let mut with_disk = Emulator::new(MemoryConfig::a500());
+        without.memory.overlay = false;
+        with_disk.memory.overlay = false;
+
+        with_disk.insert_floppy(0, vec![0xA5; 512]);
+
+        // Media contents are digested apart because hashing a hardfile is expensive.
+        assert_ne!(without.media_digest(), with_disk.media_digest());
     }
 
     #[test]

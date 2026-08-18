@@ -47,6 +47,7 @@ pub mod ide;
 pub mod memory;
 pub mod network;
 pub mod playfield;
+pub mod replay;
 pub mod sprites;
 pub mod video;
 

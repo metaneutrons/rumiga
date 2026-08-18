@@ -1,0 +1,113 @@
+{
+  "schema": "rumiga.change-record.v1",
+  "task_id": "M1-009",
+  "status": "implemented",
+  "title": "Add deterministic input replay and widen the machine-state digest",
+  "summary": "Stamp input events with the emulated frame the machine counts, record them inside the three input entry points so a recording is complete by construction, apply them inside run_frame so ordering is a property of the machine rather than of a shell, define a reviewable text format that rejects out-of-order files, and widen the state digest to cover the frame counter, pending input, CIA state, slow and fast RAM, and drive metadata while moving expensive media contents into a separate digest.",
+  "scope": [
+    "Emulated frame counter as the replay clock",
+    "Input recording inside the core's input entry points",
+    "Replay application inside run_frame",
+    "Reviewable text recording format with ordering rules",
+    "Widened machine-state digest and a separate media digest",
+    "Shell flags, recording output, and manifest evidence"
+  ],
+  "risk": {
+    "level": "high",
+    "failure_mode": "A second implementation of input application drifts from the first, which happened: the initial replay path updated the mouse deltas but not the mouse counters, so a recorded run and its replay diverged. A digest that does not cover what replay can reach makes the determinism claim vacuous, which also happened: two recordings differing in one keycode agreed because the keystroke had been consumed into CIA state the digest ignored. Stamping events with host time instead of frames would make replay depend on host speed.",
+    "rollback": "Revert the M1-009 commits to remove the replay module, the frame counter, and the digest widening. Recorded digests from this revision would no longer compare, which is the same situation the widening itself creates. No persisted format outside recordings depends on the change, and manifest sections are additive."
+  },
+  "compatibility": {
+    "status": "affected",
+    "detail": "rumiga-core gains a replay module with InputEvent, RecordedInput, InputRecording, InputRecorder, and ReplayError. Emulator gains frames_run, start_input_recording, finish_input_recording, is_recording_input, attach_input_replay, replayed_recording, replay_exhausted, and media_digest; run_frame applies the current frame's replayed events before running, so a shell must not apply them itself. Emulator::state_digest now covers the frame counter, the keyboard queue contents and dropped count, mouse deltas, counters and buttons, both CIA chips, slow and fast RAM, and per-drive metadata, so digests recorded before this change no longer compare. AmigaMemory gains slow_ram_bytes and fast_ram_bytes, CiaState gains write_digest, and BoundedQueue gains iter so a digest can see pending items without draining them. Capture manifests gain additive replay and digests sections. Rendered output is unchanged: a 1200-frame A1200 capture keeps the digest recorded since M1-013."
+  },
+  "security": {
+    "status": "none",
+    "detail": "No network transport, credential, authorization, or unsafe-code changes. The shell reads a recording file and the core parses the text; parsing is bounded, allocates one event per line, and rejects unknown kinds, malformed fields, trailing fields, and decreasing frame indices rather than guessing. The core opens no file, as with the trace sink."
+  },
+  "tests": [
+    {
+      "id": "same-replay-same-digest",
+      "command": "cargo +1.97.1 test --locked -p rumiga-core --lib the_same_replay_reaches_the_same_state_twice",
+      "proves": "The acceptance criterion: replaying one recording twice from a fresh machine reaches an identical state and frame digest."
+    },
+    {
+      "id": "different-replay-different-digest",
+      "command": "cargo +1.97.1 test --locked -p rumiga-core --lib a_different_recording_reaches_a_different_state",
+      "proves": "Two recordings differing in a single keycode reach different digests, so the equality above is not satisfied by a digest too narrow to notice. This test failed until the digest covered CIA state, where the keystroke had already been consumed."
+    },
+    {
+      "id": "recorded-session-replays-identically",
+      "command": "cargo +1.97.1 test --locked -p rumiga-core --lib a_recording_replays_to_the_state_it_was_captured_from",
+      "proves": "A session captured through the public input methods, written to text and parsed back, replays to the digest of the run that produced it. This test failed while the replay path reimplemented input application, and its failure is what identified the missing mouse counter update."
+    },
+    {
+      "id": "format-round-trip-and-rejections",
+      "command": "cargo +1.97.1 test --locked -p rumiga-core --lib replay",
+      "proves": "Text round-trips, comments and blank lines are ignored, and a missing header, malformed field, unknown kind, trailing field, and decreasing frame are each rejected with the offending line number."
+    },
+    {
+      "id": "digest-covers-what-it-claims",
+      "command": "cargo +1.97.1 test --locked -p rumiga-core --lib the_state_digest_covers_slow_and_fast_ram",
+      "proves": "A single mutated slow-RAM byte changes the state digest, which it did not before, and the media digest is shown to be separate from it."
+    },
+    {
+      "id": "both-runtime-profiles",
+      "command": "cargo +1.97.1 test --locked -p rumiga-core --no-default-features --features no_std --lib",
+      "proves": "Recording, replay, the format, and the widened digest all hold in the bare-metal profile as well as the desktop one."
+    },
+    {
+      "id": "shell-flags-and-manifest",
+      "command": "cargo +1.97.1 test --locked -p rumiga-desktop",
+      "proves": "Both flags parse and require a value, and capture manifests carry the replay and digest sections."
+    },
+    {
+      "id": "full-local-promotion",
+      "command": "cargo +1.97.1 xtask ci",
+      "proves": "All eight gates pass for the change."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "local-two-defects-found-by-the-new-tests",
+      "kind": "command",
+      "location": "2026-08-18 local execution: the replay path initially reimplemented input application and updated mouse_dx and mouse_dy but not mouse_x_counter and mouse_y_counter, so a recorded run and its replay differed in JOY0DAT, recorded (3, 255) against replayed (0, 0). Separately, two recordings differing only in keycode 0x40 against 0x41 reached the same state digest because the keystroke had been consumed into the CIA serial register, which the digest did not cover.",
+      "proves": "Both failures were found by the tests written for this task rather than reasoned about, and both were fixed at the cause: input application was reduced to one implementation per action that replay also calls, and the digest was widened to cover CIA state."
+    },
+    {
+      "id": "local-replay-determinism-on-the-host",
+      "kind": "host-scenario",
+      "location": "2026-08-18 local execution: three 300-frame A1200 replays of a hand-written seven-event recording, digest 0x67a1d9eba306b361, each reach state digest 0x3530b85cc280ec97; the same run with no input reaches 0x5446697654ab27f7. All four runs share frame digest 0x6d7c2de83b7b6725.",
+      "proves": "Replay is deterministic across runs and observably changes the machine. The shared frame digest is the reason the state digest is necessary: the Kickstart insert-disk screen does not react to these inputs, so comparing screenshots would have shown no difference and proved nothing either way."
+    },
+    {
+      "id": "local-malformed-recordings-refused",
+      "kind": "command",
+      "location": "2026-08-18 local execution: a file without the version header is refused before the machine starts, with the message naming the expected header, and no capture is written. Passing both --record-input and --replay-input exits with a message rather than recording a replay.",
+      "proves": "A bad or contradictory replay request fails loudly instead of producing a session nobody recorded."
+    },
+    {
+      "id": "local-capture-unchanged",
+      "kind": "host-scenario",
+      "location": "2026-08-18 local execution: a 1200-frame A1200 Kickstart 46.143 capture has SHA-256 b190d54b1bbf1e6a9bba3f36d34b74c95ab8fc6fe7796f2f6c694b70165ea1aa, the value recorded since M1-013.",
+      "proves": "Recording, replay, and the digest widening changed no rendered output."
+    },
+    {
+      "id": "hosted-promotion",
+      "kind": "ci-artifact",
+      "location": "Pending: hosted pull-request and final main promotion evidence is required before this record moves to verified.",
+      "proves": "Nothing yet."
+    }
+  ],
+  "documentation": [
+    "ARCHITECTURE.md",
+    "IMPLEMENTATION_PLAN.md",
+    "PROJECT_STATUS.md",
+    "docs/adr/0015-deterministic-input-replay.md",
+    "docs/adr/README.md"
+  ],
+  "release_note": "docs/release-notes/unreleased/M1-009.md",
+  "architecture_decisions": [
+    "docs/adr/0015-deterministic-input-replay.md"
+  ]
+}
