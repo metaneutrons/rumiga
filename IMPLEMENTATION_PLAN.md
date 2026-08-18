@@ -503,7 +503,7 @@ local promotion result.
 | M1-008 | DONE | Add bounded video/audio/input/event queue contracts | Overflow policy and high-water marks have tests |
 | M1-009 | DONE | Add deterministic input replay and machine-state digest | Same replay yields same digest on repeated host runs |
 | M1-010 | DONE | Add allocation instrumentation and steady-state no-allocation assertion | One-minute host run has no scanline-loop allocations |
-| M1-011 | PLANNED | Measure 32-bit assumptions, alignment, endianness, and `usize` conversions | Miri/sanitizer/property fixtures cover critical boundaries |
+| M1-011 | DONE | Measure 32-bit assumptions, alignment, endianness, and `usize` conversions | Miri/sanitizer/property fixtures cover critical boundaries |
 | M1-012 | PLANNED | Publish portability contract in architecture docs | Core dependency graph contains only approved `no_std` crates |
 | M1-013 | DONE | Make the video standard selectable and model NTSC geometry, colour clock, and Agnus identification | An NTSC Kickstart boots, detects the standard, and produces a stable screenshot digest; conformance to documented constants is asserted |
 
@@ -1140,6 +1140,56 @@ M1-010 implementation evidence (2026-08-18):
   this counts allocation calls rather than footprint
 - hosted pull-request and final `main` evidence is pending promotion
 
+M1-011 implementation evidence (2026-08-18):
+
+- Miri is answered rather than adopted. It detects undefined behaviour, and the
+  workspace sets `unsafe_code = "forbid"` at the root, so no crate contains raw pointer
+  arithmetic that could produce any. The two failure modes that actually separate the
+  64-bit hosts from the 32-bit device, a truncating `usize` and a native-endian
+  conversion, are both well-defined behaviour and invisible to Miri. A Miri leg would
+  look like coverage while detecting neither; the plan's property-fixture option is used
+- the byte-order property already held and was unenforced. A workspace-wide search found
+  zero uses of `from_ne_bytes` or `to_ne_bytes` and 35 explicit big-endian conversions
+  across nine core modules. That is a property of today's code, not of the design
+- `crates/rumiga-core/clippy.toml` now bans both families through `disallowed_methods`
+  and `lib.rs` denies the lint, the same mechanism ADR-0011 used for host clocks and for
+  the same reason: a comment does not survive a future contributor, and ADR-0005 rejects
+  source-text searches
+- `lib.rs` asserts at compile time that `usize` is at least as wide as `u32`, so a build
+  for a narrower target fails with a message naming the reason instead of truncating
+  every guest address silently, and that a chip RAM length fits in `u32`, which several
+  guest pointer masking sites assume
+- both invariants were probe-verified. A temporary `u32::from_ne_bytes` was rejected with
+  `use of a disallowed method`; a temporary assertion requiring a 128-bit `usize` failed
+  the build with its own message. Both probes were removed and the tree re-checked
+- the cast audit found no production defect, which is a result rather than missing work.
+  The workspace denies `clippy::pedantic`, which includes `cast_possible_truncation`, so
+  every lossy cast already carries an explicit `allow`. There are 26 such sites; all are
+  narrowings between fixed-width types such as `u32` to `u16`, which behave identically
+  at either pointer width, and the one site that multiplies before casting to `usize` is
+  a test helper
+- the `allow` sites were the right audit list rather than the 166 `as usize` occurrences
+  a naive search returns: a `u32 as usize` is lossless at every supported width, so
+  treating it as a finding would bury the sites that can lose data
+- seven property fixtures cover the boundaries: a guest address across the whole 32-bit
+  range including its edges, word and long access through the CPU's own `AddressBus` in
+  both directions with individual bytes checked rather than only the round trip, every
+  modelled RAM length fitting in `u32`, and the framebuffer index space fitting in 32
+  bits
+- checking bytes rather than only round trips is deliberate: a round trip alone passes
+  under a consistent host-endian implementation, which is exactly the defect
+- not claimed: execution with a 32-bit `usize`. No such target with a usable `std` exists
+  on the development host, and an `i686` leg would exercise a width the product never
+  runs, so the pointer-width claim rests on the compile-time assertions plus the existing
+  `riscv32imafc` compile gate. That is weaker than execution and recorded as such
+- not enforced: alignment. The core stores guest memory as byte slices and composes wider
+  values from bytes, so it makes no alignment assumption to violate; that follows from the
+  design rather than from this task
+- an assertion about the host's own byte order was considered and rejected. A big-endian
+  host would be equally correct and would only make host tests less discriminating;
+  failing a build over that would be hostile for no gain
+- hosted pull-request and final `main` evidence is pending promotion
+
 ### M1 functional commits
 
 1. `refactor(core): define std and no-std runtime profiles`
@@ -1168,6 +1218,7 @@ M1-010 implementation evidence (2026-08-18):
 24. `feat(platform): bound queues with a named overflow policy`
 25. `feat(core): record and replay input against emulated frames`
 26. `perf(core): stop allocating in the scanline loop`
+27. `test(core): enforce byte order and pointer-width boundaries`
 
 ## M2 Backlog: D1001 Board Bring-Up
 

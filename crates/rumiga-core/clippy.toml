@@ -2,3 +2,24 @@ disallowed-types = [
   { path = "std::time::Instant", reason = "the core must not read host time; use the platform Clock contract" },
   { path = "std::time::SystemTime", reason = "the core must not read host time; use the platform Clock contract" },
 ]
+
+# The Amiga is big-endian; the development hosts and the RISC-V target are
+# little-endian. Every guest value must therefore be converted with an explicit byte
+# order, never the host's. The workspace happens to satisfy this today with 35
+# explicit big-endian conversions and no native-endian ones; these entries keep it
+# that way, because a single `from_ne_bytes` would produce a core that passes every
+# host test and renders garbage on the device.
+disallowed-methods = [
+  { path = "u16::from_ne_bytes", reason = "guest byte order is big-endian; use from_be_bytes" },
+  { path = "u32::from_ne_bytes", reason = "guest byte order is big-endian; use from_be_bytes" },
+  { path = "u64::from_ne_bytes", reason = "guest byte order is big-endian; use from_be_bytes" },
+  { path = "i16::from_ne_bytes", reason = "guest byte order is big-endian; use from_be_bytes" },
+  { path = "i32::from_ne_bytes", reason = "guest byte order is big-endian; use from_be_bytes" },
+  { path = "usize::from_ne_bytes", reason = "guest byte order is big-endian; use from_be_bytes" },
+  { path = "u16::to_ne_bytes", reason = "guest byte order is big-endian; use to_be_bytes" },
+  { path = "u32::to_ne_bytes", reason = "guest byte order is big-endian; use to_be_bytes" },
+  { path = "u64::to_ne_bytes", reason = "guest byte order is big-endian; use to_be_bytes" },
+  { path = "i16::to_ne_bytes", reason = "guest byte order is big-endian; use to_be_bytes" },
+  { path = "i32::to_ne_bytes", reason = "guest byte order is big-endian; use to_be_bytes" },
+  { path = "usize::to_ne_bytes", reason = "guest byte order is big-endian; use to_be_bytes" },
+]

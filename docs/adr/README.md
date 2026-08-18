@@ -44,3 +44,4 @@ Numbering is contiguous; `0000-template.md` is reserved and is not a decision.
 | [ADR-0014](0014-bounded-queues-and-overflow-policy.md) | Accepted | M1-008 | Bound queues with a per-queue overflow policy and counters that make saturation visible |
 | [ADR-0015](0015-deterministic-input-replay.md) | Accepted | M1-009 | Stamp input against emulated frames, record and apply it in the core, and widen the state digest to match |
 | [ADR-0016](0016-allocation-instrumentation.md) | Accepted | M1-010 | Measure allocations before fixing them, from outside the workspace, and retain the two per-scanline buffers |
+| [ADR-0017](0017-portability-boundaries.md) | Accepted | M1-011 | Enforce guest byte order and pointer-width assumptions instead of reaching for Miri, which cannot see either failure |
