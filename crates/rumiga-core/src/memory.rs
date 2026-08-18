@@ -446,6 +446,21 @@ impl AmigaMemory {
     }
 
     /// Returns a mutable reference to the chip RAM slice for DMA access.
+    /// Slow RAM contents.
+    ///
+    /// Exposed so a state digest can cover it. Chip RAM was already digested; slow
+    /// and fast RAM were not, so two runs could differ there and still agree.
+    #[must_use]
+    pub fn slow_ram_bytes(&self) -> &[u8] {
+        &self.slow_ram
+    }
+
+    /// Fast RAM contents.
+    #[must_use]
+    pub fn fast_ram_bytes(&self) -> &[u8] {
+        &self.fast_ram
+    }
+
     pub fn chip_ram_mut(&mut self) -> &mut [u8] {
         &mut self.chip_ram
     }

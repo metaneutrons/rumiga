@@ -42,3 +42,4 @@ Numbering is contiguous; `0000-template.md` is reserved and is not a decision.
 | [ADR-0012](0012-selectable-video-standard.md) | Accepted | M1-013 | Make the video standard selectable through one type that owns every PAL/NTSC difference |
 | [ADR-0013](0013-platform-capabilities-and-typed-errors.md) | Accepted | M1-007 | Version the platform contracts, describe capabilities, and separate typed failure from backpressure |
 | [ADR-0014](0014-bounded-queues-and-overflow-policy.md) | Accepted | M1-008 | Bound queues with a per-queue overflow policy and counters that make saturation visible |
+| [ADR-0015](0015-deterministic-input-replay.md) | Accepted | M1-009 | Stamp input against emulated frames, record and apply it in the core, and widen the state digest to match |

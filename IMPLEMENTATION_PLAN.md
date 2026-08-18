@@ -501,7 +501,7 @@ local promotion result.
 | M1-006 | DONE | Introduce emulated clock, host yield, and monotonic scheduling contracts | The core cannot name a host clock type, emulated frame duration comes from the colour clock, and the shell paces against it with a measured frame rate |
 | M1-007 | DONE | Version platform capabilities and typed error model | Unsupported and backpressure states are explicit and tested |
 | M1-008 | DONE | Add bounded video/audio/input/event queue contracts | Overflow policy and high-water marks have tests |
-| M1-009 | PLANNED | Add deterministic input replay and machine-state digest | Same replay yields same digest on repeated host runs |
+| M1-009 | DONE | Add deterministic input replay and machine-state digest | Same replay yields same digest on repeated host runs |
 | M1-010 | PLANNED | Add allocation instrumentation and steady-state no-allocation assertion | One-minute host run has no scanline-loop allocations |
 | M1-011 | PLANNED | Measure 32-bit assumptions, alignment, endianness, and `usize` conversions | Miri/sanitizer/property fixtures cover critical boundaries |
 | M1-012 | PLANNED | Publish portability contract in architecture docs | Core dependency graph contains only approved `no_std` crates |
@@ -1021,6 +1021,55 @@ M1-008 implementation evidence (2026-08-18):
   independent verification covers the payload, not the archive container, because the
   API does not serve the archive bytes to a plain token fetch
 
+M1-009 implementation evidence (2026-08-18):
+
+- the machine had no frame counter. `run_frame` incremented nothing, and every frame
+  counter in the tree belonged to a shell, so a recording stamped with one would mean
+  whatever that shell happened to count. `Emulator::frames_run` is now the replay clock
+- events are stamped with emulated frames rather than host time. A wall-clock stamp
+  would replay differently on a faster or busier machine, which is the property replay
+  exists to remove; ADR-0011 keeps host time out of the core and this is where it pays
+- the core records, not the shell. The three input entry points are the only way input
+  reaches the machine, so recording inside them makes a recording complete by
+  construction rather than by every shell remembering to do it
+- `run_frame` applies the current frame's events itself, so the ordering between input
+  and emulation is a property of the machine. A shell that applied them at the wrong
+  point would produce a different digest from the same recording with nothing flagging it
+- two defects were found by the new tests rather than reasoned about. The replay path
+  initially reimplemented input application and updated `mouse_dx` and `mouse_dy` but not
+  `mouse_x_counter` and `mouse_y_counter`, so a recorded run and its replay differed in
+  JOY0DAT, recorded (3, 255) against replayed (0, 0). The fix was to remove the copy:
+  there is now one `apply_*` helper per action that both the public method and replay call
+- the second defect was in the digest. Two recordings differing only in keycode `0x40`
+  against `0x41` reached the same state digest, because the keystroke had already been
+  consumed into the CIA serial register, which the digest did not cover. Without that fix
+  "the same replay yields the same digest" would have held for the uninteresting reason
+  that the digest could not see the difference
+- the state digest now covers the frame counter, the keyboard queue contents and its
+  dropped count, mouse deltas, counters and buttons, both CIA chips, slow and fast RAM,
+  and per-drive metadata. Media contents moved to a separate `media_digest`, because
+  hashing a hardfile can cost gigabytes that a caller digesting state per frame should
+  not pay
+- the recording format is text with a version header, one event per line, so a scenario
+  can be hand-written, reviewed, and diffed. Frames must not decrease: a backwards jump
+  is rejected rather than sorted, because sorting would hide a corrupted or hand-merged
+  file
+- on the host, three 300-frame replays of a seven-event recording each reach state digest
+  `0x3530b85cc280ec97`, while the same run with no input reaches `0x5446697654ab27f7`.
+  All four share frame digest `0x6d7c2de83b7b6725`, because the Kickstart insert-disk
+  screen does not react to these inputs. Comparing screenshots would have shown no
+  difference and proved nothing, which is precisely why the state digest is separate
+- rendered output is unchanged: a 1200-frame A1200 capture keeps digest
+  `b190d54b1bbf1e6a9bba3f36d34b74c95ab8fc6fe7796f2f6c694b70165ea1aa`
+- conditional, and recorded as such: replay determinism assumes the network is disabled,
+  which is the default. The SLIRP backend injects host-received Ethernet frames and those
+  are not recorded. A recording also carries no reference to the ROM or disk images it was
+  made against, so replaying it against different media is silently a different session;
+  the manifest records the media digest so a reader can notice afterwards
+- still outside the digest: the copper and blitter shadows beyond `custom_regs`, the audio
+  channel state, the floppy MFM track buffers, and the IDE transfer state
+- hosted pull-request and final `main` evidence is pending promotion
+
 ### M1 functional commits
 
 1. `refactor(core): define std and no-std runtime profiles`
@@ -1047,6 +1096,7 @@ M1-008 implementation evidence (2026-08-18):
 22. `feat(core): make the video standard selectable`
 23. `feat(platform): version capabilities and type the error model`
 24. `feat(platform): bound queues with a named overflow policy`
+25. `feat(core): record and replay input against emulated frames`
 
 ## M2 Backlog: D1001 Board Bring-Up
 

@@ -10,9 +10,9 @@ ordered work; this file records what is actually proven now.
 | --- | --- |
 | Status date | 2026-08-18 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M1-008: bounded queues and overflow policy, hosted evidence verified |
-| Current implementation | M1-009: deterministic input replay and machine-state digest |
-| Next task | M1-010: allocation instrumentation and steady-state no-allocation assertion |
+| Latest completed task | M1-009: deterministic input replay, hosted evidence pending |
+| Current implementation | M1-010: allocation instrumentation and steady-state no-allocation assertion |
+| Next task | M1-011: 32-bit assumption, alignment, and endianness measurement |
 | Development host | macOS, Apple Silicon |
 | Product target | Seeed reTerminal D1001, ESP32-P4 |
 | Product maturity | Desktop compatibility prototype |
@@ -176,6 +176,15 @@ No feature is called done merely because it compiled or booted once.
   reversibility invariant, but they prove nothing about hardware: no board has
   been flashed, no eFuse has been burned, and with virtual eFuses the encryption
   is simulated rather than enforced.
+- M1-009 made input recordable and replayable against emulated frames, and widened the
+  state digest to cover what replay can reach. Three replays of one recording reach the
+  same state digest while a run with no input reaches a different one; all four share the
+  same frame digest, because the screen under test does not react, which is why the state
+  digest is separate. Two defects surfaced during the work and were fixed at the cause: a
+  duplicated replay path that missed the mouse counters, and a digest that could not see a
+  keystroke already consumed into CIA state. Hosted evidence is pending. Replay assumes
+  networking is disabled, carries no media reference, and the digest still omits the
+  copper and blitter shadows, audio state, MFM buffers, and IDE transfer state.
 - M1-008 bounded the queues that exist and named their overflow policy. The guest
   keyboard queue previously dropped events past sixteen with nothing recorded, and its
   bound is reached in normal use because it drains about seventeen events per second.

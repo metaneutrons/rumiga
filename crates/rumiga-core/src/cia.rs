@@ -6,6 +6,8 @@
 //! The Amiga contains two CIA 8520 chips providing timers, I/O ports,
 //! a time-of-day counter, and serial shift registers.
 
+use crate::digest::StateDigest;
+
 /// Register index: Peripheral Data Register A.
 const REG_PRA: u8 = 0x0;
 /// Register index: Peripheral Data Register B.
@@ -125,6 +127,42 @@ pub struct CiaState {
     pub register_write_counts: [u64; 16],
     /// Last guest-written value per CIA register index.
     pub last_register_writes: [u8; 16],
+}
+
+impl CiaState {
+    /// Fold this CIA's guest-visible state into `digest`.
+    ///
+    /// The CIA carries keyboard serial data and the timers, so it is machine state.
+    /// It sat outside the state digest until M1-009, which meant a keystroke that had
+    /// already reached `sdr` was invisible to a state comparison.
+    ///
+    /// The write-evidence counters are included because they are part of what a
+    /// recorded run reports, so a replay that produced them differently should not
+    /// compare equal.
+    pub fn write_digest(&self, digest: &mut StateDigest) {
+        digest.write_u16(u16::from(self.pra));
+        digest.write_u16(u16::from(self.prb));
+        digest.write_u16(u16::from(self.ddra));
+        digest.write_u16(u16::from(self.ddrb));
+        digest.write_u16(self.timer_a);
+        digest.write_u16(self.timer_a_latch);
+        digest.write_u16(self.timer_b);
+        digest.write_u16(self.timer_b_latch);
+        digest.write_u16(u16::from(self.cra));
+        digest.write_u16(u16::from(self.crb));
+        digest.write_u16(u16::from(self.icr_data));
+        digest.write_u16(u16::from(self.icr_mask));
+        digest.write_u16(u16::from(self.icr_ir));
+        digest.write_u16(u16::from(self.sdr));
+        digest.write_bytes(&self.tod);
+        digest.write_bytes(&self.tod_alarm);
+        digest.write_u16(u16::from(self.tod_latched));
+        digest.write_bytes(&self.tod_latch);
+        for count in self.register_write_counts {
+            digest.write_u64(count);
+        }
+        digest.write_bytes(&self.last_register_writes);
+    }
 }
 
 impl CiaState {

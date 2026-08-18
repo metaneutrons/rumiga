@@ -29,6 +29,7 @@ use rumiga_core::floppy::{
 };
 use rumiga_core::memory::MemoryConfig;
 use rumiga_core::playfield::{DISPLAY_HEIGHT, DISPLAY_LEFT_HPOS, DISPLAY_WIDTH, PlayfieldState};
+use rumiga_core::replay::InputRecording;
 use rumiga_core::video::VideoStandard;
 use rumiga_platform::Clock;
 use rumiga_platform::{CapabilityReport, FramePresentation, VideoOutput};
@@ -1106,6 +1107,8 @@ struct LaunchArgs {
     df2: Option<String>,
     df3: Option<String>,
     trace_cpu: Option<String>,
+    record_input: Option<String>,
+    replay_input: Option<String>,
     trace_limit: Option<u64>,
     capture_path: Option<String>,
     capture_manifest_path: Option<String>,
@@ -1340,6 +1343,42 @@ fn main() {
             Ok(sink) => emulator.set_trace_sink(Box::new(sink), launch_args.trace_limit),
             Err(e) => {
                 eprintln!("Failed to enable CPU tracing to '{trace_path}': {e}");
+                process::exit(1);
+            }
+        }
+    }
+    // Recording and replay are mutually exclusive: recording a replay would just
+    // copy the input file back out while claiming to have observed it.
+    if launch_args.record_input.is_some() && launch_args.replay_input.is_some() {
+        eprintln!("Options --record-input and --replay-input are mutually exclusive");
+        process::exit(1);
+    }
+    if launch_args.record_input.is_some() {
+        emulator.start_input_recording();
+        eprintln!("  Input:          recording");
+    }
+    if let Some(ref replay_path) = launch_args.replay_input {
+        // The core neither opens files nor parses paths; the shell reads the bytes and
+        // the core owns the format, as with the trace sink.
+        let text = match fs::read_to_string(replay_path) {
+            Ok(text) => text,
+            Err(e) => {
+                eprintln!("Failed to read input recording '{replay_path}': {e}");
+                process::exit(1);
+            }
+        };
+        match InputRecording::parse(&text) {
+            Ok(recording) => {
+                eprintln!(
+                    "  Input:          replaying {} events over {} frames (digest {:#018x})",
+                    recording.len(),
+                    recording.last_frame().map_or(0, |frame| frame + 1),
+                    recording.digest()
+                );
+                emulator.attach_input_replay(recording);
+            }
+            Err(e) => {
+                eprintln!("Invalid input recording '{replay_path}': {e}");
                 process::exit(1);
             }
         }
@@ -1821,6 +1860,7 @@ fn main() {
 
     // Durability of the trace file is explicit, not a side effect of drop order.
     emulator.flush_trace();
+    write_input_recording_if_requested(&mut emulator, &launch_args);
 
     if let Err(e) = write_hdf_snapshot_if_requested(&emulator, &launch_args) {
         eprintln!("{e}");
@@ -2003,6 +2043,8 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
     let mut df2 = None;
     let mut df3 = None;
     let mut trace_cpu = None;
+    let mut record_input = None;
+    let mut replay_input = None;
     let mut trace_limit = None;
     let mut capture_path = None;
     let mut capture_manifest_path = None;
@@ -2203,6 +2245,20 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
                     return Err("--df3 requires a value".to_owned());
                 };
                 df3 = Some(value.clone());
+                index += 2;
+            }
+            "--record-input" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--record-input requires a value".to_owned());
+                };
+                record_input = Some(value.clone());
+                index += 2;
+            }
+            "--replay-input" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("--replay-input requires a value".to_owned());
+                };
+                replay_input = Some(value.clone());
                 index += 2;
             }
             "--trace-cpu" => {
@@ -2417,6 +2473,8 @@ fn parse_args(args: &[String]) -> Result<LaunchArgs, String> {
         df2,
         df3,
         trace_cpu,
+        record_input,
+        replay_input,
         trace_limit,
         capture_path,
         capture_manifest_path,
@@ -2650,6 +2708,8 @@ Options:
       --chip-ram <size>   Override Chip RAM size: e.g. 512K, 1M, 2M
       --slow-ram <size>   Override Slow RAM size: e.g. 512K, 1M
       --fast-ram <size>   Override Fast RAM size: e.g. 1M, 2M, 4M, 8M
+      --record-input PATH Record input events against emulated frames
+      --replay-input PATH Replay a recorded input file deterministically
       --pal               PAL timing: 312 lines, 50.08 Hz (default)
       --ntsc              NTSC timing: 262 lines, 60.19 Hz
       --df0 <file.adf>    Explicitly mount floppy in DF0
@@ -2680,6 +2740,7 @@ fn capture_evidence(
     }
     // Durability of the trace file is explicit, not a side effect of drop order.
     emulator.flush_trace();
+    write_input_recording_if_requested(emulator, context.args);
 
     let hdf_snapshot = write_hdf_snapshot_if_requested(emulator, context.args)?;
     let active_height = usize::from(emulator.active_height());
@@ -2903,6 +2964,8 @@ fn write_capture_manifest(path: &Path, context: &CaptureManifestContext<'_>) -> 
     push_presentation_json(&mut json, context);
     push_native_framebuffer_json(&mut json, context.emulator);
     push_input_queue_json(&mut json, context.emulator);
+    push_replay_json(&mut json, context.emulator);
+    push_digest_json(&mut json, context.emulator);
     push_boot_workarounds_json(&mut json, context.emulator);
     push_cia_state_json(&mut json, context.emulator);
     let _ = writeln!(
@@ -3018,6 +3081,74 @@ fn push_native_framebuffer_json(json: &mut String, emulator: &Emulator) {
 ///
 /// A capture run supplies no keyboard input, so these normally read zero. That zero is
 /// the useful part: it documents that no input pressure could have influenced the frame.
+/// Record the machine-state and media digests.
+///
+/// The rendered frame is a weak instrument for comparing runs: a screen that does not
+/// react to input renders identically whether the input arrived or not. These digests
+/// compare the machine rather than the picture. Neither is cryptographic.
+fn push_digest_json(json: &mut String, emulator: &Emulator) {
+    let _ = writeln!(
+        json,
+        "  \"digests\": {{ \"state\": {}, \"frame\": {}, \"media\": {} }},",
+        json_string(&format!("{:#018x}", emulator.state_digest())),
+        json_string(&format!("{:#018x}", emulator.frame_digest())),
+        json_string(&format!("{:#018x}", emulator.media_digest()))
+    );
+}
+
+/// Record the replay state so evidence names the input that produced it.
+///
+/// `frames` is the machine's own frame counter, which is what a recording is stamped
+/// against, so the two numbers in this section are directly comparable.
+fn push_replay_json(json: &mut String, emulator: &Emulator) {
+    let (events, digest, exhausted) =
+        emulator
+            .replayed_recording()
+            .map_or((0, 0, true), |recording| {
+                (
+                    recording.len(),
+                    recording.digest(),
+                    emulator.replay_exhausted(),
+                )
+            });
+    let _ = writeln!(
+        json,
+        "  \"replay\": {{ \"frames_run\": {}, \"recorded_events\": {events}, \"recording_digest\": {}, \"exhausted\": {exhausted} }},",
+        emulator.frames_run(),
+        json_string(&format!("{digest:#018x}"))
+    );
+}
+
+/// Write a finished input recording, if one was requested.
+///
+/// The core hands over a formatted recording; opening the file and writing it belongs
+/// here, the same split the trace sink uses.
+fn write_input_recording_if_requested(emulator: &mut Emulator, args: &LaunchArgs) {
+    let Some(path) = args.record_input.as_ref() else {
+        return;
+    };
+    let Some(result) = emulator.finish_input_recording() else {
+        return;
+    };
+    match result {
+        Ok(recording) => {
+            if let Err(e) = create_parent_dirs(Path::new(path)).and_then(|()| {
+                fs::write(path, recording.to_text()).map_err(|error| error.to_string())
+            }) {
+                eprintln!("Failed to write input recording '{path}': {e}");
+                return;
+            }
+            eprintln!(
+                "Input recording: {} events over {} frames (digest {:#018x}) -> {path}",
+                recording.len(),
+                emulator.frames_run(),
+                recording.digest()
+            );
+        }
+        Err(e) => eprintln!("Refusing to write an inconsistent input recording: {e}"),
+    }
+}
+
 fn push_input_queue_json(json: &mut String, emulator: &Emulator) {
     let _ = writeln!(
         json,
@@ -4223,6 +4354,8 @@ mod tests {
             df2: None,
             df3: None,
             trace_cpu: None,
+            record_input: None,
+            replay_input: None,
             trace_limit: None,
             capture_path: None,
             capture_manifest_path: None,
@@ -5088,6 +5221,28 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_accepts_the_replay_flags() {
+        let recorded = parse_args(&[
+            "--record-input".to_owned(),
+            "session.rec".to_owned(),
+            "kick.rom".to_owned(),
+        ])
+        .expect("--record-input should parse");
+        assert_eq!(recorded.record_input.as_deref(), Some("session.rec"));
+
+        let replayed = parse_args(&[
+            "--replay-input".to_owned(),
+            "session.rec".to_owned(),
+            "kick.rom".to_owned(),
+        ])
+        .expect("--replay-input should parse");
+        assert_eq!(replayed.replay_input.as_deref(), Some("session.rec"));
+
+        assert!(parse_args(&["--record-input".to_owned()]).is_err());
+        assert!(parse_args(&["--replay-input".to_owned()]).is_err());
+    }
+
+    #[test]
     fn parse_args_accepts_the_video_standard_flags() {
         let ntsc =
             parse_args(&["--ntsc".to_owned(), "kick.rom".to_owned()]).expect("--ntsc should parse");
@@ -5200,6 +5355,21 @@ mod tests {
         assert_eq!(manifest["input_queue"]["depth"], 0);
         assert_eq!(manifest["input_queue"]["high_water"], 0);
         assert_eq!(manifest["input_queue"]["dropped"], 0);
+        // Replay state and the digests are recorded so evidence names the input that
+        // produced a result, and compares the machine rather than the picture.
+        assert_eq!(manifest["replay"]["frames_run"], 0);
+        assert_eq!(manifest["replay"]["recorded_events"], 0);
+        assert_eq!(manifest["replay"]["exhausted"], true);
+        assert!(
+            manifest["digests"]["state"]
+                .as_str()
+                .is_some_and(|value| value.starts_with("0x"))
+        );
+        assert!(
+            manifest["digests"]["media"]
+                .as_str()
+                .is_some_and(|value| value.starts_with("0x"))
+        );
         assert_eq!(
             manifest["boot_workarounds"]["forced_cia_timer_start"],
             false

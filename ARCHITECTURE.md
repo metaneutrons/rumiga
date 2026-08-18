@@ -179,6 +179,13 @@ either into the error type would make normal operation indistinguishable from a
 fault. The video, audio, input, and storage rows have capability fields; the
 remaining rows are later milestones and have none yet.
 
+Deterministic replay is available as of M1-009. Input is stamped with the frame the
+machine counts, recorded inside the core's input entry points so a recording cannot
+be incomplete, and applied inside `run_frame` so ordering is not a shell's
+responsibility. The state digest was widened to cover what replay can reach, and
+media contents moved to a separate digest whose cost a caller opts into. ADR-0015
+records why host timestamps and shell-side application were both rejected.
+
 Queues are bounded with a stated policy as of M1-008. `BoundedQueue` fixes its
 capacity at construction, names its `OverflowPolicy`, returns a `QueueAdmission`
 that shows what the policy did with each item, and counts both the deepest depth

@@ -392,6 +392,14 @@ impl<T> BoundedQueue<T> {
         self.items.front()
     }
 
+    /// Iterate the queued items from oldest to newest without consuming them.
+    ///
+    /// Pending items are state. A caller that digests machine state needs to see
+    /// them, and draining the queue to do so would change what it is measuring.
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
+        self.items.iter()
+    }
+
     /// Items currently queued.
     #[must_use]
     pub fn len(&self) -> usize {
@@ -1062,6 +1070,19 @@ mod tests {
 
         assert_eq!(queue.policy(), OverflowPolicy::DropOldest);
         assert_eq!(queue.capacity(), 8);
+    }
+
+    #[test]
+    fn iteration_shows_pending_items_without_consuming_them() {
+        let mut queue: BoundedQueue<u8> = BoundedQueue::new(4, OverflowPolicy::RejectNewest);
+        queue.push(1);
+        queue.push(2);
+        queue.push(3);
+
+        let seen: alloc::vec::Vec<u8> = queue.iter().copied().collect();
+
+        assert_eq!(seen, alloc::vec![1, 2, 3]);
+        assert_eq!(queue.len(), 3);
     }
 
     #[test]
