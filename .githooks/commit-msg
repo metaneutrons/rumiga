@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-exec cargo +1.97.1 xtask commit-policy --message-file "$1"

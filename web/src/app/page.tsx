@@ -48,7 +48,9 @@ export default function DashboardPage() {
       .then((r) => {
         if (r.success && r.data) setStatus(r.data);
       })
-      .catch((e: Error) => setError(e.message));
+      .catch((e: unknown) => {
+        setError(e instanceof Error ? e.message : 'Failed to load status');
+      });
 
     getMachineConfig()
       .then((r) => {
@@ -60,13 +62,15 @@ export default function DashboardPage() {
           }
         }
       })
-      .catch((e: Error) => setError(e.message));
+      .catch((e: unknown) => {
+        setError(e instanceof Error ? e.message : 'Failed to load config');
+      });
   };
 
   useEffect(() => {
     loadData();
     const interval = setInterval(loadData, 1000);
-    return () => clearInterval(interval);
+    return () => { clearInterval(interval); };
   }, []);
 
   // Handle screenshot auto-refresh
@@ -223,21 +227,21 @@ export default function DashboardPage() {
               <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/70 text-xs font-semibold">
                 <button
                   type="button"
-                  onClick={() => handleScreenshotKindChange('ViewportPresentation')}
+                  onClick={() => { handleScreenshotKindChange('ViewportPresentation'); }}
                   className={`px-3 py-1.5 transition-colors ${screenshotKind === 'ViewportPresentation' ? 'bg-zinc-100 text-zinc-950' : 'text-zinc-400 hover:text-zinc-100'}`}
                 >
                   Presentation
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleScreenshotKindChange('NativeFramebuffer')}
+                  onClick={() => { handleScreenshotKindChange('NativeFramebuffer'); }}
                   className={`px-3 py-1.5 transition-colors ${screenshotKind === 'NativeFramebuffer' ? 'bg-zinc-100 text-zinc-950' : 'text-zinc-400 hover:text-zinc-100'}`}
                 >
                   Native
                 </button>
               </div>
               <button
-                onClick={() => setAutoRefresh(!autoRefresh)}
+                onClick={() => { setAutoRefresh(!autoRefresh); }}
                 className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-all ${autoRefresh ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' : 'bg-zinc-900/40 border-zinc-800 text-zinc-400 hover:border-zinc-700'}`}
               >
                 {autoRefresh ? '● Auto Refreshing' : 'Paused Refresh'}
@@ -335,13 +339,13 @@ export default function DashboardPage() {
                 <div className="flex items-center justify-between text-sm py-1.5 border-b border-zinc-800/40">
                   <span className="text-zinc-400 font-medium">ROM Image</span>
                   <span className="font-mono text-zinc-200 text-xs truncate max-w-[200px]" title={config.rom_file}>
-                    {config.rom_file.split('/').pop() || 'None Loaded'}
+                    {config.rom_file.split('/').pop() ?? 'None Loaded'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-sm py-1.5 border-b border-zinc-800/40">
                   <span className="text-zinc-400 font-medium">Gayle HDF</span>
                   <span className="font-mono text-zinc-200 text-xs truncate max-w-[200px]" title={config.hdf_path ?? ''}>
-                    {config.hdf_path?.split('/').pop() || 'None Mounted'}
+                    {config.hdf_path?.split('/').pop() ?? 'None Mounted'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-sm py-1.5 border-b border-zinc-800/40">

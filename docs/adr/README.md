@@ -36,7 +36,7 @@ Numbering is contiguous; `0000-template.md` is reserved and is not a decision.
 | [ADR-0006](0006-injected-trace-sink.md) | Accepted | M1-004 | Move diagnostic transport out of the core behind an injected trace sink |
 | [ADR-0007](0007-product-flash-partition-layout.md) | Accepted | M2-013 | Own the product flash layout with two 6 MiB OTA slots and a Secure Boot bootloader window |
 | [ADR-0008](0008-reversible-security-posture.md) | Accepted | M2-014 | Exercise flash encryption with virtual eFuses and reject any configuration that would burn one |
-| [ADR-0009](0009-node-current-line-pin.md) | Accepted | M0-015 | Pin Node to the current 26 line as a documented exception to the LTS rule |
+| [ADR-0009](0009-node-current-line-pin.md) | Superseded | M0-015 | Pin Node to the current 26 line as a documented exception to the LTS rule |
 | [ADR-0010](0010-deterministic-blitter-ownership.md) | Accepted | M1-005 | Execute the blitter in place under one owner and prove it with state digests |
 | [ADR-0011](0011-emulated-time-and-host-pacing.md) | Accepted | M1-006 | Own host time in the shell behind a Clock contract and lint the core against host clock types |
 | [ADR-0012](0012-selectable-video-standard.md) | Accepted | M1-013 | Make the video standard selectable through one type that owns every PAL/NTSC difference |
@@ -49,3 +49,4 @@ Numbering is contiguous; `0000-template.md` is reserved and is not a decision.
 | [ADR-0019](0019-hardware-manifest-provenance.md) | Accepted | M2-001 | Source every hardware value, separate schematic record from product claim, and record the gaps rather than resolving them by inference |
 | [ADR-0020](0020-commit-derived-build-stamp.md) | Accepted | M2-002 | Pin the build stamp to the commit rather than the clock, enforce it on every run, and prove byte equality by rebuilding on demand |
 | [ADR-0021](0021-declared-boot-policy.md) | Accepted | M2-003 | Declare the boot policy once, check it from both sides, and turn on the core dump the layout already reserved space for |
+| [ADR-0022](0022-repository-standard-doctor-remediation.md) | Proposed | M0-016 | Align the repository with the repo-standard Doctor baseline while deferring release work and the unsafe ruleset transition |

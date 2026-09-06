@@ -17,7 +17,11 @@ an immutable artifact produced by that revision.
 
 ## Current Focus
 
-The next engineering milestone is **M1: Portable Deterministic Core**. M0 now
+The current repository-standard remediation is M0-016. It aligns the local and
+hosted quality baseline while explicitly leaving release, publication, and
+tagging work out of scope. Product work remains on M2-004, with M2-005 next.
+
+After this remediation, the next product engineering milestone is **M1: Portable Deterministic Core**. M0 now
 provides the reproducible host, target-build, policy, evidence, and governance
 baseline required to separate core-portability defects from local setup drift.
 M0-013 and M0-014 are completed post-G0 hardening increments. Their local,
@@ -81,6 +85,7 @@ milestone.
 | M0-013 | DONE | Enforce one Rust-owned Conventional Commit policy in local hooks, pull requests, and `main` pushes | Local eight-gate baseline, hosted PR commits/title, final `main` range, both strict aggregates, and checksummed governance evidence pass |
 | M0-014 | DONE | Verify the merged firmware image against its own configuration evidence | The merged image embeds the ESP-IDF bootloader and partition table byte for byte, the application fits its declared partition, and the manifest records the decoded layout |
 | M0-015 | DONE | Move the Node/npm pin to the current 26 line and align the Node type definitions | Every pin site agrees, the cross-file pin test passes, and the web install, lint, and static export succeed on the new runtime |
+| M0-016 | IMPLEMENTED | Align the repository with the repo-standard Doctor baseline: Node LTS, pnpm, strict web checks, Lefthook, coverage, security files, and documented GitHub settings | Local A/B remediation checks pass; release, publication, and tagging paths remain untouched; branch-ruleset migration waits for foreign pull requests to close |
 
 M0-002 evidence (2026-08-14):
 
@@ -1530,7 +1535,21 @@ M2-003 implementation evidence (2026-08-18):
   check; M2-004 and the loop that follows inherit it
 - one stale pointer was corrected in passing. The M0-014 evidence above said the product
   layout remained M2-003; it was M2-013
-- hosted pull-request and final `main` evidence is pending promotion
+- verified by hosted evidence. Pull-request run [`32197129943`](https://github.com/metaneutrons/rumiga/actions/runs/32197129943)
+  and final `main` run [`32198201909`](https://github.com/metaneutrons/rumiga/actions/runs/32198201909)
+  pass every required job. Both governance artifacts were checksum verified with two
+  independent implementations against the artifact's own `SHA256SUMS`, both record `dirty`
+  false, and all 78 document digests match the git tree at the promoted revision
+- the hosted firmware manifest carries the `boot_policy` section with `partition_encrypted`
+  true and `reset_reason` null, and the table decoded from inside the merged image shows both
+  `coredump` and `nvs_keys` carrying the flag. So the cross-file checks run in CI, not only on
+  the development host
+- a static-analysis check, Codacy, was added to this repository during the task and initially
+  failed with three findings, all functions above its 50-line limit that Clippy's 100-line
+  limit had passed. The findings were fair. A first attempt at the mirror test came out longer
+  than the original and was abandoned; splitting the tables then exposed a gap they had, which
+  is where the coverage test came from. Two of the three suggestions were addressed with a
+  deliberate deviation, each recorded on its review thread
 
 ## M2 Backlog: D1001 Board Bring-Up
 

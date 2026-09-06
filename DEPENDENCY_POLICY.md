@@ -10,7 +10,7 @@ M0-009 makes the policy executable and produces checksummed review evidence.
 | Ecosystem | Manifests | Authoritative lockfile | Normal install/build mode |
 | --- | --- | --- | --- |
 | Rust workspace | Root and member `Cargo.toml` files | `/Cargo.lock` | Cargo with `--locked` |
-| Web application | `web/package.json` | `web/package-lock.json` | `npm ci` |
+| Web application | `web/package.json` | `web/pnpm-lock.yaml` | `pnpm install --frozen-lockfile` |
 | Host/embedded toolchains | `rust-toolchain.toml`, `firmware/rust-toolchain.toml`, `.node-version`, `.cargo/config.toml` | `toolchain/manifest.toml` | Exact channels, versions, and immutable Git commits |
 | GitHub Actions | `.github/workflows/*.yml` | Immutable action commit SHAs in each workflow | Reviewed release annotations plus monthly Dependabot updates |
 | Supply-chain policy | `supply-chain-policy.toml`, `deny.toml` | Exact reviewed exceptions and the two application lockfiles | `cargo +1.97.1 xtask supply-chain-evidence` |
@@ -22,8 +22,8 @@ manager and are never edited manually.
 
 ## Consumption Rules
 
-- CI, release, evidence, and normal development commands use `--locked`.
-- Web installs use `npm ci`. `npm install` is reserved for an intentional
+- CI, evidence, and normal development commands use lockfile enforcement.
+- Web installs use `pnpm install --frozen-lockfile`. `pnpm update` is reserved for an intentional
   dependency-update branch.
 - Manifest and lockfile changes belong in the same commit.
 - Registry dependencies must include checksums in the lockfile.
@@ -32,9 +32,10 @@ manager and are never edited manually.
   recorded in an adjacent comment.
 - Path dependencies may only resolve inside this repository.
 - Wildcard versions and unpublished machine-local sources are prohibited.
-- npm dependency lifecycle scripts are disabled in every install. Every package
-  carrying an install script must appear in `allowScripts` with value `false`;
-  undeclared scripts and any `true` value fail the policy checker.
+- pnpm dependency lifecycle scripts are denied by default. The repository
+  explicitly permits only the Lefthook build and explicitly denies the
+  `unrs-resolver` build in `web/pnpm-workspace.yaml`; the policy checker also
+  requires every declared `allowScripts` value to be `false`.
 - Firmware release/evidence builds must have `IDF_PATH` unset; the pinned
   `ESP_IDF_VERSION=tag:v6.0` must resolve to the commit recorded in
   `toolchain/manifest.toml` and must not be replaced by a local SDK clone.
@@ -52,14 +53,17 @@ Standard verification commands:
 cargo metadata --locked --no-deps --format-version 1
 cargo fmt --all --check
 cargo clippy --locked --workspace --all-targets -- -D warnings
-cargo test --locked --workspace
+cargo nextest run --workspace --locked
+cargo llvm-cov --workspace --locked --fail-under-lines 45
 cargo +1.97.1 xtask supply-chain-evidence
 (cd target/m0-009-supply-chain-evidence && shasum -a 256 -c SHA256SUMS)
 
 cd web
-npm ci --ignore-scripts --no-audit --no-fund
-npm run lint
-npm run build
+pnpm install --frozen-lockfile --ignore-scripts
+pnpm run lint
+pnpm run typecheck
+pnpm test --run
+pnpm run build
 ```
 
 ## Enforced Supply-Chain Gate
@@ -72,12 +76,11 @@ baseline. `cargo-deny 0.20.2` evaluates all features for license, source, ban,
 and advisory policy; `cargo-audit 0.22.2` must report zero vulnerabilities and
 zero yanked packages from an advisory database no more than seven days old.
 
-The npm lockfile must use schema 3, match `package.json`, resolve only from the
+The pnpm lockfile must use schema 9, match `package.json`, resolve only from the
 approved registry, and carry a syntactically exact SHA-512 SRI value for every
-non-bundled package. Bundled entries must descend from an integrity-protected
-archive. Every license is parsed as SPDX and must satisfy the allowlist or an
-exact package/version/license exception. `npm audit` fails on any high or
-critical advisory.
+package resolution. Every license is parsed as SPDX and must satisfy the
+allowlist or an exact package/version/license exception. `pnpm audit --prod`
+fails on any high or critical advisory.
 
 All workflow YAML is parsed structurally. External Actions must come from the
 closed repository allowlist, use a full 40-character commit, and retain an
@@ -89,7 +92,7 @@ IDs, and scanner results. Full scanner output and `SHA256SUMS` are written to
 
 ## Update Cadence
 
-- Dependabot opens grouped Rust, npm, and GitHub Actions updates monthly.
+- Dependabot opens grouped Rust, pnpm, and GitHub Actions updates weekly.
 - Major updates remain isolated so compatibility and migration impact are
   visible in review.
 - Critical or high-severity advisories are triaged within one business day.
@@ -105,12 +108,12 @@ reason and new review date must be recorded in the tracking issue.
 
 1. Start from a clean tree and record the passing locked baseline.
 2. Update only the intended package set with `cargo update -p` or an intentional
-   npm manifest/install command.
+   pnpm manifest/update command.
 3. Review direct and transitive version changes, source locations, checksums,
    licenses, advisories, release notes, and minimum supported tool versions.
 4. Run the standard verification commands and the compatibility scenarios
    affected by the dependency.
-5. Confirm the second locked run leaves both lockfiles byte-identical.
+5. Confirm the second frozen run leaves both lockfiles byte-identical.
 6. Commit manifests and lockfiles together with the affected package names and
    risk summary in the change description.
 
@@ -124,5 +127,6 @@ An exception must name an owner, exact scope, reason, expiry date, and
 compensating control in `supply-chain-policy.toml`. The checker rejects missing,
 duplicate, unused, or expired approvals; the complete policy itself must be
 reviewed at least annually. Exceptions must not silently weaken `--locked` or
-`npm ci` gates. If an update regresses a release gate, revert the complete
-manifest-and-lockfile change and retain the failing evidence for follow-up.
+`pnpm install --frozen-lockfile` gates. If an update regresses a quality gate,
+revert the complete manifest-and-lockfile change and retain the failing evidence
+for follow-up.

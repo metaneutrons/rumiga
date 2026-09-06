@@ -33,7 +33,7 @@ export default function FilesPage() {
     const timer = window.setTimeout(() => {
       void load(false);
     }, 0);
-    return () => window.clearTimeout(timer);
+    return () => { window.clearTimeout(timer); };
   }, [load]);
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {

@@ -1,7 +1,7 @@
 {
   "schema": "rumiga.change-record.v1",
   "task_id": "M2-003",
-  "status": "implemented",
+  "status": "verified",
   "title": "Declare the boot policy and check it from both sides",
   "summary": "Declare the PSRAM allocator, panic, core-dump, watchdog, logging, and reset policy in toolchain/manifest.toml, verify it against the resolved sdkconfig in the firmware gate, mirror it in rumiga-platform-esp with a host test pinning the mirror, and report it in a boot manifest alongside what the running system observes. Turn on the core dump the flash layout already reserved space for, mark that partition encrypted, and close the layout comparison's blind spot for the encrypted flag.",
   "scope": [
@@ -61,7 +61,7 @@
       "proves": "The check that claims the merged image carries the declared layout entry by entry skipped the one field the security posture rests on. The flag was correct by luck of espflash's behaviour, not because anything verified it."
     },
     {
-      "id": "local-gcc-safe-reset-reason-wrapper",
+      "id": "local-safe-reset-reason-wrapper",
       "kind": "command",
       "location": "2026-08-18 local execution: esp_idf_hal reset.rs line 144 defines ResetReason::get as a safe fn containing the unsafe esp_reset_reason call, and esp-idf-svc re-exports the crate through pub mod hal (hal.rs is pub use esp_idf_hal::*).",
       "proves": "The reset reason is readable without unsafe code in this workspace, which forbids it, and without adding a dependency, because the existing esp-idf-svc dependency re-exports the crate that wraps the FFI call."
@@ -91,10 +91,22 @@
       "proves": "The core-dump component and the DEBUG call sites cost 21,888 bytes, 0.35 percentage points of the application slot. The figure is recorded rather than estimated, because the slot size is permanent once devices ship."
     },
     {
-      "id": "hosted-promotion",
+      "id": "hosted-pr-m2-003",
       "kind": "ci-artifact",
-      "location": "Pending: hosted pull-request and final main promotion evidence is required before this record moves to verified.",
-      "proves": "Nothing yet."
+      "location": "GitHub Actions pull-request run 32197129943 for merge revision 0d26879586194f15fa50526c2bfc65933d21254e, artifact 9346234944 governance-0d26879586194f15fa50526c2bfc65933d21254e, archive sha256:ede4fd92550970a694303e82766ccf7d239bb0832cf7c9ca7135a5f98d79e6b4 as reported by the Actions API. The merge commit is not in the local repository, so the digest comparison used the squashed commit 576ceaf422a99b8cfd29b793433153332745e53d after confirming both carry tree 9e78197658a5266c16e49b93f6604d70535db0e6.",
+      "proves": "All eleven checks pass for the clean pull-request merge revision: the ten quality jobs plus the Codacy static analysis that was added to this repository during the task. The payload checksums were recomputed with two independent implementations and match the artifact's own SHA256SUMS, the manifest records dirty false, and all 78 document digests the governance report records match the git tree."
+    },
+    {
+      "id": "hosted-firmware-manifest-carries-the-policy",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions pull-request run 32197129943, artifact firmware-esp32p4-0d26879586194f15fa50526c2bfc65933d21254e: the evidence manifest's boot_policy section records the declared values, core_dump partition_bytes 110592 with partition_encrypted true, reset_reason null, the claim declared-boot-policy-verified, and the exclusion boot-manifest-not-emitted. The table decoded from inside the merged image shows coredump and nvs_keys both carrying the encrypted flag.",
+      "proves": "The boot policy comparison and its two cross-file checks run in CI rather than only on the development host, and the encrypted flag reaches the shipped partition table where the layout comparison now verifies it. reset_reason is null because that value exists only at runtime, which is what the boot-manifest-not-emitted exclusion records."
+    },
+    {
+      "id": "hosted-main-m2-003",
+      "kind": "ci-artifact",
+      "location": "GitHub Actions final main run 32198201909, artifact 9346579123 governance-576ceaf422a99b8cfd29b793433153332745e53d, archive sha256:9cf679768e70791935111b02f0db5f19ea8d4286f82fe3c23ab432c3785724ea as reported by the Actions API.",
+      "proves": "All required quality jobs pass for clean main revision 576ceaf422a99b8cfd29b793433153332745e53d. The payload checksums were recomputed with two independent implementations and match the artifact's own SHA256SUMS, the manifest records dirty false, and all 78 document digests the governance report records match the git tree at that revision, including this change record, ADR-0021, the release note, the plan, and the status document."
     }
   ],
   "documentation": [

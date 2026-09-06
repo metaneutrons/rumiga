@@ -8,9 +8,9 @@ ordered work; this file records what is actually proven now.
 
 | Field | Value |
 | --- | --- |
-| Status date | 2026-08-18 |
+| Status date | 2026-09-06 |
 | Audited baseline revision | Repository revision containing this document |
-| Latest completed task | M2-003: declared boot policy, hosted evidence pending |
+| Latest completed task | M2-003: declared boot policy, verified by hosted evidence |
 | Current implementation | M2-004: port Vellum D1001 services into Rust-first adapters |
 | Next task | M2-005: serial command protocol for capabilities, self-test, metrics, and reset |
 | Development host | macOS, Apple Silicon |
@@ -18,6 +18,7 @@ ordered work; this file records what is actually proven now.
 | Product maturity | Desktop compatibility prototype |
 | D1001 maturity | Cross-built Rust firmware skeleton; no device boot or HIL evidence |
 | Release readiness | Not a release candidate |
+| Release planning | Explicitly deferred; no release, tag, or publication work is in scope |
 
 ## Product Intent
 
@@ -58,7 +59,7 @@ No feature is called done merely because it compiled or booted once.
 - The host Cargo graph contains no unpublished sibling dependency. A synthetic
   boot trace compares the active 68000 core with the tracked independent
   `m68000` implementation and frozen architectural checkpoints.
-- Root Cargo and web npm lockfiles are tracked. CI, Git hooks, and evidence
+- Root Cargo and web pnpm lockfiles are tracked. CI, Lefthook, and evidence
   commands reject stale resolution; the hosted supply-chain gate enforces
   source, integrity, SPDX license, duplicate, advisory, lifecycle-script, and
   immutable-Action policy.
@@ -188,8 +189,9 @@ No feature is called done merely because it compiled or booted once.
   made the new checks fail before they were trusted. What is not delivered is anything
   running: `firmware/src/main.rs` is still a stub, so nothing emits the boot manifest and the
   reset reason is recorded as absent rather than measured. The watchdog decision leaves an
-  obligation nothing enforces, because the frame loop it constrains does not exist yet. Hosted
-  evidence is pending, and nothing has been flashed.
+  obligation nothing enforces, because the frame loop it constrains does not exist yet. It is
+  verified by clean pull-request and final `main` evidence, with the cross-file checks running
+  in CI. Nothing has been flashed.
 - M2-002 closed a gap the task description did not name. The firmware bundle the
   acceptance criterion asks for already existed, and the build was already reproducible at
   a fixed revision, byte for byte on everything that gets flashed. What did not exist was
@@ -360,10 +362,15 @@ The following commands were run during this audit:
 | Bare-metal RISC-V package check | Pass | Foundation packages plus `m68k` and complete `rumiga-core` compile for `riscv32imafc-unknown-none-elf`; stock core uses `no_std` release mode |
 | `cargo +1.97.1 xtask firmware-evidence` | Pass | IDF 6.0.0 firmware compile, link, board configuration, image generation, and all artifact checksums pass locally; this is not boot evidence |
 | GitHub Actions run `31890919057` | Pass | Portable RISC-V and ESP32-P4 jobs pass; artifact `9248602076` contains the checksummed firmware bundle built from a clean pull-request merge revision |
-| `npm run lint` | Pass | Web static lint baseline is green |
-| `npm run build` | Pass | Next.js 16.3.1 production build is green |
-| `(cd web && npm ci --ignore-scripts)` | Pass | npm manifest and tracked lockfile agree |
-| `(cd web && npm audit --audit-level=high)` | Pass | No known npm vulnerabilities reported |
+| `pnpm --dir web install --frozen-lockfile --ignore-scripts` | Pass | pnpm manifest and tracked lockfile agree |
+| `pnpm --dir web lint` | Pass | Web ESLint 9 static lint baseline is green with zero warnings |
+| `pnpm --dir web typecheck` | Pass | Strict TypeScript configuration passes |
+| `pnpm --dir web test --run` | Pass | Vitest web API tests pass |
+| `pnpm --dir web test --run --coverage` | Pass | Web coverage report is generated and verified locally |
+| `pnpm --dir web build` | Pass | Next.js 16.3.1 production build is green |
+| `pnpm --dir web audit --prod --audit-level=high` | Pass | No known high or critical production vulnerabilities reported |
+| `cargo +1.97.1 nextest run --workspace --locked` | Pass | Rust workspace tests pass through cargo-nextest |
+| `cargo +1.97.1 llvm-cov --workspace --locked --fail-under-lines 45` | Pass | Rust line coverage exceeds the 45% cross-platform floor; the hosted Linux leg currently reports 49.11% and macOS 56.40% |
 | `actionlint .github/workflows/ci.yml` | Pass | Workflow syntax, matrix expressions, and action inputs are structurally valid |
 | `cargo +1.97.1 xtask ci --gate commits` | Pass | Local, hosted PR/title, and final `main` ranges satisfy the shared Conventional Commit policy |
 | `cargo +1.97.1 xtask ci` | Pass | The complete eight-gate local M1-002 baseline is green in 95.478 seconds, including the optimized stock-core RISC-V and ESP32-P4 release builds |

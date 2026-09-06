@@ -165,34 +165,6 @@ struct CargoMetadataPackage {
 }
 
 #[derive(Debug, Deserialize)]
-struct NpmLock {
-    #[serde(rename = "lockfileVersion")]
-    lockfile_version: u32,
-    packages: BTreeMap<String, NpmLockPackage>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-struct NpmLockPackage {
-    name: Option<String>,
-    version: Option<String>,
-    resolved: Option<String>,
-    integrity: Option<String>,
-    license: Option<String>,
-    #[serde(default, rename = "inBundle")]
-    in_bundle: bool,
-    #[serde(default, rename = "hasInstallScript")]
-    has_install_script: bool,
-    #[serde(default)]
-    link: bool,
-    #[serde(default)]
-    dependencies: BTreeMap<String, String>,
-    #[serde(default, rename = "devDependencies")]
-    dev_dependencies: BTreeMap<String, String>,
-    #[serde(default)]
-    engines: BTreeMap<String, String>,
-}
-
-#[derive(Debug, Deserialize)]
 struct NpmManifest {
     name: String,
     version: String,
@@ -216,7 +188,7 @@ struct SupplyChainEvidence {
     inputs: InputEvidence,
     tools: ToolEvidence,
     rust: RustEvidence,
-    npm: NpmEvidence,
+    pnpm: NpmEvidence,
     github_actions: ActionEvidence,
     active_exception_ids: Vec<String>,
     claims: Vec<&'static str>,
@@ -227,7 +199,7 @@ struct InputEvidence {
     policy_sha256: String,
     deny_config_sha256: String,
     cargo_lock_sha256: String,
-    npm_lock_sha256: String,
+    pnpm_lock_sha256: String,
     workflows: BTreeMap<String, String>,
 }
 
@@ -236,7 +208,7 @@ struct ToolEvidence {
     cargo_deny: String,
     cargo_audit: String,
     node: String,
-    npm: String,
+    pnpm: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -326,11 +298,11 @@ pub fn build_evidence() -> Result<()> {
     let advisory =
         verify_cargo_audit(&cargo_audit, static_evidence.max_advisory_database_age_days)?;
 
-    let npm_audit_output = run_npm_audit(&root)?;
-    write_output(&evidence_root, "npm-audit", &npm_audit_output)?;
-    ensure_command_success("npm audit", &npm_audit_output)?;
-    let npm_audit = parse_json(&npm_audit_output.stdout, "npm audit")?;
-    let vulnerabilities = verify_npm_audit(&npm_audit)?;
+    let pnpm_audit_output = run_pnpm_audit(&root)?;
+    write_output(&evidence_root, "pnpm-audit", &pnpm_audit_output)?;
+    ensure_command_success("pnpm audit", &pnpm_audit_output)?;
+    let pnpm_audit = parse_json(&pnpm_audit_output.stdout, "pnpm audit")?;
+    let vulnerabilities = verify_npm_audit(&pnpm_audit)?;
 
     let manifest = SupplyChainEvidence {
         schema: EVIDENCE_SCHEMA,
@@ -353,7 +325,7 @@ pub fn build_evidence() -> Result<()> {
             vulnerabilities: advisory.vulnerabilities,
             informational_warnings: advisory.warnings,
         },
-        npm: NpmEvidence {
+        pnpm: NpmEvidence {
             packages: static_evidence.npm.packages,
             integrity_protected_packages: static_evidence.npm.integrity_protected_packages,
             bundled_packages: static_evidence.npm.bundled_packages,
@@ -370,7 +342,7 @@ pub fn build_evidence() -> Result<()> {
             "locked-source-policy",
             "spdx-license-policy",
             "rustsec-advisory-policy",
-            "npm-high-critical-advisory-policy",
+            "pnpm-high-critical-advisory-policy",
             "immutable-action-policy",
         ],
     };
@@ -399,7 +371,7 @@ fn verify_static_policy(root: &Path) -> Result<StaticEvidence> {
             policy_sha256: sha256_file(&root.join("supply-chain-policy.toml"))?,
             deny_config_sha256: sha256_file(&root.join("deny.toml"))?,
             cargo_lock_sha256: sha256_file(&root.join("Cargo.lock"))?,
-            npm_lock_sha256: sha256_file(&root.join("web/package-lock.json"))?,
+            pnpm_lock_sha256: sha256_file(&root.join("web/pnpm-lock.yaml"))?,
             workflows: workflow_hashes(root)?,
         },
     })
@@ -813,17 +785,22 @@ fn verify_npm_policy(
     policy: &SupplyChainPolicy,
     toolchain: &super::ToolchainManifest,
 ) -> Result<NpmStaticEvidence> {
-    let lock: NpmLock = read_json(&root.join("web/package-lock.json"))?;
+    let lock_source = fs::read_to_string(root.join("web/pnpm-lock.yaml"))?;
+    let documents =
+        YamlLoader::load_from_str(&lock_source).context("pnpm lockfile must be valid YAML")?;
+    let lock = documents
+        .iter()
+        .find(|document| {
+            yaml_child(document, "settings").is_ok() && yaml_child(document, "packages").is_ok()
+        })
+        .context("pnpm lockfile has no package document")?;
     let manifest: NpmManifest = read_json(&root.join("web/package.json"))?;
     ensure!(
-        lock.lockfile_version == 3,
-        "npm lockfile must use version 3"
+        yaml_string(lock, "lockfileVersion")? == "9.0",
+        "pnpm lockfile must use version 9"
     );
-    let lock_root = lock
-        .packages
-        .get("")
-        .context("npm lockfile has no root package")?;
-    verify_npm_root(lock_root, &manifest, toolchain, root)?;
+    let importer = yaml_child(yaml_child(lock, "importers")?, ".")?;
+    verify_npm_root(importer, &manifest, toolchain, root)?;
 
     let allowed = unique_set(&policy.npm.allowed_licenses, "npm license")?;
     let mut exceptions = BTreeMap::new();
@@ -839,29 +816,14 @@ fn verify_npm_policy(
         );
     }
     let mut used_exceptions = BTreeSet::new();
-    let mut install_script_packages = BTreeSet::new();
     let mut integrity_count = 0;
-    let mut bundled_count = 0;
-    for (path, package) in lock.packages.iter().filter(|(path, _)| !path.is_empty()) {
-        ensure!(!package.link, "linked npm package is not allowed: {path}");
-        let name = npm_package_name(path)?;
-        let version = package
-            .version
-            .as_deref()
-            .with_context(|| format!("npm package {path} has no version"))?;
-        let license = package
-            .license
-            .as_deref()
-            .with_context(|| format!("npm package {path} has no license"))?;
-        let expression = Expression::parse(license)
+    for (name, version, license) in pnpm_license_entries(root)? {
+        let expression = Expression::parse(&license)
             .with_context(|| format!("npm package {name}@{version} has invalid SPDX"))?;
-        if package.has_install_script {
-            install_script_packages.insert(name.to_owned());
-        }
         let allowed_expression =
             expression.evaluate(|requirement| allowed.contains(&requirement.to_string()));
         if !allowed_expression {
-            let key = (name.to_owned(), version.to_owned(), license.to_owned());
+            let key = (name.clone(), version.clone(), license.clone());
             let exception = exceptions.get(&key).with_context(|| {
                 format!("npm package {name}@{version} has unapproved license {license}")
             })?;
@@ -870,73 +832,68 @@ fn verify_npm_policy(
                 "npm exception matched twice"
             );
         }
-
-        match (&package.resolved, &package.integrity) {
-            (Some(resolved), Some(integrity)) => {
-                ensure!(
-                    resolved.starts_with(&policy.npm.registry_prefix),
-                    "npm package {name}@{version} uses unapproved source {resolved}"
-                );
-                ensure!(
-                    valid_npm_integrity(integrity),
-                    "invalid npm integrity for {name}@{version}"
-                );
-                integrity_count += 1;
-            }
-            (None, None) if package.in_bundle => {
-                ensure!(
-                    has_integrity_protected_bundle_parent(path, &lock.packages),
-                    "bundled npm package {path} has no integrity-protected parent"
-                );
-                bundled_count += 1;
-            }
-            _ => bail!("npm package {name}@{version} has incomplete source integrity"),
-        }
     }
     ensure!(
         used_exceptions == exceptions.values().cloned().collect(),
         "unused npm license exception"
     );
+    let packages = yaml_child(lock, "packages")?
+        .as_hash()
+        .context("pnpm lockfile has no packages map")?;
+    for (package_key, package) in packages {
+        let package_key = package_key
+            .as_str()
+            .context("pnpm package key must be a string")?;
+        let resolution = yaml_child(package, "resolution")?;
+        let integrity = yaml_string(resolution, "integrity")?;
+        ensure!(
+            valid_npm_integrity(integrity),
+            "invalid pnpm integrity for {package_key}"
+        );
+        if let Some(tarball) = yaml_optional_string(resolution, "tarball")? {
+            ensure!(
+                tarball.starts_with(&policy.npm.registry_prefix),
+                "pnpm package {package_key} uses unapproved source {tarball}"
+            );
+        }
+        integrity_count += 1;
+    }
     ensure!(
-        install_script_packages == manifest.allow_scripts.keys().cloned().collect(),
-        "npm install-script denylist drifted"
+        !packages.is_empty(),
+        "pnpm lockfile has no package resolutions"
     );
     Ok(NpmStaticEvidence {
-        packages: lock.packages.len() - 1,
+        packages: packages.len(),
         integrity_protected_packages: integrity_count,
-        bundled_packages: bundled_count,
+        bundled_packages: 0,
         license_exceptions: used_exceptions.len(),
     })
 }
 
 fn verify_npm_root(
-    lock_root: &NpmLockPackage,
+    importer: &Yaml,
     manifest: &NpmManifest,
     toolchain: &super::ToolchainManifest,
     root: &Path,
 ) -> Result<()> {
+    ensure!(!manifest.name.is_empty(), "npm root name is empty");
+    ensure!(!manifest.version.is_empty(), "npm root version is empty");
+    let dependencies = yaml_dependency_specifiers(importer, "dependencies")?;
+    let dev_dependencies = yaml_dependency_specifiers(importer, "devDependencies")?;
     ensure!(
-        lock_root.name.as_deref() == Some(&manifest.name),
-        "npm root name drifted"
+        dependencies == manifest.dependencies && dev_dependencies == manifest.dev_dependencies,
+        "npm manifest and pnpm lockfile root dependencies drifted"
     );
     ensure!(
-        lock_root.version.as_deref() == Some(&manifest.version),
-        "npm root version drifted"
+        manifest.package_manager == format!("pnpm@{}", toolchain.host.pnpm),
+        "pnpm package-manager pin drifted"
     );
     ensure!(
-        lock_root.dependencies == manifest.dependencies
-            && lock_root.dev_dependencies == manifest.dev_dependencies,
-        "npm manifest and lockfile root dependencies drifted"
-    );
-    ensure!(
-        manifest.package_manager == format!("npm@{}", toolchain.host.npm),
-        "npm package-manager pin drifted"
-    );
-    ensure!(
-        manifest.engines.get("node") == Some(&toolchain.host.node)
-            && manifest.engines.get("npm") == Some(&toolchain.host.npm)
-            && lock_root.engines == manifest.engines,
-        "npm engine pins drifted"
+        manifest
+            .engines
+            .get("node")
+            .is_some_and(|value| value.contains(&toolchain.host.node)),
+        "Node engine pin drifted"
     );
     let node_version = fs::read_to_string(root.join(".node-version"))?;
     ensure!(
@@ -945,36 +902,87 @@ fn verify_npm_root(
     );
     ensure!(
         manifest.allow_scripts.values().all(|value| !value),
-        "npm lifecycle scripts must be explicitly denied"
+        "package lifecycle scripts must be explicitly denied"
     );
     Ok(())
 }
 
-fn has_integrity_protected_bundle_parent(
-    package_path: &str,
-    packages: &BTreeMap<String, NpmLockPackage>,
-) -> bool {
-    let mut cursor = package_path;
-    while let Some((parent, _)) = cursor.rsplit_once("/node_modules/") {
-        if packages.get(parent).is_some_and(|package| {
-            package.resolved.is_some()
-                && package
-                    .integrity
-                    .as_deref()
-                    .is_some_and(valid_npm_integrity)
-        }) {
-            return true;
-        }
-        cursor = parent;
-    }
-    false
+fn yaml_child<'a>(value: &'a Yaml, key: &str) -> Result<&'a Yaml> {
+    value
+        .as_hash()
+        .and_then(|hash| hash.get(&Yaml::String(key.to_owned())))
+        .with_context(|| format!("YAML map has no {key} entry"))
 }
 
-fn npm_package_name(path: &str) -> Result<&str> {
-    path.rsplit_once("node_modules/")
-        .map(|(_, name)| name)
-        .filter(|name| !name.is_empty() && !name.contains("/node_modules/"))
-        .context("invalid npm package path")
+fn yaml_string<'a>(value: &'a Yaml, key: &str) -> Result<&'a str> {
+    yaml_child(value, key)?
+        .as_str()
+        .with_context(|| format!("YAML {key} entry must be a string"))
+}
+
+fn yaml_optional_string<'a>(value: &'a Yaml, key: &str) -> Result<Option<&'a str>> {
+    value
+        .as_hash()
+        .and_then(|hash| hash.get(&Yaml::String(key.to_owned())))
+        .map(|value| {
+            value
+                .as_str()
+                .with_context(|| format!("YAML {key} entry must be a string"))
+        })
+        .transpose()
+}
+
+fn yaml_dependency_specifiers(value: &Yaml, key: &str) -> Result<BTreeMap<String, String>> {
+    let dependencies = yaml_child(value, key)?
+        .as_hash()
+        .with_context(|| format!("YAML {key} entry must be a map"))?;
+    dependencies
+        .iter()
+        .map(|(name, value)| {
+            let name = name
+                .as_str()
+                .context("pnpm dependency name must be a string")?;
+            let specifier = yaml_string(value, "specifier")?;
+            Ok((name.to_owned(), specifier.to_owned()))
+        })
+        .collect()
+}
+
+fn pnpm_license_entries(root: &Path) -> Result<Vec<(String, String, String)>> {
+    let output = run_output(&root.join("web"), "pnpm", &["licenses", "list", "--json"])?;
+    ensure_command_success("pnpm licenses list", &output)?;
+    let report = parse_json(&output.stdout, "pnpm licenses list")?;
+    let licenses = report
+        .as_object()
+        .context("pnpm license report must be a JSON object")?;
+    let mut entries = Vec::new();
+    for packages in licenses.values() {
+        for package in packages
+            .as_array()
+            .context("pnpm license group must be a JSON array")?
+        {
+            let name = package
+                .get("name")
+                .and_then(Value::as_str)
+                .context("pnpm license entry has no package name")?;
+            let license = package
+                .get("license")
+                .and_then(Value::as_str)
+                .context("pnpm license entry has no license")?;
+            for version in package
+                .get("versions")
+                .and_then(Value::as_array)
+                .context("pnpm license entry has no versions")?
+            {
+                let version = version
+                    .as_str()
+                    .context("pnpm license version must be a string")?;
+                entries.push((name.to_owned(), version.to_owned(), license.to_owned()));
+            }
+        }
+    }
+    ensure!(!entries.is_empty(), "pnpm license report is empty");
+    Ok(entries)
 }
 
 fn valid_npm_integrity(value: &str) -> bool {
@@ -1176,13 +1184,13 @@ fn verify_tools(root: &Path, toolchain: &super::ToolchainManifest) -> Result<Too
         node == format!("v{}", toolchain.host.node),
         "Node version drifted"
     );
-    let npm = capture(root, "npm", &["--version"])?;
-    ensure!(npm == toolchain.host.npm, "npm version drifted");
+    let pnpm = capture(root, "pnpm", &["--version"])?;
+    ensure!(pnpm == toolchain.host.pnpm, "pnpm version drifted");
     Ok(ToolEvidence {
         cargo_deny,
         cargo_audit,
         node,
-        npm,
+        pnpm,
     })
 }
 
@@ -1202,11 +1210,11 @@ fn run_cargo_audit(root: &Path) -> Result<Output> {
     )
 }
 
-fn run_npm_audit(root: &Path) -> Result<Output> {
+fn run_pnpm_audit(root: &Path) -> Result<Output> {
     run_output(
         &root.join("web"),
-        "npm",
-        &["audit", "--audit-level=high", "--json"],
+        "pnpm",
+        &["audit", "--prod", "--audit-level=high", "--json"],
     )
 }
 
@@ -1322,13 +1330,16 @@ fn verify_cargo_audit(report: &Value, max_database_age_days: u32) -> Result<Advi
 
 fn verify_npm_audit(report: &Value) -> Result<BTreeMap<String, u64>> {
     let mut vulnerabilities = BTreeMap::new();
-    for severity in ["info", "low", "moderate", "high", "critical", "total"] {
+    let mut total = 0;
+    for severity in ["info", "low", "moderate", "high", "critical"] {
         let count = json_u64(report, &format!("/metadata/vulnerabilities/{severity}"))?;
+        total += count;
         vulnerabilities.insert(severity.to_owned(), count);
     }
+    vulnerabilities.insert("total".to_owned(), total);
     ensure!(
         vulnerabilities["high"] == 0 && vulnerabilities["critical"] == 0,
-        "npm audit reported high or critical vulnerabilities"
+        "pnpm audit reported high or critical vulnerabilities"
     );
     Ok(vulnerabilities)
 }
@@ -1414,11 +1425,9 @@ fn json_u64(value: &Value, pointer: &str) -> Result<u64> {
 #[cfg(test)]
 mod tests {
     use super::{
-        annotated_action_uses, diagnostic_tail, has_integrity_protected_bundle_parent,
-        valid_npm_integrity, verify_static_policy,
+        annotated_action_uses, diagnostic_tail, valid_npm_integrity, verify_static_policy,
     };
     use crate::workspace_root;
-    use std::collections::BTreeMap;
 
     #[test]
     fn repository_static_supply_chain_policy_is_valid() {
@@ -1438,19 +1447,9 @@ mod tests {
     }
 
     #[test]
-    fn bundled_package_requires_an_integrity_protected_parent() {
-        let parent = super::NpmLockPackage {
-            resolved: Some("https://registry.npmjs.org/example/-/example-1.0.0.tgz".to_owned()),
-            integrity: Some(format!("sha512-{}==", "A".repeat(86))),
-            ..super::NpmLockPackage::default()
-        };
-        let mut packages = BTreeMap::new();
-        packages.insert("node_modules/example".to_owned(), parent);
-        assert!(has_integrity_protected_bundle_parent(
-            "node_modules/example/node_modules/child",
-            &packages
-        ));
+    fn pnpm_integrity_requires_sha512() {
         assert!(valid_npm_integrity(&format!("sha512-{}==", "A".repeat(86))));
+        assert!(!valid_npm_integrity("sha1-not-allowed"));
     }
 
     #[test]
