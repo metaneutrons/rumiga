@@ -1,0 +1,40 @@
+commit-msg:
+  commands:
+    conventional-commits:
+      run: sh scripts/hooks/check-commit-message.sh {1}
+
+pre-commit:
+  parallel: true
+  commands:
+    staged-guards:
+      run: sh scripts/hooks/check-staged.sh
+    secrets:
+      run: gitleaks git --pre-commit --redact --staged --verbose
+    eslint:
+      glob: "*.{ts,tsx,mts,cts}"
+      run: cd web && pnpm exec eslint --fix --max-warnings=0 $(printf '%s\n' {staged_files} | sed 's#^web/##')
+      stage_fixed: true
+    format:
+      glob: "*.rs"
+      run: cargo fmt --all -- --check
+    lockfile:
+      glob: "web/package.json"
+      run: |
+        if ! git diff --cached --name-only | grep -q '^web/pnpm-lock.yaml$'; then
+          echo "package.json changed, web/pnpm-lock.yaml did not. Run pnpm install." >&2
+          exit 1
+        fi
+
+pre-push:
+  parallel: false
+  commands:
+    secrets:
+      run: sh scripts/hooks/check-push-secrets.sh
+    typecheck:
+      run: pnpm --dir web typecheck
+    web-tests:
+      run: pnpm --dir web test --run
+    clippy:
+      run: cargo clippy --locked --workspace --all-targets -- -D warnings
+    rust-tests:
+      run: cargo nextest run --workspace --locked

@@ -183,7 +183,7 @@ struct HostConfiguration {
     rust: String,
     rust_msrv: String,
     node: String,
-    npm: String,
+    pnpm: String,
 }
 
 #[derive(Debug, Deserialize)]
