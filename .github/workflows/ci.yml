@@ -17,6 +17,8 @@ concurrency:
 env:
   CARGO_AUDIT_VERSION: "0.22.2"
   CARGO_DENY_VERSION: "0.20.2"
+  CARGO_LLVM_COV_VERSION: "0.9.1"
+  CARGO_NEXTEST_VERSION: "0.9.143"
   CARGO_INCREMENTAL: "0"
   CARGO_TERM_COLOR: always
   EMBEDDED_RUST_CHANNEL: "nightly-2026-07-27"
@@ -95,14 +97,14 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
-          cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
 
-      - name: Install pinned npm
+      - name: Install pinned pnpm
         run: |
-          npm_version="$(node -p "require('./web/package.json').packageManager.split('@').at(-1)")"
-          npm install --global --ignore-scripts --no-audit --no-fund "npm@${npm_version}"
-          test "$(npm --version)" = "${npm_version}"
+          pnpm_version="$(node -p "require('./web/package.json').packageManager.split('@').at(-1)")"
+          npm install --global --ignore-scripts --no-audit --no-fund "pnpm@${pnpm_version}"
+          test "$(pnpm --version)" = "${pnpm_version}"
 
       - name: Run lockfile gate
         run: cargo +1.97.1 xtask ci --gate lockfiles
@@ -118,7 +120,7 @@ jobs:
             echo "| Gate | Result |"
             echo "| --- | --- |"
             echo "| Cargo locked resolution | ${JOB_STATUS} |"
-            echo "| npm clean install without lifecycle scripts | ${JOB_STATUS} |"
+            echo "| pnpm frozen install without lifecycle scripts | ${JOB_STATUS} |"
           } >> "${GITHUB_STEP_SUMMARY}"
 
   governance:
@@ -213,6 +215,8 @@ jobs:
           rustup toolchain install 1.97.1 --profile minimal \
             --component clippy,rustfmt --no-self-update
           rustup toolchain install 1.85.0 --profile minimal --no-self-update
+          cargo +1.97.1 install --locked --version "${CARGO_NEXTEST_VERSION}" cargo-nextest
+          cargo +1.97.1 install --locked --version "${CARGO_LLVM_COV_VERSION}" cargo-llvm-cov
 
       - name: Cache Rust build inputs
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -223,14 +227,14 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
-          cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
 
-      - name: Install pinned npm
+      - name: Install pinned pnpm
         run: |
-          npm_version="$(node -p "require('./web/package.json').packageManager.split('@').at(-1)")"
-          npm install --global --ignore-scripts --no-audit --no-fund "npm@${npm_version}"
-          test "$(npm --version)" = "${npm_version}"
+          pnpm_version="$(node -p "require('./web/package.json').packageManager.split('@').at(-1)")"
+          npm install --global --ignore-scripts --no-audit --no-fund "pnpm@${pnpm_version}"
+          test "$(pnpm --version)" = "${pnpm_version}"
 
       - name: Run host gate
         run: cargo +1.97.1 xtask ci --gate host
@@ -251,7 +255,7 @@ jobs:
             echo "| Architecture | \`$(uname -m)\` |"
             echo "| Rust | \`$(rustc --version 2>/dev/null || echo unavailable)\` |"
             echo "| Node.js | \`$(node --version 2>/dev/null || echo unavailable)\` |"
-            echo "| npm | \`$(npm --version 2>/dev/null || echo unavailable)\` |"
+            echo "| pnpm | \`$(pnpm --version 2>/dev/null || echo unavailable)\` |"
             echo "| Result | ${JOB_STATUS} |"
             echo
             echo "Rust format, the rumiga-core std/no_std matrix, Clippy, tests, documentation, web lint, and web build are required."
@@ -332,14 +336,17 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
-          cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
 
-      - name: Install pinned npm
+      - name: Install pinned pnpm
         run: |
-          npm_version="$(node -p "require('./web/package.json').packageManager.split('@').at(-1)")"
-          npm install --global --ignore-scripts --no-audit --no-fund "npm@${npm_version}"
-          test "$(npm --version)" = "${npm_version}"
+          pnpm_version="$(node -p "require('./web/package.json').packageManager.split('@').at(-1)")"
+          npm install --global --ignore-scripts --no-audit --no-fund "pnpm@${pnpm_version}"
+          test "$(pnpm --version)" = "${pnpm_version}"
+
+      - name: Install web dependencies without lifecycle scripts
+        run: pnpm --dir web install --frozen-lockfile --ignore-scripts
 
       - name: Install pinned supply-chain tools
         run: |
@@ -370,7 +377,7 @@ jobs:
             echo "| Field | Value |"
             echo "| --- | --- |"
             echo "| Rust packages | \`$(jq -r '.rust.packages // "unavailable"' "${manifest}" 2>/dev/null || echo unavailable)\` |"
-            echo "| npm packages | \`$(jq -r '.npm.packages // "unavailable"' "${manifest}" 2>/dev/null || echo unavailable)\` |"
+            echo "| pnpm packages | \`$(jq -r '.pnpm.packages // "unavailable"' "${manifest}" 2>/dev/null || echo unavailable)\` |"
             echo "| Action references | \`$(jq -r '.github_actions.references // "unavailable"' "${manifest}" 2>/dev/null || echo unavailable)\` |"
             echo "| Active reviewed exceptions | \`$(jq -r '.active_exception_ids | length' "${manifest}" 2>/dev/null || echo unavailable)\` |"
             echo "| Artifact | \`supply-chain-${GITHUB_SHA}\` |"

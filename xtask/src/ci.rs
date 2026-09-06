@@ -309,7 +309,10 @@ fn verify_manifest(manifest: &ToolchainManifest) -> Result<()> {
         valid_version_pin(&manifest.host.node),
         "Node.js pin is invalid"
     );
-    ensure!(valid_version_pin(&manifest.host.npm), "npm pin is invalid");
+    ensure!(
+        valid_version_pin(&manifest.host.pnpm),
+        "pnpm pin is invalid"
+    );
     ensure!(
         !manifest.portable_rust.target.trim().is_empty(),
         "portable Rust target is empty"
@@ -401,10 +404,10 @@ fn verify_host_tools(root: &Path, manifest: &ToolchainManifest, require_node: bo
             node == format!("v{}", manifest.host.node),
             "Node.js does not match toolchain/manifest.toml: {node}"
         );
-        let npm = capture(root, "npm", &["--version"])?;
+        let pnpm = capture(root, "pnpm", &["--version"])?;
         ensure!(
-            npm == manifest.host.npm,
-            "npm does not match toolchain/manifest.toml: {npm}"
+            pnpm == manifest.host.pnpm,
+            "pnpm does not match toolchain/manifest.toml: {pnpm}"
         );
     }
     Ok(())
@@ -440,22 +443,24 @@ fn run_lockfile_gate(root: &Path, manifest: &ToolchainManifest) -> Result<()> {
         .stdin(Stdio::null())
         .stdout(Stdio::null());
     run_checked(&mut metadata, "locked Cargo metadata")?;
-    run_npm(
+    run_pnpm(
         root,
-        &["ci", "--ignore-scripts", "--no-audit", "--no-fund"],
-        "locked npm install",
+        &["install", "--frozen-lockfile", "--ignore-scripts"],
+        "locked pnpm install",
     )
 }
 
 fn run_host_gate(root: &Path, manifest: &ToolchainManifest) -> Result<()> {
     verify_host_tools(root, manifest, true)?;
-    run_npm(
+    run_pnpm(
         root,
-        &["ci", "--ignore-scripts", "--no-audit", "--no-fund"],
+        &["install", "--frozen-lockfile", "--ignore-scripts"],
         "web dependency install",
     )?;
-    run_npm(root, &["run", "lint"], "web lint")?;
-    run_npm(root, &["run", "build"], "web production build")?;
+    run_pnpm(root, &["run", "lint"], "web lint")?;
+    run_pnpm(root, &["run", "typecheck"], "web typecheck")?;
+    run_pnpm(root, &["test", "--run"], "web tests")?;
+    run_pnpm(root, &["run", "build"], "web production build")?;
 
     run_cargo(
         root,
@@ -482,8 +487,20 @@ fn run_host_gate(root: &Path, manifest: &ToolchainManifest) -> Result<()> {
     run_cargo(
         root,
         manifest,
-        &["test", "--locked", "--workspace"],
+        &["nextest", "run", "--workspace", "--locked"],
         "Rust workspace tests",
+    )?;
+    run_cargo(
+        root,
+        manifest,
+        &[
+            "llvm-cov",
+            "--workspace",
+            "--locked",
+            "--fail-under-lines",
+            "50",
+        ],
+        "Rust line coverage",
     )?;
 
     let mut docs = cargo_command(
@@ -669,8 +686,8 @@ fn run_firmware_gate(root: &Path, manifest: &ToolchainManifest) -> Result<()> {
     verify_checksum_manifest(&root.join(FIRMWARE_EVIDENCE_DIRECTORY))
 }
 
-fn run_npm(root: &Path, arguments: &[&str], description: &str) -> Result<()> {
-    let mut command = Command::new("npm");
+fn run_pnpm(root: &Path, arguments: &[&str], description: &str) -> Result<()> {
+    let mut command = Command::new("pnpm");
     command
         .current_dir(root.join("web"))
         .args(arguments)

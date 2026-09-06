@@ -24,7 +24,9 @@ export default function WifiPage() {
         if (r.success && r.data) setStatus(r.data);
         else setError(r.error ?? 'Failed to load WiFi status');
       })
-      .catch((e: Error) => setError(e.message));
+      .catch((e: unknown) => {
+        setError(e instanceof Error ? e.message : 'Failed to load WiFi status');
+      });
   }, []);
 
   async function handleScan() {
@@ -41,7 +43,7 @@ export default function WifiPage() {
     }
   }
 
-  async function handleConnect(e: React.FormEvent) {
+  async function handleConnect(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     setConnecting(true);
     setError(null);
@@ -101,7 +103,7 @@ export default function WifiPage() {
               <li
                 key={n.ssid}
                 className="flex items-center justify-between px-4 py-2 cursor-pointer hover:bg-zinc-800"
-                onClick={() => setSsid(n.ssid)}
+                onClick={() => { setSsid(n.ssid); }}
               >
                 <span>{n.ssid}</span>
                 <span className="text-xs text-zinc-500">
@@ -119,7 +121,7 @@ export default function WifiPage() {
           type="text"
           placeholder="SSID"
           value={ssid}
-          onChange={(e) => setSsid(e.target.value)}
+          onChange={(e) => { setSsid(e.target.value); }}
           required
           className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm"
         />
@@ -127,7 +129,7 @@ export default function WifiPage() {
           type="password"
           placeholder="Password"
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          onChange={(e) => { setPassword(e.target.value); }}
           className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm"
         />
         <button
