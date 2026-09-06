@@ -101,7 +101,7 @@ jobs:
       - name: Install pinned pnpm
         run: |
           pnpm_version="$(node -p "require('./web/package.json').packageManager.split('@').at(-1)")"
-          npm install --global --ignore-scripts --no-audit --no-fund "pnpm@${pnpm_version}"
+          npm install --global --no-audit --no-fund "pnpm@${pnpm_version}"
           test "$(pnpm --version)" = "${pnpm_version}"
 
       - name: Run lockfile gate
@@ -229,7 +229,7 @@ jobs:
       - name: Install pinned pnpm
         run: |
           pnpm_version="$(node -p "require('./web/package.json').packageManager.split('@').at(-1)")"
-          npm install --global --ignore-scripts --no-audit --no-fund "pnpm@${pnpm_version}"
+          npm install --global --no-audit --no-fund "pnpm@${pnpm_version}"
           test "$(pnpm --version)" = "${pnpm_version}"
 
       - name: Run host gate
@@ -336,7 +336,7 @@ jobs:
       - name: Install pinned pnpm
         run: |
           pnpm_version="$(node -p "require('./web/package.json').packageManager.split('@').at(-1)")"
-          npm install --global --ignore-scripts --no-audit --no-fund "pnpm@${pnpm_version}"
+          npm install --global --no-audit --no-fund "pnpm@${pnpm_version}"
           test "$(pnpm --version)" = "${pnpm_version}"
 
       - name: Install web dependencies without lifecycle scripts
