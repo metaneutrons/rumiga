@@ -2,17 +2,19 @@
   "name": "rumiga-web",
   "version": "0.1.0",
   "private": true,
-  "packageManager": "npm@11.19.0",
+  "packageManager": "pnpm@12.3.4",
   "engines": {
-    "node": "26.7.0",
-    "npm": "11.19.0"
+    "node": ">=24.20.0 <27"
   },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint .",
-    "export": "next build"
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest",
+    "export": "next build",
+    "prepare": "cd .. && web/node_modules/.bin/lefthook install --reset-hooks-path"
   },
   "dependencies": {
     "next": "^16.3.1",
@@ -21,13 +23,18 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
-    "@types/node": "^26.2.0",
+    "@eslint/js": "~9.39.5",
+    "@types/node": "~24.13.3",
     "@types/react": "^19.2.18",
-    "eslint": "^9.39.5",
+    "@vitest/coverage-v8": "~5.0.0",
+    "eslint": "~9.39.5",
     "eslint-config-next": "^16.3.1",
+    "lefthook": "~2.1.12",
     "postcss": "8.5.26",
     "tailwindcss": "^4.3.3",
-    "typescript": "^5.7.0"
+    "typescript": "~6.0.3",
+    "typescript-eslint": "~8.69.0",
+    "vitest": "~5.0.0"
   },
   "overrides": {
     "postcss": "8.5.26"

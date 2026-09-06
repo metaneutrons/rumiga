@@ -45,8 +45,8 @@ crates = ["m68k", "rumiga-core", "rumiga-platform"]
 [host]
 rust = "1.97.1"
 rust_msrv = "1.85.0"
-node = "26.7.0"
-npm = "11.19.0"
+node = "24.20.0"
+pnpm = "12.3.4"
 
 [embedded_rust]
 channel = "nightly-2026-07-27"
@@ -114,6 +114,8 @@ ldproxy = "0.3.5"
 espflash = "4.5.0"
 cargo_audit = "0.22.2"
 cargo_deny = "0.20.2"
+cargo_nextest = "0.9.143"
+cargo_llvm_cov = "0.9.1"
 
 [build]
 builder = "esp-idf-sys-native"

@@ -1,5 +1,5 @@
 # Rust
-/target/
+target/
 # The workspace root lockfile is tracked; member-local locks are not authoritative.
 **/Cargo.lock
 !/Cargo.lock
@@ -14,16 +14,16 @@
 .DS_Store
 
 # ESP-IDF build artifacts
-/.embuild/
-/firmware/build/
-/firmware/sdkconfig
-/firmware/sdkconfig.old
+.embuild/
+firmware/build/
+firmware/sdkconfig
+firmware/sdkconfig.old
 
 # Web UI
-/web/node_modules/
-/web/.next/
-/web/out/
-/web/tsconfig.tsbuildinfo
+node_modules/
+.next/
+out/
+*.tsbuildinfo
 
 # ROM files (user-provided, not committed)
 *.rom
@@ -42,4 +42,4 @@
 *.HDF
 
 # Default desktop REST media root
-/rumiga-media/
+rumiga-media/

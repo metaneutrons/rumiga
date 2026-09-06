@@ -98,12 +98,16 @@ fn assert_ci_tool_pins(root: &Path, manifest: &toml::Value) {
     let host_rust_msrv = manifest_string(manifest, "host", "rust_msrv");
     let cargo_audit = manifest_string(manifest, "tools", "cargo_audit");
     let cargo_deny = manifest_string(manifest, "tools", "cargo_deny");
+    let cargo_nextest = manifest_string(manifest, "tools", "cargo_nextest");
+    let cargo_llvm_cov = manifest_string(manifest, "tools", "cargo_llvm_cov");
     let embedded_rust = manifest_string(manifest, "embedded_rust", "channel");
     let espflash = manifest_string(manifest, "tools", "espflash");
     let ldproxy = manifest_string(manifest, "tools", "ldproxy");
 
     assert!(ci_workflow.contains(&format!("CARGO_AUDIT_VERSION: \"{cargo_audit}\"")));
     assert!(ci_workflow.contains(&format!("CARGO_DENY_VERSION: \"{cargo_deny}\"")));
+    assert!(ci_workflow.contains(&format!("CARGO_NEXTEST_VERSION: \"{cargo_nextest}\"")));
+    assert!(ci_workflow.contains(&format!("CARGO_LLVM_COV_VERSION: \"{cargo_llvm_cov}\"")));
     assert!(ci_workflow.contains(&format!("EMBEDDED_RUST_CHANNEL: \"{embedded_rust}\"")));
     assert!(ci_workflow.contains(&format!("ESPFLASH_VERSION: \"{espflash}\"")));
     assert!(ci_workflow.contains(&format!("LDPROXY_VERSION: \"{ldproxy}\"")));
@@ -195,14 +199,12 @@ fn pins_match_their_consuming_manifests() {
     let cargo_config = parse_toml(&root.join(".cargo/config.toml"));
     let package: serde_json::Value = serde_json::from_str(&read(&root.join("web/package.json")))
         .expect("web/package.json must be valid JSON");
-    let package_lock: serde_json::Value =
-        serde_json::from_str(&read(&root.join("web/package-lock.json")))
-            .expect("web/package-lock.json must be valid JSON");
+    let pnpm_lock = read(&root.join("web/pnpm-lock.yaml"));
 
     let host_rust = manifest_string(&manifest, "host", "rust");
     let host_rust_msrv = manifest_string(&manifest, "host", "rust_msrv");
     let host_node = manifest_string(&manifest, "host", "node");
-    let host_npm = manifest_string(&manifest, "host", "npm");
+    let host_pnpm = manifest_string(&manifest, "host", "pnpm");
     let embedded_rust = manifest_string(&manifest, "embedded_rust", "channel");
     let esp_idf_reference = manifest_string(&manifest, "esp_idf", "git_reference");
     let esp_idf_repository = manifest_string(&manifest, "esp_idf", "repository");
@@ -222,12 +224,15 @@ fn pins_match_their_consuming_manifests() {
         Some(host_rust_msrv)
     );
     assert_eq!(read(&root.join(".node-version")).trim(), host_node);
-    assert_eq!(package["engines"]["node"].as_str(), Some(host_node));
-    assert_eq!(package["engines"]["npm"].as_str(), Some(host_npm));
-    assert_eq!(package_lock["packages"][""]["engines"], package["engines"]);
+    assert!(
+        package["engines"]["node"]
+            .as_str()
+            .is_some_and(|engines| engines.contains(host_node))
+    );
+    assert!(pnpm_lock.contains("lockfileVersion: '9.0'"));
     assert_eq!(
         package["packageManager"].as_str(),
-        Some(format!("npm@{host_npm}").as_str())
+        Some(format!("pnpm@{host_pnpm}").as_str())
     );
     assert_eq!(
         cargo["workspace"]["dependencies"]["esp-idf-svc"]["version"].as_str(),
