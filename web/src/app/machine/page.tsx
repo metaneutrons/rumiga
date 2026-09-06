@@ -624,11 +624,16 @@ export default function MachinePage() {
                       max={100}
                       value={ch.left_pct}
                       onChange={(e) => {
-                        const mix = [...config.audio.channel_mix] as MachineConfig['audio']['channel_mix'];
-                        const channel = mix[i];
-                        if (!channel) return;
-                        mix[i] = { left_pct: Number(e.target.value), right_pct: channel.right_pct };
-                        setConfig({ ...config, audio: { ...config.audio, channel_mix: mix } });
+                        const left_pct = Number(e.target.value);
+                        setConfig((current) => current && {
+                          ...current,
+                          audio: {
+                            ...current.audio,
+                            channel_mix: current.audio.channel_mix.map((channel, channelIndex) =>
+                              channelIndex === i ? { ...channel, left_pct } : channel,
+                            ) as MachineConfig['audio']['channel_mix'],
+                          },
+                        });
                       }}
                       className="block w-full rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm"
                     />
@@ -641,11 +646,16 @@ export default function MachinePage() {
                       max={100}
                       value={ch.right_pct}
                       onChange={(e) => {
-                        const mix = [...config.audio.channel_mix] as MachineConfig['audio']['channel_mix'];
-                        const channel = mix[i];
-                        if (!channel) return;
-                        mix[i] = { left_pct: channel.left_pct, right_pct: Number(e.target.value) };
-                        setConfig({ ...config, audio: { ...config.audio, channel_mix: mix } });
+                        const right_pct = Number(e.target.value);
+                        setConfig((current) => current && {
+                          ...current,
+                          audio: {
+                            ...current.audio,
+                            channel_mix: current.audio.channel_mix.map((channel, channelIndex) =>
+                              channelIndex === i ? { ...channel, right_pct } : channel,
+                            ) as MachineConfig['audio']['channel_mix'],
+                          },
+                        });
                       }}
                       className="block w-full rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm"
                     />
