@@ -1,0 +1,5 @@
+---
+# The dependency lockfile is validated by the repository supply-chain gates.
+# Exclude its generated line-count warning from source-quality analysis.
+exclude_paths:
+  - "web/pnpm-lock.yaml"
