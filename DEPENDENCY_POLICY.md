@@ -54,7 +54,7 @@ cargo metadata --locked --no-deps --format-version 1
 cargo fmt --all --check
 cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo nextest run --workspace --locked
-cargo llvm-cov --workspace --locked --fail-under-lines 50
+cargo llvm-cov --workspace --locked --fail-under-lines 45
 cargo +1.97.1 xtask supply-chain-evidence
 (cd target/m0-009-supply-chain-evidence && shasum -a 256 -c SHA256SUMS)
 

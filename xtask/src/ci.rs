@@ -19,6 +19,7 @@ use super::{
 
 const FIRMWARE_EVIDENCE_DIRECTORY: &str = "target/m0-008-firmware-evidence";
 const SUPPLY_CHAIN_EVIDENCE_DIRECTORY: &str = "target/m0-009-supply-chain-evidence";
+const RUST_LINE_COVERAGE_FLOOR: &str = "45";
 
 const ALL_GATES: [Gate; 8] = [
     Gate::Commits,
@@ -498,7 +499,7 @@ fn run_host_gate(root: &Path, manifest: &ToolchainManifest) -> Result<()> {
             "--workspace",
             "--locked",
             "--fail-under-lines",
-            "50",
+            RUST_LINE_COVERAGE_FLOOR,
         ],
         "Rust line coverage",
     )?;

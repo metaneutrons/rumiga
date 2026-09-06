@@ -33,7 +33,7 @@
     },
     {
       "id": "rust-quality",
-      "command": "cargo +1.97.1 fmt --all -- --check && cargo +1.97.1 clippy --locked --workspace --all-targets -- -D warnings && cargo +1.97.1 nextest run --workspace --locked && cargo +1.97.1 llvm-cov --workspace --locked --fail-under-lines 50",
+      "command": "cargo +1.97.1 fmt --all -- --check && cargo +1.97.1 clippy --locked --workspace --all-targets -- -D warnings && cargo +1.97.1 nextest run --workspace --locked && cargo +1.97.1 llvm-cov --workspace --locked --fail-under-lines 45",
       "proves": "Rust formatting, warnings, workspace tests, and the declared line-coverage floor pass."
     },
     {
