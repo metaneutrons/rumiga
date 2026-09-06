@@ -17,7 +17,8 @@ Git ref cancels the obsolete run. No path filter may bypass required checks.
 The workflow grants read-only repository access. Checkout does not persist
 credentials. Third-party and GitHub-authored actions are referenced by
 immutable commit SHA and annotated with the reviewed release. Dependabot
-proposes action updates monthly. `cargo-audit` and `cargo-deny` are built with
+proposes action updates monthly. `cargo-audit`, `cargo-deny`, `cargo-nextest`,
+and `cargo-llvm-cov` are built with
 the pinned host Rust, installed with `--locked`, and checked against the exact
 versions recorded in `toolchain/manifest.toml`.
 
@@ -26,12 +27,12 @@ versions recorded in `toolchain/manifest.toml`.
 | Job | Required behavior |
 | --- | --- |
 | `Commit Policy` | Validate every selected raw Git commit message and the pull-request title against the repository-owned Conventional Commit policy; reject merge, WIP, and autosquash commits |
-| `Lockfile Integrity` | Verify locked Cargo metadata, install npm dependencies from the lockfile without lifecycle scripts, and reject lockfile mutation |
+| `Lockfile Integrity` | Verify locked Cargo metadata, install pnpm dependencies from the lockfile without lifecycle scripts, and reject lockfile mutation |
 | `Engineering Governance Evidence` | Validate contribution, review, issue, PR, ADR, release-note, and change-record contracts; upload checksummed task-to-evidence traceability |
 | `Host / Linux x86_64` | Run the complete Rust, core feature-matrix, and web host command set on `ubuntu-24.04` |
 | `Host / macOS arm64` | Run the complete Rust, core feature-matrix, and web host command set on `macos-15` |
 | `Public Compatibility Evidence` | Classify every scenario, verify the asset-free REST/web contract, inventory Cargo tests and reviewed ignores, and upload a private-media-free checksummed bundle |
-| `Supply Chain Policy` | Enforce Cargo/npm source, checksum, license, duplicate, advisory, lifecycle-script, and immutable-Action policy; upload checksummed scanner evidence |
+| `Supply Chain Policy` | Enforce Cargo/pnpm source, checksum, license, duplicate, advisory, lifecycle-script, and immutable-Action policy; upload checksummed scanner evidence |
 | `Portable Rust / RISC-V no_std` | Compile the current `no_std` package boundary for bare-metal 32-bit RISC-V |
 | `Firmware / ESP32-P4 release evidence` | Cross-build, inspect, package, checksum, and upload the pinned D1001 firmware evidence |
 | `Required Quality Gate` | Run unconditionally, summarize every prerequisite, and fail unless all required jobs succeeded |
@@ -95,9 +96,9 @@ bodies require a blank separator. Breaking markers and `BREAKING CHANGE:`
 footers are supported. Merge, WIP, `fixup!`, `squash!`, and `amend!` commits
 fail closed.
 
-`.githooks/commit-msg` invokes the same parser against the proposed message for
+Lefthook invokes the same parser against the proposed message for
 fast local feedback. Because local hooks can be bypassed, only the required
-hosted job and its aggregate dependency are promotion evidence. No npm package
+hosted job and its aggregate dependency are promotion evidence. No external package
 or external commit-policy service is required.
 
 ## Engineering Governance Contract
@@ -131,7 +132,7 @@ branch settings match policy, or that host evidence proves D1001 behavior.
 ## Host Matrix Contract
 
 Both host legs use Rust `1.97.1`, the declared Rust `1.85.0` MSRV, Node.js
-`26.7.0`, and npm `11.19.0`. The workflow validates the installed versions
+`24.20.0`, and pnpm `12.3.4`. The workflow validates the installed versions
 against repository-owned files before building. Ubuntu installs `libglib2.0-dev`,
 `libslirp-dev`, and `pkg-config`; macOS installs the equivalent Homebrew
 `libslirp` and `pkg-config` formulae. Each leg executes the canonical host gate:
@@ -140,9 +141,11 @@ against repository-owned files before building. Ubuntu installs `libglib2.0-dev`
 cargo +1.97.1 xtask ci --gate host
 ```
 
-The gate expands to the locked npm install, web lint and production build,
+The gate expands to the frozen pnpm install, web lint, typecheck, tests, and
+production build,
 Rust format, the `m68k` and `rumiga-core` runtime matrices, locked workspace
-Clippy and tests, and warning-free Rustdoc. The runtime matrices explicitly
+Clippy, cargo-nextest tests, cargo-llvm-cov line coverage, and warning-free
+Rustdoc. The runtime matrices explicitly
 compile and lint `std`, lint and test `no_std`, and verify that invalid
 selections fail with the required diagnostics. `rumiga-core` denies
 standard-library primitives when `core` or `alloc` provides the same contract;
@@ -154,7 +157,7 @@ Default workspace commands continue to exercise the FPU-enabled
 desktop graph. The web build runs before Rust compilation because
 `rumiga-desktop` embeds the generated `web/out` directory in its binary.
 
-GitHub's Rust and npm caches may improve runtime but are never build inputs:
+GitHub's Rust and pnpm caches may improve runtime but are never build inputs:
 every install and Cargo command remains lockfile-enforced.
 
 ## Public Compatibility Contract
@@ -186,7 +189,7 @@ a compatibility pass.
 
 ## Supply-Chain Contract
 
-The supply-chain job installs exact Node.js, npm, `cargo-audit`, and
+The supply-chain job installs exact Node.js, pnpm, `cargo-audit`, and
 `cargo-deny` versions, then runs:
 
 ```sh
@@ -196,7 +199,7 @@ cargo +1.97.1 xtask ci --gate supply-chain
 The repository task first validates `supply-chain-policy.toml`, `deny.toml`,
 both lockfiles, every workspace package, and every workflow. It then requires
 zero Rust vulnerabilities or yanked packages, a RustSec database at most seven
-days old, and zero high or critical npm advisories. License and informational
+days old, and zero high or critical pnpm production advisories. License and informational
 exceptions are exact-scope, owner-assigned, justified, compensated, expiring,
 and fail when unused. CI uploads `supply-chain-<commit>` for 30 days; its
 manifest and every raw scanner report are covered by `SHA256SUMS`; the gate

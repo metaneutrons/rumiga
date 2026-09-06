@@ -1,0 +1,98 @@
+{
+  "schema": "rumiga.change-record.v1",
+  "task_id": "M0-016",
+  "title": "Align the repository with the repo-standard Doctor baseline",
+  "status": "implemented",
+  "summary": "Move the web workflow to Node.js 24.20.0 LTS and pnpm 12.3.4, enforce strict web and Rust quality checks, replace ad hoc hooks with Lefthook, add security policy documentation, and apply the safe GitHub repository settings while deferring the foreign-PR ruleset transition and all release work.",
+  "scope": [
+    "Node.js and pnpm toolchain baseline",
+    "Web lockfile, lint, typecheck, tests, and coverage",
+    "Lefthook local quality hooks",
+    "Security policy and Dependabot configuration",
+    "Safe GitHub repository settings",
+    "Explicit deferral of ruleset migration and release planning"
+  ],
+  "risk": {
+    "level": "medium",
+    "failure_mode": "A stricter web toolchain or hook can reject an existing contributor workflow, while a partial pin or lockfile migration can leave local and hosted checks using different inputs.",
+    "rollback": "Revert the M0-016 working-tree changes to restore the prior npm lockfile, Node 26 pin, web commands, and hook files. Restore the previous GitHub repository settings through the settings API if an operational rollback is required; no release or product artifact is involved."
+  },
+  "compatibility": {
+    "status": "affected",
+    "detail": "Contributors use Node.js 24.20.0 LTS and pnpm 12.3.4, install from web/pnpm-lock.yaml with frozen resolution, and receive Lefthook through the package prepare script. The old web package-lock.json is no longer authoritative; no shipped runtime artifact changes."
+  },
+  "security": {
+    "status": "affected",
+    "detail": "The repository documents private vulnerability reporting, enables the available Dependabot security controls and secret scanning protections, denies unreviewed dependency build scripts, and adds staged and push secret scans. No credentials, release environments, tags, publications, or release workflows were created."
+  },
+  "tests": [
+    {
+      "id": "web-quality",
+      "command": "pnpm --dir web install --frozen-lockfile --ignore-scripts && pnpm --dir web lint && pnpm --dir web typecheck && pnpm --dir web test --run && pnpm --dir web build",
+      "proves": "The frozen pnpm graph, strict ESLint, strict TypeScript, Vitest tests, and production web build pass."
+    },
+    {
+      "id": "rust-quality",
+      "command": "cargo +1.97.1 fmt --all -- --check && cargo +1.97.1 clippy --locked --workspace --all-targets -- -D warnings && cargo +1.97.1 nextest run --workspace --locked && cargo +1.97.1 llvm-cov --workspace --locked --fail-under-lines 50",
+      "proves": "Rust formatting, warnings, workspace tests, and the declared line-coverage floor pass."
+    },
+    {
+      "id": "supply-chain-static",
+      "command": "cargo +1.97.1 test -p rumiga-xtask --locked supply_chain::tests::repository_static_supply_chain_policy_is_valid",
+      "proves": "The pnpm lockfile, package metadata, integrity, license, lifecycle-script, source, and policy checks remain internally consistent."
+    },
+    {
+      "id": "standard-check",
+      "command": "repo-standard Doctor check for metaneutrons/rumiga",
+      "proves": "The repository-standard Doctor checks are rerun against the remediated repository; the ruleset check remains explicitly deferred because foreign pull requests are open."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "local-web-and-rust-gates",
+      "kind": "command",
+      "location": "2026-09-06 local execution on Node.js 24.20.0 and pnpm 12.3.4: frozen install, ESLint, TypeScript, Vitest, Next.js build, cargo-nextest, and cargo-llvm-cov pass.",
+      "proves": "The local A/B remediation is executable with the declared toolchain."
+    },
+    {
+      "id": "github-class-a-settings-readback",
+      "kind": "command",
+      "location": "2026-09-06 GitHub API read-back after applying the safe repository settings.",
+      "proves": "The authorized Class A settings match the repository standard."
+    },
+    {
+      "id": "ruleset-transition-deferred",
+      "kind": "command",
+      "location": "2026-09-06: foreign Dependabot pull requests #58 and #60 remain open; the current classic main protection is retained until the required transition window.",
+      "proves": "The Class B ruleset migration was not performed while the standard prerequisite was false."
+    },
+    {
+      "id": "release-scope-deferred",
+      "kind": "command",
+      "location": "2026-09-06: no release, tag, publication, release environment, or release credential action was planned or executed.",
+      "proves": "Class C remains out of scope as explicitly requested."
+    }
+  ],
+  "documentation": [
+    "IMPLEMENTATION_PLAN.md",
+    "PROJECT_STATUS.md",
+    "README.md",
+    "CONTRIBUTING.md",
+    "DEPENDENCY_POLICY.md",
+    "CI.md",
+    "SECURITY.md",
+    "TOOLCHAIN.md",
+    "docs/adr/0009-node-current-line-pin.md",
+    "docs/adr/0022-repository-standard-doctor-remediation.md",
+    "docs/adr/README.md",
+    "docs/release-notes/unreleased/M0-016.md",
+    "lefthook.yml",
+    "web/pnpm-workspace.yaml",
+    ".github/dependabot.yml",
+    ".github/workflows/ci.yml"
+  ],
+  "release_note": "docs/release-notes/unreleased/M0-016.md",
+  "architecture_decisions": [
+    "docs/adr/0022-repository-standard-doctor-remediation.md"
+  ]
+}

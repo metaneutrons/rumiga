@@ -19,10 +19,11 @@ before requesting review.
 ## Development Setup
 
 Use the versions pinned by `toolchain/manifest.toml`, `rust-toolchain.toml`,
-`.node-version`, and `web/package.json`. Install repository hooks once:
+`.node-version`, and `web/package.json`. Install the web dependencies once;
+the package `prepare` script installs the repository hooks through Lefthook:
 
 ```sh
-git config core.hooksPath .githooks
+pnpm --dir web install --frozen-lockfile
 ```
 
 The complete local promotion command is:

@@ -70,7 +70,7 @@ scripts/                    capture, parity, and report tools
 - Rust 1.97.1 for the pinned host toolchain and 1.85.0 for the declared MSRV
   check.
 - Git.
-- Node.js 26.7.0 and npm 11.19.0 for clean workspace builds; the desktop
+- Node.js 24.20.0 LTS and pnpm 12.3.4 for clean workspace builds; the desktop
   binary embeds the generated web application.
 - User-provided Kickstart and disk images for boot evidence.
 
@@ -106,8 +106,8 @@ portable primitive exists.
 ### Desktop
 
 ```sh
-git config core.hooksPath .githooks
-(cd web && npm ci --ignore-scripts --no-audit --no-fund && npm run build)
+pnpm --dir web install --frozen-lockfile
+pnpm --dir web run build
 cargo build --locked --workspace
 cargo test --locked --workspace
 cargo run --locked -p rumiga-desktop -- --help
@@ -189,13 +189,16 @@ The web app is the control surface embedded into the desktop server. Generate
 
 ```sh
 cd web
-npm ci --ignore-scripts --no-audit --no-fund
-npm run lint
-npm run build
-npm run dev
+pnpm install --frozen-lockfile
+pnpm run lint
+pnpm run typecheck
+pnpm test --run
+pnpm run build
+pnpm run dev
 ```
 
-Both application lockfiles are tracked. CI rejects stale Rust or npm locks;
+The root Cargo lockfile and the web pnpm lockfile are tracked. CI rejects stale
+Rust or pnpm locks;
 routine updates follow the [dependency policy](DEPENDENCY_POLICY.md). Exact host
 and embedded build inputs are documented in the [toolchain baseline](TOOLCHAIN.md).
 
@@ -265,17 +268,17 @@ their own license obligations.
 
 ## Quality Baseline
 
-Current baseline on 2026-08-16:
+Current baseline on 2026-09-06:
 
 | Check | Result |
 | --- | --- |
 | Cargo test inventory | Pass; 493 discovered, 4 reviewed ignored, and 489 runnable unit, integration, and documentation tests |
 | Clippy with `-D warnings` | Pass without warnings |
 | `cargo fmt --all --check` | Pass |
-| Cargo/npm lockfile integrity | Pass |
+| Cargo/pnpm lockfile integrity | Pass |
 | Web ESLint | Pass |
 | Web production build | Pass |
-| npm audit | Pass; no known vulnerabilities reported |
+| pnpm audit | Pass; no known high or critical production vulnerabilities reported |
 | ESP platform/firmware host checks | Pass; topology, pins, and strict lints |
 | Bare-metal RISC-V boundaries | Pass locally for `m68000`, `rumiga-api`, and `rumiga-platform`; full core portability remains M1 |
 | ESP32-P4 firmware evidence | Pass locally and on GitHub for locked IDF 6.0.0; checksummed artifact published by run [`31890919057`](https://github.com/metaneutrons/rumiga/actions/runs/31890919057) |

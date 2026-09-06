@@ -1,6 +1,6 @@
 # ADR-0009: Node Pin On The Current Release Line
 
-- Status: Accepted
+- Status: Superseded
 - Date: 2026-08-17
 - Owners: @metaneutrons
 - Task: M0-015
@@ -96,5 +96,6 @@ on a foreign runner before building the web export.
 
 ## Supersession
 
-None. This records an explicit exception to the pin conservatism that ADR-0001's
-toolchain discipline established and narrows it to Node alone.
+Superseded by [ADR-0022](0022-repository-standard-doctor-remediation.md), which
+returns the repository to an LTS Node baseline and adopts pnpm for the web
+workflow. This ADR remains as historical evidence for the former exception.
