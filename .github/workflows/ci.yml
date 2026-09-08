@@ -45,7 +45,7 @@ jobs:
 
       - name: Install pinned Rust toolchain
         run: >-
-          rustup toolchain install 1.97.1 --profile minimal --no-self-update
+          rustup toolchain install 1.98.1 --profile minimal --no-self-update
 
       - name: Cache Rust build inputs
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -57,7 +57,7 @@ jobs:
           RUMIGA_COMMIT_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           RUMIGA_COMMIT_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
           RUMIGA_PR_TITLE: ${{ github.event.pull_request.title }}
-        run: cargo +1.97.1 xtask ci --gate commits
+        run: cargo +1.98.1 xtask ci --gate commits
 
       - name: Publish commit policy summary
         if: always()
@@ -90,7 +90,7 @@ jobs:
 
       - name: Install pinned Rust toolchain
         run: >-
-          rustup toolchain install 1.97.1 --profile minimal
+          rustup toolchain install 1.98.1 --profile minimal
           --component clippy,rustfmt --no-self-update
 
       - name: Install pinned Node.js
@@ -105,7 +105,7 @@ jobs:
           test "$(pnpm --version)" = "${pnpm_version}"
 
       - name: Run lockfile gate
-        run: cargo +1.97.1 xtask ci --gate lockfiles
+        run: cargo +1.98.1 xtask ci --gate lockfiles
 
       - name: Publish lockfile summary
         if: always()
@@ -133,7 +133,7 @@ jobs:
 
       - name: Install pinned Rust toolchain
         run: >-
-          rustup toolchain install 1.97.1 --profile minimal --no-self-update
+          rustup toolchain install 1.98.1 --profile minimal --no-self-update
 
       - name: Cache Rust build inputs
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -141,7 +141,7 @@ jobs:
           shared-key: governance-linux
 
       - name: Run governance gate
-        run: cargo +1.97.1 xtask ci --gate governance
+        run: cargo +1.98.1 xtask ci --gate governance
 
       - name: Upload governance evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -210,11 +210,11 @@ jobs:
 
       - name: Install pinned Rust toolchains
         run: |
-          rustup toolchain install 1.97.1 --profile minimal \
+          rustup toolchain install 1.98.1 --profile minimal \
             --component clippy,rustfmt --no-self-update
           rustup toolchain install 1.85.0 --profile minimal --no-self-update
-          cargo +1.97.1 install --locked --version "${CARGO_NEXTEST_VERSION}" cargo-nextest
-          cargo +1.97.1 install --locked --version "${CARGO_LLVM_COV_VERSION}" cargo-llvm-cov
+          cargo +1.98.1 install --locked --version "${CARGO_NEXTEST_VERSION}" cargo-nextest
+          cargo +1.98.1 install --locked --version "${CARGO_LLVM_COV_VERSION}" cargo-llvm-cov
 
       - name: Cache Rust build inputs
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -233,7 +233,7 @@ jobs:
           test "$(pnpm --version)" = "${pnpm_version}"
 
       - name: Run host gate
-        run: cargo +1.97.1 xtask ci --gate host
+        run: cargo +1.98.1 xtask ci --gate host
 
       - name: Publish host summary
         if: always()
@@ -277,7 +277,7 @@ jobs:
 
       - name: Install pinned Rust toolchain
         run: >-
-          rustup toolchain install 1.97.1 --profile minimal --no-self-update
+          rustup toolchain install 1.98.1 --profile minimal --no-self-update
 
       - name: Cache Rust build inputs
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -285,7 +285,7 @@ jobs:
           shared-key: compatibility-linux
 
       - name: Run compatibility gate
-        run: cargo +1.97.1 xtask ci --gate compatibility
+        run: cargo +1.98.1 xtask ci --gate compatibility
 
       - name: Upload public compatibility evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -326,7 +326,7 @@ jobs:
 
       - name: Install pinned Rust toolchain
         run: >-
-          rustup toolchain install 1.97.1 --profile minimal --no-self-update
+          rustup toolchain install 1.98.1 --profile minimal --no-self-update
 
       - name: Install pinned Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -344,11 +344,11 @@ jobs:
 
       - name: Install pinned supply-chain tools
         run: |
-          cargo +1.97.1 install --locked --version "${CARGO_AUDIT_VERSION}" cargo-audit
-          cargo +1.97.1 install --locked --version "${CARGO_DENY_VERSION}" cargo-deny
+          cargo +1.98.1 install --locked --version "${CARGO_AUDIT_VERSION}" cargo-audit
+          cargo +1.98.1 install --locked --version "${CARGO_DENY_VERSION}" cargo-deny
 
       - name: Run supply-chain gate
-        run: cargo +1.97.1 xtask ci --gate supply-chain
+        run: cargo +1.98.1 xtask ci --gate supply-chain
 
       - name: Upload supply-chain evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -390,13 +390,13 @@ jobs:
 
       - name: Install pinned Rust target
         run: |
-          rustup toolchain install 1.97.1 --profile minimal --no-self-update
+          rustup toolchain install 1.98.1 --profile minimal --no-self-update
           portable_target="$(awk -F '"' '
             /^\[portable_rust\]$/ { section = 1; next }
             section && /^target =/ { print $2; exit }
           ' toolchain/manifest.toml)"
           test -n "${portable_target}"
-          rustup target add --toolchain 1.97.1 "${portable_target}"
+          rustup target add --toolchain 1.98.1 "${portable_target}"
 
       - name: Cache Rust build inputs
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -404,7 +404,7 @@ jobs:
           shared-key: portable-riscv
 
       - name: Run portable gate
-        run: cargo +1.97.1 xtask ci --gate portable
+        run: cargo +1.98.1 xtask ci --gate portable
 
       - name: Publish portable Rust summary
         if: always()
@@ -460,7 +460,7 @@ jobs:
 
       - name: Install pinned Rust toolchains
         run: |
-          rustup toolchain install 1.97.1 --profile minimal --no-self-update
+          rustup toolchain install 1.98.1 --profile minimal --no-self-update
           rustup toolchain install "${EMBEDDED_RUST_CHANNEL}" \
             --profile minimal --component rust-src --no-self-update
 
@@ -472,11 +472,11 @@ jobs:
 
       - name: Install pinned firmware tools
         run: |
-          cargo +1.97.1 install --locked --version "${LDPROXY_VERSION}" ldproxy
-          cargo +1.97.1 install --locked --version "${ESPFLASH_VERSION}" espflash
+          cargo +1.98.1 install --locked --version "${LDPROXY_VERSION}" ldproxy
+          cargo +1.98.1 install --locked --version "${ESPFLASH_VERSION}" espflash
 
       - name: Run firmware gate
-        run: cargo +1.97.1 xtask ci --gate firmware
+        run: cargo +1.98.1 xtask ci --gate firmware
 
       - name: Upload firmware evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
