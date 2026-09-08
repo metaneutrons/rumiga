@@ -92,7 +92,7 @@ compensating_control = "The lockfile is immutable in CI and this approval matche
 expires_on = "2027-02-15"
 packages = [
     { name = "foldhash", versions = ["0.1.5", "0.2.0"] },
-    { name = "hashbrown", versions = ["0.15.5", "0.16.1", "0.17.0"] },
+    { name = "hashbrown", versions = ["0.15.5", "0.17.0"] },
     { name = "heck", versions = ["0.4.1", "0.5.0"] },
     { name = "linux-raw-sys", versions = ["0.4.15", "0.12.1"] },
     { name = "redox_syscall", versions = ["0.5.18", "0.7.4"] },
