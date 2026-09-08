@@ -97,7 +97,7 @@ role = "hardware-reference-only"
 esp_idf_svc = "0.52.1"
 esp_idf_hal = "0.46.2"
 esp_idf_sys = "0.37.2"
-embuild = "0.33.3"
+embuild = "0.33.4"
 
 [esp_rust_patches]
 esp_idf_svc_repository = "https://github.com/esp-rs/esp-idf-svc.git"

@@ -101,7 +101,7 @@ packages = [
     { name = "syn", versions = ["1.0.109", "2.0.117", "3.0.3"] },
     { name = "thiserror", versions = ["1.0.69", "2.0.20"] },
     { name = "thiserror-impl", versions = ["1.0.69", "2.0.20"] },
-    { name = "toml", versions = ["0.8.23", "1.1.4+spec-1.1.0"] },
+    { name = "toml", versions = ["0.8.23", "1.1.5+spec-1.1.0"] },
     { name = "toml_datetime", versions = ["0.6.11", "1.1.1+spec-1.1.0"] },
     { name = "toml_edit", versions = ["0.22.27", "0.25.13+spec-1.1.0"] },
     { name = "windows-sys", versions = ["0.52.0", "0.59.0", "0.61.2"] },
