@@ -57,6 +57,10 @@ updates:
     ignore:
       - dependency-name: typescript
         versions: ['>=6.1']
+      # Keep the Node typings on the runtime major (.node-version 24.x).
+      # Raise this together with the pinned Node toolchain.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /

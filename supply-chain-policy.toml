@@ -146,10 +146,20 @@ expires_on = "2027-02-15"
 [[npm.license_exceptions]]
 id = "RUMIGA-NPM-LIC-003"
 package = "minimatch"
-version = "10.2.5"
+version = "11.0.4"
 license = "BlueOak-1.0.0"
 owner = "Rumiga maintainers"
 reason = "This development-only TypeScript ESLint dependency uses the permissive Blue Oak Model License."
+compensating_control = "The package is not included in the browser bundle and the approval fails on any version or license change."
+expires_on = "2027-02-15"
+
+[[npm.license_exceptions]]
+id = "RUMIGA-NPM-LIC-004"
+package = "@isaacs/nonrecursive-glob-match"
+version = "1.0.3"
+license = "BlueOak-1.0.0"
+owner = "Rumiga maintainers"
+reason = "This development-only dependency of minimatch uses the permissive Blue Oak Model License."
 compensating_control = "The package is not included in the browser bundle and the approval fails on any version or license change."
 expires_on = "2027-02-15"
 
