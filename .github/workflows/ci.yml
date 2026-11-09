@@ -48,7 +48,7 @@ jobs:
           rustup toolchain install 1.98.1 --profile minimal --no-self-update
 
       - name: Cache Rust build inputs
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: commit-policy-linux
 
@@ -94,7 +94,7 @@ jobs:
           --component clippy,rustfmt --no-self-update
 
       - name: Install pinned Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
 
@@ -136,7 +136,7 @@ jobs:
           rustup toolchain install 1.98.1 --profile minimal --no-self-update
 
       - name: Cache Rust build inputs
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: governance-linux
 
@@ -144,7 +144,7 @@ jobs:
         run: cargo +1.98.1 xtask ci --gate governance
 
       - name: Upload governance evidence
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: governance-${{ github.sha }}
           path: target/m0-012-governance-evidence
@@ -217,12 +217,12 @@ jobs:
           cargo +1.98.1 install --locked --version "${CARGO_LLVM_COV_VERSION}" cargo-llvm-cov
 
       - name: Cache Rust build inputs
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: host-${{ matrix.os }}
 
       - name: Install pinned Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
 
@@ -280,7 +280,7 @@ jobs:
           rustup toolchain install 1.98.1 --profile minimal --no-self-update
 
       - name: Cache Rust build inputs
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: compatibility-linux
 
@@ -288,7 +288,7 @@ jobs:
         run: cargo +1.98.1 xtask ci --gate compatibility
 
       - name: Upload public compatibility evidence
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: compatibility-${{ github.sha }}
           path: target/m0-011-compatibility-evidence
@@ -329,7 +329,7 @@ jobs:
           rustup toolchain install 1.98.1 --profile minimal --no-self-update
 
       - name: Install pinned Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
 
@@ -351,7 +351,7 @@ jobs:
         run: cargo +1.98.1 xtask ci --gate supply-chain
 
       - name: Upload supply-chain evidence
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: supply-chain-${{ github.sha }}
           path: target/m0-009-supply-chain-evidence
@@ -399,7 +399,7 @@ jobs:
           rustup target add --toolchain 1.98.1 "${portable_target}"
 
       - name: Cache Rust build inputs
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: portable-riscv
 
@@ -465,7 +465,7 @@ jobs:
             --profile minimal --component rust-src --no-self-update
 
       - name: Cache Rust build inputs
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           cache-targets: false
           shared-key: firmware-esp32p4
@@ -479,7 +479,7 @@ jobs:
         run: cargo +1.98.1 xtask ci --gate firmware
 
       - name: Upload firmware evidence
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: firmware-esp32p4-${{ github.sha }}
           path: target/m0-008-firmware-evidence
