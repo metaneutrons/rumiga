@@ -17,7 +17,7 @@ chrono = { version = "=0.4.45", default-features = false, features = ["clock"] }
 serde = { workspace = true, features = ["std"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
-spdx = "=0.13.5"
+spdx = "=0.13.6"
 toml = { workspace = true }
 yaml-rust2 = { version = "=0.13.0", default-features = false }
 
